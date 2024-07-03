@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+    <template name="Integer" id="1" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="MandatoryUint32" id="1"/>
+        <uInt32 name="OptionalUint32" id="2" presence="optional"/>
+        <uInt64 name="MandatoryUint64" id="3"/>
+        <uInt64 name="OptionalUint64" id="4" presence="optional"/>
+        <int32 name="MandatoryInt32" id="5"/>
+        <int32 name="OptionalInt32" id="6" presence="optional"/>
+        <int64 name="MandatoryInt64" id="7"/>
+        <int64 name="OptionalInt64" id="8" presence="optional"/>
+    </template>
+
+    <template name="String" id="2" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <string name="MandatoryAscii" id="1"/>
+        <string name="OptionalAscii" id="2" presence="optional"/>
+        <string name="MandatoryUnicode" id="3" charset="unicode"/>
+        <string name="OptionalUnicode" id="4" presence="optional" charset="unicode"/>
+    </template>
+
+    <template name="ByteVector" id="3" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <byteVector name="MandatoryVector" id="1"/>
+        <byteVector name="OptionalVector" id="2" presence="optional"/>
+    </template>
+
+    <template name="Decimal" id="4" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <decimal name="CopyDecimal" id="1" presence="optional">
+            <copy/>
+        </decimal>
+        <decimal name="MandatoryDecimal" id="2"/>
+        <decimal name="IndividualDecimal" id="3">
+            <exponent>
+                <default value="0"/>
+            </exponent>
+            <mantissa>
+                <delta/>
+            </mantissa>
+        </decimal>
+        <decimal name="IndividualDecimalOpt" id="4" presence="optional">
+            <exponent>
+                <default value="0"/>
+            </exponent>
+            <mantissa>
+                <delta/>
+            </mantissa>
+        </decimal>
+    </template>
+
+    <template name="Sequence" id="5" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="TestData" id="1"/>
+        <sequence name="OuterSequence">
+            <length name="NoOuterSequence" id="2"/>
+            <uInt32 name="OuterTestData" id="3"/>
+            <sequence name="InnerSequence" presence="optional">
+                <length name="NoInnerSequence" id="4"/>
+                <uInt32 name="InnerTestData" id="5"/>
+            </sequence>
+        </sequence>
+        <sequence name="NextOuterSequence">
+            <length name="NoNextOuterSequence" id="6"/>
+            <uInt32 name="NextOuterTestData" id="7">
+                <copy/>
+            </uInt32>
+        </sequence>
+    </template>
+
+    <template name="Group" id="6" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="TestData" id="1"/>
+        <group name="OuterGroup">
+            <uInt32 name="OuterTestData" id="2"/>
+            <group name="InnerGroup" presence="optional">
+                <uInt32 name="InnerTestData" id="3"/>
+            </group>
+        </group>
+    </template>
+
+    <template name="RefData" id="7" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="TestData" id="1">
+            <copy/>
+        </uInt32>
+    </template>
+
+    <template name="StaticReference" id="8" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <templateRef name="RefData"/>
+    </template>
+
+    <template name="DynamicReference" id="9" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <templateRef />
+    </template>
+</templates>

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+
+    <template id="1" name="MandatoryDecimal">
+        <decimal id="1" name="Value" presence="mandatory"/>
+    </template>
+    <template id="2" name="OptionalDecimal">
+        <decimal id="1" name="Value" presence="optional"/>
+    </template>
+    <template id="3" name="OptionalDecimalWithOperator">
+        <decimal id="1" name="Value" presence="optional">
+            <copy/>
+        </decimal>
+    </template>
+    <template id="4" name="OptionalDecimalWithIndividual">
+        <decimal id="1" name="Value" presence="optional">
+            <exponent>
+                <copy/>
+            </exponent>
+            <mantissa>
+                <delta/>
+            </mantissa>
+        </decimal>
+    </template>
+
+    <template id="5" name="ConstantOperatorMandatory">
+        <uInt32 id="1" name="Value" presence="mandatory">
+            <constant value="7"/>
+        </uInt32>
+    </template>
+    <template id="6" name="ConstantOperatorOptional">
+        <uInt32 id="1" name="Value" presence="optional">
+            <constant value="7"/>
+        </uInt32>
+    </template>
+
+    <template id="7" name="DefaultOperatorMandatory">
+        <uInt32 id="1" name="Value" presence="mandatory">
+            <default value="7"/>
+        </uInt32>
+    </template>
+    <template id="8" name="DefaultOperatorOptional">
+        <uInt32 id="1" name="Value" presence="optional">
+            <default/>
+        </uInt32>
+    </template>
+
+    <template id="9" name="CopyOperatorMandatory">
+        <string id="1" name="Value" presence="mandatory">
+            <copy/>
+        </string>
+    </template>
+    <template id="10" name="CopyOperatorOptional">
+        <string id="1" name="Value" presence="optional">
+            <copy/>
+        </string>
+    </template>
+
+    <template id="11" name="IncrementOperatorMandatory">
+        <uInt32 id="1" name="Value" presence="mandatory">
+            <increment value="1"/>
+        </uInt32>
+    </template>
+
+    <template id="12" name="DeltaOperatorMandatorySignedInteger">
+        <int32 id="1" name="Value" presence="mandatory">
+            <delta/>
+        </int32>
+    </template>
+    <template id="13" name="DeltaOperatorMandatoryDecimal">
+        <decimal id="1" name="Value" presence="mandatory">
+            <delta/>
+        </decimal>
+    </template>
+    <template id="14" name="DeltaOperatorMandatoryDecimalWithInit">
+        <decimal id="1" name="Value" presence="mandatory">
+            <delta value="12000"/>
+        </decimal>
+    </template>
+    <template id="15" name="DeltaOperatorMandatoryString">
+        <string id="1" name="Value" presence="mandatory">
+            <delta/>
+        </string>
+    </template>
+
+    <template id="16" name="MultiplePmapSlot">
+        <decimal id="1" name="Value" presence="optional">
+            <exponent>
+                <copy/>
+            </exponent>
+            <mantissa>
+                <copy/>
+            </mantissa>
+        </decimal>
+    </template>
+
+</templates>

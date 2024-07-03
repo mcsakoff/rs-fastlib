@@ -1,0 +1,19 @@
+[package]
+name = "fastlib"
+version = "0.1.0"
+authors = ["Alexey McSakoff <mcsakoff@gmail.com>"]
+categories = ["parser-implementations", "encoding"]
+description = """
+FAST (FIX Adapted for STreaming protocol) is a space and processing efficient encoding method
+for message oriented data streams.
+"""
+edition = "2021"
+keywords = ["fix", "fast", "protocol", "parser"]
+license = "MIT"
+repository = "https://github.com/mcsakoff/rs-fastlib"
+
+[dependencies]
+bytes = "1.6"
+hashbrown = "0.14"
+roxmltree = "0.20"
+thiserror = "1.0"

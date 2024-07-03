@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+
+    <!-- Version 7 -->
+
+    <template name="MsgHeader">
+        <string id="1128" name="ApplVerID">
+            <constant value="8"/>
+        </string>
+        <string id="49" name="SenderCompID">
+            <constant value="CQG"/>
+        </string>
+        <uInt32 id="34" name="MsgSeqNum"/>
+        <uInt64 id="52" name="SendingTime"/>
+    </template>
+
+    <template dictionary="2" id="2" name="MDSecurityDefinition">
+        <string id="35" name="MessageType">
+            <constant value="d"/>
+        </string>
+        <templateRef name="MsgHeader"/>
+        <uInt32 id="911" name="TotNumReports">
+            <copy/>
+        </uInt32>
+
+        <sequence name="Events" presence="optional">
+            <length id="864" name="NoEvents"/>
+            <uInt32 id="865" name="EventType">
+                <default value="7"/>
+            </uInt32>
+            <uInt64 id="866" name="EventDate">
+                <delta/>
+            </uInt64>
+            <uInt64 id="1145" name="EventTime">
+                <delta/>
+            </uInt64>
+        </sequence>
+
+        <string id="1151" name="SecurityGroup" presence="optional">
+            <copy/>
+        </string>
+
+        <string id="55" name="Symbol" presence="optional">
+            <copy/>
+        </string>
+
+        <string id="20008" name="SecurityName">
+            <copy/>
+        </string>
+
+        <string id="107" name="SecurityDesc"/>
+
+        <uInt32 id="48" name="SecurityID"/>
+
+        <uInt32 id="22" name="SecurityIDSource">
+            <constant value="100"/>
+        </uInt32>
+
+        <string id="461" name="CFICode">
+            <copy/>
+        </string>
+
+        <string id="207" name="SecurityExchange" presence="optional">
+            <copy/>
+        </string>
+
+        <string id="20007" name="CQGSecurityName" presence="optional"/>
+
+        <decimal id="202" name="StrikePrice" presence="optional">
+            <exponent>
+                <default value="-2"/>
+            </exponent>
+            <mantissa>
+                <delta/>
+            </mantissa>
+        </decimal>
+
+        <string id="947" name="StrikeCurrency" presence="optional">
+            <copy/>
+        </string>
+
+        <string id="15" name="Currency" presence="optional">
+            <copy/>
+        </string>
+
+        <string id="120" name="SettlCurrency" presence="optional">
+            <copy/>
+        </string>
+
+        <sequence name="MDFeedTypes" presence="optional">
+            <length id="1141" name="NoMDFeedTypes"/>
+            <string id="1022" name="MDFeedType">
+                <default value="CQGC"/>
+            </string>
+            <uInt32 id="264" name="MarketDepth"/>
+        </sequence>
+
+        <sequence name="InstrAttrib" presence="optional">
+            <length id="870" name="NoInstrAttrib"/>
+            <uInt64 id="871" name="InstrAttribType">
+                <delta/>
+            </uInt64>
+            <string id="872" name="InstrAttribValue" presence="optional">
+                <copy/>
+            </string>
+        </sequence>
+
+        <uInt64 id="200" name="MaturityMonthYear" presence="optional">
+            <delta/>
+        </uInt64>
+
+        <decimal id="969" name="MinPriceIncrement" presence="optional">
+            <copy/>
+        </decimal>
+
+        <decimal id="1146" name="MinPriceIncrementAmount" presence="optional">
+            <copy/>
+        </decimal>
+
+        <decimal id="9787" name="DisplayFactor" presence="optional">
+            <copy/>
+        </decimal>
+
+        <string id="1180" name="ApplID">
+            <copy/>
+        </string>
+
+        <string id="20009" name="MostActiveFlag" presence="optional">
+            <constant value="Y"/>
+        </string>
+
+        <sequence name="Connections">
+            <length id="20001" name="NoConnections"/>
+            <uInt32 id="20002" name="ConnectionType"/> <!-- 1: incremental, 2: snapshot, 3: replay /-->
+            <string id="20003" name="ConnectionIPAddress"/>
+            <uInt32 id="20004" name="ConnectionPortNumber"/>
+        </sequence>
+
+        <sequence name="TradingSessions">
+            <length id="386" name="NoTradingSessions"/>
+            <uInt64 id="75" name="TradeDate">
+                <delta/>
+            </uInt64>
+            <uInt64 id="341" name="TradSesStartTime">
+                <delta/>
+            </uInt64>
+            <uInt64 id="342" name="TradSesOpenTime">
+                <delta/>
+            </uInt64>
+            <uInt64 id="344" name="TradSesCloseTime">
+                <delta/>
+            </uInt64>
+            <uInt64 id="345" name="TradSesEndTime">
+                <delta/>
+            </uInt64>
+        </sequence>
+
+        <sequence name="Underlyings" presence="optional">
+            <length id="711" name="NoUnderlyings"/>
+            <uInt32 id="309" name="UnderlyingSecurityID">
+                <copy/>
+            </uInt32>
+            <uInt32 id="305" name="UnderlyingSecurityIDSource">
+                <constant value="100"/>
+            </uInt32>
+        </sequence>
+
+        <string id="762" name="SecuritySubType" presence="optional"/>
+
+        <sequence name="Legs" presence="optional">
+            <length id="555" name="NoLegs"/>
+            <string id="600" name="LegSymbol">
+                <copy/>
+            </string>
+            <string id="620" name="LegSecurityDesc"/>
+            <decimal id="623" name="LegRatioQty">
+                <copy/>
+            </decimal>
+            <uInt32 id="602" name="LegSecurityID"/>
+            <uInt32 id="603" name="LegSecurityIDSource">
+                <constant value="100"/>
+            </uInt32>
+            <uInt32 id="624" name="LegSide"/>
+            <string id="5795" name="LegSecurityGroup">
+                <copy/>
+            </string>
+            <string id="608" name="LegCFICode">
+                <copy/>
+            </string>
+            <string id="556" name="LegCurrency">
+                <copy/>
+            </string>
+            <uInt64 id="610" name="LegMaturityMonthYear">
+                <delta/>
+            </uInt64>
+            <decimal id="612" name="LegStrikePrice">
+                <exponent>
+                    <default value="-2"/>
+                </exponent>
+                <mantissa>
+                    <delta/>
+                </mantissa>
+            </decimal>
+        </sequence>
+    </template>
+
+    <template dictionary="4" id="4" name="MDHeartbeat">
+        <string id="35" name="MessageType">
+            <constant value="0"/>
+        </string>
+        <templateRef name="MsgHeader"/>
+    </template>
+
+    <template dictionary="5" id="5" name="MDLogon">
+        <string id="35" name="MessageType">
+            <constant value="A"/>
+        </string>
+        <templateRef name="MsgHeader"/>
+        <uInt32 id="98" name="EncryptMethod">
+            <constant value="0"/>
+        </uInt32>
+        <uInt32 id="108" name="HeartbeatInt"/>
+    </template>
+
+    <template dictionary="6" id="6" name="MDLogout">
+        <string id="35" name="MessageType">
+            <constant value="5"/>
+        </string>
+        <templateRef name="MsgHeader"/>
+        <string id="58" name="Text" presence="optional"/>
+    </template>
+
+    <template dictionary="7" id="7" name="MDSecurityDefinitionRequest">
+        <string id="35" name="MessageType">
+            <constant value="c"/>
+        </string>
+        <templateRef name="MsgHeader"/>
+        <string id="1180" name="ApplID"/>
+        <string id="58" name="Text" presence="optional"/>
+    </template>
+</templates>
