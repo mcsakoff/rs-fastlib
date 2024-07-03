@@ -1,6 +1,14 @@
 # FIX/FAST Protocol Decoder
+[![Crates.io](https://img.shields.io/crates/v/fastlib?style=flat-square)](https://crates.io/crates/fastlib)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/mcsakoff/rs-fastlib/rust.yml?branch=main&style=flat-square)](https://github.com/mcsakoff/rs-fastlib/actions/workflows/rust.yml?query=branch%3Amain)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE-MIT)
 
 **FAST** (**F**IX **A**dapted for **ST**reaming protocol) is a space and processing efficient encoding method for message oriented data streams.
+
+The FAST protocol has been developed as part of the FIX Market Data Optimization Working Group.
+FAST data compression algorithm is designed to optimize electronic exchange of financial data, particularly for high volume,
+low latency data dissemination. It significantly reduces bandwidth requirements and latency between sender and receiver.
+FAST works especially well at improving performance during periods of peak message rates.
 
 _Technical Specification_: https://www.fixtrading.org/standards/fast-online/  
 _Supported version_: 1.x.1
