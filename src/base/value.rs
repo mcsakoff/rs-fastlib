@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::{Error, Result};
 use crate::utils::bytes::string_to_bytes;
+use crate::base::decimal::Decimal;
 
 /// Represents type of field instruction.
 ///
@@ -78,7 +79,7 @@ impl ValueType {
             ValueType::Length => Ok(Value::UInt32(0)),
             ValueType::Exponent => Ok(Value::Int32(0)),
             ValueType::Mantissa => Ok(Value::Int64(0)),
-            ValueType::Decimal => Ok(Value::Decimal(0.0)),
+            ValueType::Decimal => Ok(Value::Decimal(Decimal::default())),
             ValueType::ASCIIString => Ok(Value::ASCIIString(String::new())),
             ValueType::UnicodeString => Ok(Value::UnicodeString(String::new())),
             ValueType::Bytes => Ok(Value::Bytes(Vec::new())),
@@ -95,7 +96,7 @@ impl ValueType {
             ValueType::Length => Value::UInt32(0),
             ValueType::Exponent => Value::Int32(0),
             ValueType::Mantissa => Value::Int64(0),
-            ValueType::Decimal => Value::Decimal(0.0),
+            ValueType::Decimal => Value::Decimal(Decimal::default()),
             ValueType::ASCIIString => Value::ASCIIString(String::new()),
             ValueType::UnicodeString => Value::UnicodeString(String::new()),
             ValueType::Bytes => Value::Bytes(Vec::new()),
@@ -114,7 +115,7 @@ pub enum Value {
     Int32(i32),
     UInt64(u64),
     Int64(i64),
-    Decimal(f64),
+    Decimal(Decimal),
     ASCIIString(String),
     UnicodeString(String),
     Bytes(Vec<u8>),
@@ -137,7 +138,7 @@ impl Value {
                 *self = Value::Int64(s.parse()?);
             }
             Value::Decimal(_) => {
-                *self = Value::Decimal(s.parse()?);
+                *self = Value::Decimal(Decimal::from_string(s)?);
             }
             Value::ASCIIString(_) => {
                 *self = Value::ASCIIString(s.to_string());

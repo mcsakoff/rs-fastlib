@@ -64,7 +64,7 @@ mod text;
 mod tests;
 
 pub use decoder::{decoder::Decoder, reader::Reader};
-pub use base::value::Value;
+pub use base::{value::Value, decimal::Decimal};
 pub use base::message::MessageFactory;
 pub use text::{TextMessageFactory, JsonMessageFactory};
 

@@ -538,10 +538,10 @@ fn decode_decimals_1() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 4:Decimal",
-        "set_value: 1:CopyDecimal Some(Decimal(5.15))",
-        "set_value: 2:MandatoryDecimal Some(Decimal(154.6))",
-        "set_value: 3:IndividualDecimal Some(Decimal(0.0032))",
-        "set_value: 4:IndividualDecimalOpt Some(Decimal(11.1))",
+        "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
+        "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
+        "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
+        "set_value: 4:IndividualDecimalOpt Some(Decimal(Decimal { exponent: -1, mantissa: 111 }))",
         "stop_template",
     ]);
 }
@@ -554,9 +554,9 @@ fn decode_decimals_2() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 4:Decimal",
-        "set_value: 1:CopyDecimal Some(Decimal(5.15))",
-        "set_value: 2:MandatoryDecimal Some(Decimal(154.6))",
-        "set_value: 3:IndividualDecimal Some(Decimal(0.0032))",
+        "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
+        "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
+        "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
         "set_value: 4:IndividualDecimalOpt None",
         "stop_template",
     ]);

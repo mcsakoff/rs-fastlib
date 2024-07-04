@@ -54,7 +54,7 @@ impl MessageFactory for TextMessageFactory {
                 Value::Int32(v) => format!("{v}"),
                 Value::UInt64(v) => format!("{v}"),
                 Value::Int64(v) => format!("{v}"),
-                Value::Decimal(v) => format!("{v}"),
+                Value::Decimal(v) => v.to_string(),
                 Value::ASCIIString(v) => v.clone(),
                 Value::UnicodeString(v) => v.clone(),
                 Value::Bytes(b) => bytes_to_string(&b),

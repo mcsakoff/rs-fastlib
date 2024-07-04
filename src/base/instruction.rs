@@ -3,11 +3,10 @@ use std::rc::Rc;
 
 use roxmltree::Node;
 
-use crate::{Error, Result};
+use crate::{Decimal, Error, Result};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::decoder::state::DecoderState;
-use crate::utils::decimal::{decimal_normalize, make_decimal};
 
 const MAX_INT32: i64 = 2147483647;
 const MIN_INT32: i64 = -2147483648;
@@ -239,9 +238,9 @@ impl Instruction {
                             _ => {}
                         }
                         if let Some(v) = initial_value {
-                            let (e, m) = decimal_normalize(&v)?; // [ERR S3]
-                            ex.initial_value = Some(Value::Int32(e));
-                            mn.initial_value = Some(Value::Int64(m));
+                            let d = Decimal::from_string(&v)?; // [ERR S3]
+                            ex.initial_value = Some(Value::Int32(d.exponent));
+                            mn.initial_value = Some(Value::Int64(d.mantissa));
                         }
                     }
                     // Elements are decimal subcomponents.
@@ -683,7 +682,7 @@ impl Instruction {
                         return Ok(None)
                     }
                 };
-                Ok(Some(Value::Decimal(make_decimal(exponent, mantissa))))
+                Ok(Some(Value::Decimal(Decimal::new(exponent, mantissa))))
             }
             ValueType::Exponent => {
                 match self.read_exponent(s)? {

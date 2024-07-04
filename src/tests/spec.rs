@@ -58,42 +58,42 @@ fn decode_decimals() {
         TestCase {
             name: "Mandatory Positive Decimal",
             input: vec![0xc0, 0x81, 0x82, 0x39, 0x45, 0xa3],
-            result: "Some(Decimal(94275500.0))",
+            result: "Some(Decimal(Decimal { exponent: 2, mantissa: 942755 }))",
         },
         TestCase {
             name: "Mandatory Positive Decimal with Scaled Mantissa",
             input: vec![0xc0, 0x81, 0x81, 0x04, 0x3f, 0x34, 0xde],
-            result: "Some(Decimal(94275500.0))",
+            result: "Some(Decimal(Decimal { exponent: 1, mantissa: 9427550 }))",
         },
         TestCase {
             name: "Mandatory Positive Decimal (2)",
             input: vec![0xc0, 0x81, 0xfe, 0x39, 0x45, 0xa3],
-            result: "Some(Decimal(9427.55))",
+            result: "Some(Decimal(Decimal { exponent: -2, mantissa: 942755 }))",
         },
         TestCase {
             name: "Optional Positive Decimal",
             input: vec![0xc0, 0x82, 0x83, 0x39, 0x45, 0xa3],
-            result: "Some(Decimal(94275500.0))",
+            result: "Some(Decimal(Decimal { exponent: 2, mantissa: 942755 }))",
         },
         TestCase {
             name: "Optional Negative Decimal",
             input: vec![0xc0, 0x82, 0xfe, 0x46, 0x3a, 0xdd],
-            result: "Some(Decimal(-9427.55))",
+            result: "Some(Decimal(Decimal { exponent: -2, mantissa: -942755 }))",
         },
         TestCase {
             name: "Optional Negative Decimal with sign bit extension",
             input: vec![0xc0, 0x82, 0xfd, 0x7f, 0x3f, 0xff],
-            result: "Some(Decimal(-8.193))",
+            result: "Some(Decimal(Decimal { exponent: -3, mantissa: -8193 }))",
         },
         TestCase {
             name: "Optional Positive Decimal with single field operator",
             input: vec![0xe0, 0x83, 0xfe, 0x39, 0x45, 0xa3],
-            result: "Some(Decimal(9427.55))",
+            result: "Some(Decimal(Decimal { exponent: -2, mantissa: 942755 }))",
         },
         TestCase {
             name: "Optional Positive Decimal with individual field operators",
             input: vec![0xe0, 0x84, 0xfe, 0x39, 0x45, 0xa3],
-            result: "Some(Decimal(9427.55))",
+            result: "Some(Decimal(Decimal { exponent: -2, mantissa: 942755 }))",
         },
     ]);
 }
@@ -226,9 +226,9 @@ fn decode_delta_operator() {
                 vec![0xc0, 0x8d, 0x80, 0xfb],
             ],
             results: vec![
-                "Some(Decimal(9427.55))",
-                "Some(Decimal(9427.51))",
-                "Some(Decimal(9427.46))",
+                "Some(Decimal(Decimal { exponent: -2, mantissa: 942755 }))", // 9427.55
+                "Some(Decimal(Decimal { exponent: -2, mantissa: 942751 }))", // 9427.51
+                "Some(Decimal(Decimal { exponent: -2, mantissa: 942746 }))", // 9427.46
             ],
         },
         TestCaseSeq {
@@ -242,10 +242,10 @@ fn decode_delta_operator() {
                 vec![0xc0, 0x8e, 0x80, 0x81],
             ],
             results: vec![
-                "Some(Decimal(12000.0))",
-                "Some(Decimal(12100.0))",
-                "Some(Decimal(12150.0))",
-                "Some(Decimal(12160.0))",
+                "Some(Decimal(Decimal { exponent: 3, mantissa: 12 }))",   // 12000.0
+                "Some(Decimal(Decimal { exponent: 2, mantissa: 121 }))",  // 12100.0
+                "Some(Decimal(Decimal { exponent: 1, mantissa: 1215 }))", // 12150.0
+                "Some(Decimal(Decimal { exponent: 1, mantissa: 1216 }))", // 12160.0
             ],
         },
         TestCaseSeq {
@@ -280,8 +280,8 @@ fn decode_multiple_pmap() {
                 vec![0xa0, 0x80],
             ],
             results: vec![
-                "Some(Decimal(9427.55))",
-                "Some(Decimal(9427.61))",
+                "Some(Decimal(Decimal { exponent: -2, mantissa: 942755 }))", // 9427.55
+                "Some(Decimal(Decimal { exponent: -2, mantissa: 942761 }))", // 9427.61
                 "None",
             ],
         }
