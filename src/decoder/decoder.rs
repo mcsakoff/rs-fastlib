@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::io::Read;
 use std::rc::Rc;
 
 use crate::{Error, Result};
@@ -8,6 +9,7 @@ use crate::base::message::MessageFactory;
 use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
 use crate::base::value::ValueType;
 use crate::decoder::{context::DecoderContext, reader::Reader, state::DecoderState};
+use crate::decoder::reader::StreamReader;
 
 /// Decoder for FAST protocol messages.
 pub struct Decoder {
@@ -100,6 +102,12 @@ impl Decoder {
     /// Decode single message from object that implements [`fastlib::Reader`][crate::decoder::reader::Reader] trait.
     pub fn decode_reader(&mut self, rdr: &mut impl Reader, msg: &mut impl MessageFactory) -> Result<()> {
         DecoderState::new(self, rdr, msg).decode_template()
+    }
+
+    /// Decode single message from object that implements [`std::io::Read`][std::io::Read] trait.
+    pub fn decode_stream(&mut self, rdr: &mut dyn Read, msg: &mut impl MessageFactory) -> Result<()> {
+        let mut rdr = StreamReader::new(rdr);
+        self.decode_reader(&mut rdr, msg)
     }
 
     // After generating the templates we have to go through all the instructions and set flags

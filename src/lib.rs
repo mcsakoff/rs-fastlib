@@ -84,6 +84,14 @@ pub enum Error {
     #[error("Runtime Error: {0}")]
     Runtime(String),
 
+    /// End of file/stream reached.
+    #[error("End of file/stream reached")]
+    Eof,
+
+    /// Unexpected end of file/stream reached.
+    #[error("Unexpected end of file/stream reached")]
+    UnexpectedEof,
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
