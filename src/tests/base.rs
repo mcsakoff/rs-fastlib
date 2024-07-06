@@ -2,7 +2,9 @@
 //!
 //! See: https://github.com/mcsakoff/goFAST/tree/main
 //!
+use std::io::Cursor;
 use crate::decoder::decoder::Decoder;
+use crate::Error;
 use super::*;
 
 #[test]
@@ -640,4 +642,29 @@ fn decode_dynamic_reference() {
         "stop_template_ref",
         "stop_template",
     ]);
+}
+
+#[test]
+fn decode_eof() {
+    let mut r: Cursor<Vec<u8>>  = Cursor::new(vec![]);
+    let mut msg = LoggingMessageFactory::new();
+    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    let res = d.decode_stream(&mut r, &mut msg);
+    match res {
+        Err(Error::Eof) => {}
+        _ => assert!(false, "Expected Eof"),
+    }
+}
+
+#[test]
+fn decode_unexpected_eof() {
+    let mut r: Cursor<Vec<u8>>  = Cursor::new(vec![0x00]);
+    let mut msg = LoggingMessageFactory::new();
+    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    let res = d.decode_stream(&mut r, &mut msg);
+    match res {
+        Err(Error::UnexpectedEof) => {}
+        Err(e) => assert!(false, "Unexpected error: {:?}", e),
+        Ok(_) => assert!(false, "Expected Err(UnexpectedEof)"),
+    }
 }

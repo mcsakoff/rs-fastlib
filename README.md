@@ -46,20 +46,24 @@ You have to implement callbacks that will be called during message decoding:
 
 ```rust
 pub trait MessageFactory {
-    // process template id
+    // Process template id
     fn start_template(&mut self, id: u32, name: &str);
     fn stop_template(&mut self);
-    // process field value
+    
+    // Process field value
     fn set_value(&mut self, id: u32, name: &str, value: Option<Value>);
-    // process sequence
+    
+    // Process sequence
     fn start_sequence(&mut self, id: u32, name: &str, length: u32);
     fn start_sequence_item(&mut self, index: u32);
     fn stop_sequence_item(&mut self);
     fn stop_sequence(&mut self);
-    // process group
+    
+    // Process group
     fn start_group(&mut self, name: &str);
     fn stop_group(&mut self);
-    // process template ref
+    
+    // Process template ref
     fn start_template_ref(&mut self, name: &str, dynamic: bool);
     fn stop_template_ref(&mut self);
 }
@@ -70,11 +74,19 @@ For examples see implementation for `fastlib::text::TextMessageFactory` or `fast
 Then create a decoder from templates XML file and decode a message:
 
 ```rust
-fn decode_message(input: Vec<u8>) {
-    let mut decoder = Decoder::new_from_xml(include_str!("templates.xml")).unwrap();
-    let mut msg = MyMessageFactory{};
-    decoder.decode_vec(input, &mut msg).unwrap();
-}
+use fastlib::Decoder;
+
+// Raw data that contains one message.
+let raw_data: Vec<u8> = vec![ ... ];
+
+// Create a decoder from XML templates.
+let mut decoder = Decoder::new_from_xml(include_str!("templates.xml")).unwrap();
+
+// Create a message factory.
+let mut msg = MyMessageFactory{};
+
+// Decode the message.
+decoder.decode_vec(raw_data, &mut msg).unwrap();
 ```
 
 
