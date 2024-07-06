@@ -89,6 +89,10 @@ let mut msg = MyMessageFactory{};
 decoder.decode_vec(raw_data, &mut msg).unwrap();
 ```
 
+## Examples
+
+- [fast-tools](https://github.com/mcsakoff/rs-fast-tools)
+
 
 ## TODO
 
