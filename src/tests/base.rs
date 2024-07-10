@@ -490,14 +490,14 @@ fn decode_integers() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 1:Integer",
-        "set_value: 1:MandatoryUint32 Some(UInt32(3))",
-        "set_value: 2:OptionalUint32 Some(UInt32(4))",
-        "set_value: 3:MandatoryUint64 Some(UInt64(9999999998))",
-        "set_value: 4:OptionalUint64 Some(UInt64(9999999999))",
-        "set_value: 5:MandatoryInt32 Some(Int32(5))",
-        "set_value: 6:OptionalInt32 Some(Int32(6))",
-        "set_value: 7:MandatoryInt64 Some(Int64(2222222221))",
-        "set_value: 8:OptionalInt64 Some(Int64(2222222222))",
+            "set_value: 1:MandatoryUint32 Some(UInt32(3))",
+            "set_value: 2:OptionalUint32 Some(UInt32(4))",
+            "set_value: 3:MandatoryUint64 Some(UInt64(9999999998))",
+            "set_value: 4:OptionalUint64 Some(UInt64(9999999999))",
+            "set_value: 5:MandatoryInt32 Some(Int32(5))",
+            "set_value: 6:OptionalInt32 Some(Int32(6))",
+            "set_value: 7:MandatoryInt64 Some(Int64(2222222221))",
+            "set_value: 8:OptionalInt64 Some(Int64(2222222222))",
         "stop_template",
     ]);
 }
@@ -510,10 +510,10 @@ fn decode_strings() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 2:String",
-        "set_value: 1:MandatoryAscii Some(ASCIIString(\"abc\"))",
-        "set_value: 2:OptionalAscii Some(ASCIIString(\"def\"))",
-        "set_value: 3:MandatoryUnicode Some(UnicodeString(\"ghi\"))",
-        "set_value: 4:OptionalUnicode Some(UnicodeString(\"klm\"))",
+            "set_value: 1:MandatoryAscii Some(ASCIIString(\"abc\"))",
+            "set_value: 2:OptionalAscii Some(ASCIIString(\"def\"))",
+            "set_value: 3:MandatoryUnicode Some(UnicodeString(\"ghi\"))",
+            "set_value: 4:OptionalUnicode Some(UnicodeString(\"klm\"))",
         "stop_template",
     ]);
 }
@@ -526,8 +526,8 @@ fn decode_bytes() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 3:ByteVector",
-        "set_value: 1:MandatoryVector Some(Bytes([193]))",
-        "set_value: 2:OptionalVector Some(Bytes([179]))",
+            "set_value: 1:MandatoryVector Some(Bytes([193]))",
+            "set_value: 2:OptionalVector Some(Bytes([179]))",
         "stop_template",
     ]);
 }
@@ -540,10 +540,10 @@ fn decode_decimals_1() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 4:Decimal",
-        "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
-        "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
-        "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
-        "set_value: 4:IndividualDecimalOpt Some(Decimal(Decimal { exponent: -1, mantissa: 111 }))",
+            "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
+            "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
+            "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
+            "set_value: 4:IndividualDecimalOpt Some(Decimal(Decimal { exponent: -1, mantissa: 111 }))",
         "stop_template",
     ]);
 }
@@ -556,10 +556,10 @@ fn decode_decimals_2() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 4:Decimal",
-        "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
-        "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
-        "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
-        "set_value: 4:IndividualDecimalOpt None",
+            "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
+            "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
+            "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
+            "set_value: 4:IndividualDecimalOpt None",
         "stop_template",
     ]);
 }
@@ -572,25 +572,25 @@ fn decode_sequence() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 5:Sequence",
-        "set_value: 1:TestData Some(UInt32(1))",
-        "start_sequence: 0:OuterSequence 1",
-        "start_sequence_item: 0",
-        "set_value: 3:OuterTestData Some(UInt32(2))",
-        "start_sequence: 0:InnerSequence 2",
-        "start_sequence_item: 0",
-        "set_value: 5:InnerTestData Some(UInt32(3))",
-        "stop_sequence_item",
-        "start_sequence_item: 1",
-        "set_value: 5:InnerTestData Some(UInt32(4))",
-        "stop_sequence_item",
-        "stop_sequence",
-        "stop_sequence_item",
-        "stop_sequence",
-        "start_sequence: 0:NextOuterSequence 1",
-        "start_sequence_item: 0",
-        "set_value: 7:NextOuterTestData Some(UInt32(2))",
-        "stop_sequence_item",
-        "stop_sequence",
+            "set_value: 1:TestData Some(UInt32(1))",
+            "start_sequence: 0:OuterSequence 1",
+                "start_sequence_item: 0",
+                    "set_value: 3:OuterTestData Some(UInt32(2))",
+                    "start_sequence: 0:InnerSequence 2",
+                        "start_sequence_item: 0",
+                            "set_value: 5:InnerTestData Some(UInt32(3))",
+                        "stop_sequence_item",
+                        "start_sequence_item: 1",
+                            "set_value: 5:InnerTestData Some(UInt32(4))",
+                        "stop_sequence_item",
+                    "stop_sequence",
+                "stop_sequence_item",
+            "stop_sequence",
+            "start_sequence: 0:NextOuterSequence 1",
+                "start_sequence_item: 0",
+                    "set_value: 7:NextOuterTestData Some(UInt32(2))",
+                "stop_sequence_item",
+            "stop_sequence",
         "stop_template",
     ]);
 }
@@ -603,13 +603,13 @@ fn decode_group() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 6:Group",
-        "set_value: 1:TestData Some(UInt32(1))",
-        "start_group: OuterGroup",
-        "set_value: 2:OuterTestData Some(UInt32(2))",
-        "start_group: InnerGroup",
-        "set_value: 3:InnerTestData Some(UInt32(3))",
-        "stop_group",
-        "stop_group",
+            "set_value: 1:TestData Some(UInt32(1))",
+            "start_group: OuterGroup",
+                "set_value: 2:OuterTestData Some(UInt32(2))",
+                "start_group: InnerGroup",
+                    "set_value: 3:InnerTestData Some(UInt32(3))",
+                "stop_group",
+            "stop_group",
         "stop_template",
     ]);
 }
@@ -622,9 +622,9 @@ fn decode_static_reference() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 8:StaticReference",
-        "start_template_ref: RefData:false",
-        "set_value: 1:TestData Some(UInt32(7))",
-        "stop_template_ref",
+            "start_template_ref: RefData:false",
+                "set_value: 1:TestData Some(UInt32(7))",
+            "stop_template_ref",
         "stop_template",
     ]);
 }
@@ -637,9 +637,9 @@ fn decode_dynamic_reference() {
     d.decode_vec(r, &mut msg).unwrap();
     assert_eq!(&msg.calls, &vec![
         "start_template: 9:DynamicReference",
-        "start_template_ref: RefData:true",
-        "set_value: 1:TestData Some(UInt32(5))",
-        "stop_template_ref",
+            "start_template_ref: RefData:true",
+                "set_value: 1:TestData Some(UInt32(5))",
+            "stop_template_ref",
         "stop_template",
     ]);
 }

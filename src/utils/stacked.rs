@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq)]
 pub struct Stacked<T> {
     pub(crate) current: Option<T>,
     pub(crate) stack: Vec<T>,

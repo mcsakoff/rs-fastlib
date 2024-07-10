@@ -59,6 +59,7 @@ mod base;
 mod decoder;
 mod utils;
 mod text;
+mod model;
 
 #[cfg(test)]
 mod tests;

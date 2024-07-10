@@ -9,6 +9,7 @@ use crate::Value;
 
 mod base;
 mod spec;
+mod model;
 
 struct TestField {
     id: u32,
