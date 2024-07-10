@@ -565,7 +565,7 @@ fn decode_decimals_2() {
 }
 
 #[test]
-fn decode_sequence() {
+fn decode_sequence_1() {
     let r = vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82];
     let mut msg = LoggingMessageFactory::new();
     let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
@@ -596,7 +596,30 @@ fn decode_sequence() {
 }
 
 #[test]
-fn decode_group() {
+fn decode_sequence_2() {
+    let r = vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82];
+    let mut msg = LoggingMessageFactory::new();
+    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    d.decode_vec(r, &mut msg).unwrap();
+    assert_eq!(&msg.calls, &vec![
+        "start_template: 5:Sequence",
+            "set_value: 1:TestData Some(UInt32(1))",
+            "start_sequence: 0:OuterSequence 1",
+                "start_sequence_item: 0",
+                    "set_value: 3:OuterTestData Some(UInt32(2))",
+                "stop_sequence_item",
+            "stop_sequence",
+            "start_sequence: 0:NextOuterSequence 1",
+                "start_sequence_item: 0",
+                    "set_value: 7:NextOuterTestData Some(UInt32(2))",
+                "stop_sequence_item",
+            "stop_sequence",
+        "stop_template",
+    ]);
+}
+
+#[test]
+fn decode_group_1() {
     let r = vec![0xc0, 0x86, 0x81, 0xc0, 0x82, 0x83];
     let mut msg = LoggingMessageFactory::new();
     let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
@@ -609,6 +632,22 @@ fn decode_group() {
                 "start_group: InnerGroup",
                     "set_value: 3:InnerTestData Some(UInt32(3))",
                 "stop_group",
+            "stop_group",
+        "stop_template",
+    ]);
+}
+
+#[test]
+fn decode_group_2() {
+    let r = vec![0xc0, 0x86, 0x81, 0x80, 0x82];
+    let mut msg = LoggingMessageFactory::new();
+    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    d.decode_vec(r, &mut msg).unwrap();
+    assert_eq!(&msg.calls, &vec![
+        "start_template: 6:Group",
+            "set_value: 1:TestData Some(UInt32(1))",
+            "start_group: OuterGroup",
+                "set_value: 2:OuterTestData Some(UInt32(2))",
             "stop_group",
         "stop_template",
     ]);

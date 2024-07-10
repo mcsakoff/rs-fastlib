@@ -8,6 +8,7 @@ use crate::decoder::decoder::Decoder;
 use crate::Value;
 
 mod base;
+mod base_serde;
 mod spec;
 mod model;
 

@@ -181,6 +181,10 @@ impl<'a> DecoderState<'a> {
     // If any instruction of the group needs to allocate a bit in a presence map, the group is represented
     // as a segment in the transfer encoding.
     fn decode_group(&mut self, instruction: &Instruction) -> Result<()> {
+        if instruction.is_optional() && !self.pmap_next_bit_set() {
+            return Ok(());
+        }
+
         let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
 

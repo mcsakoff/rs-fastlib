@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+- Add deserialization with serde.
+- Fix decoding optional groups.
+
 ## 0.2.0
 - Add stream decoding method.
 - Introduce `Error::Eof` and `Error::Unexpected` errors.

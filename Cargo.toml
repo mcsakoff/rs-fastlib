@@ -1,6 +1,6 @@
 [package]
 name = "fastlib"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Alexey McSakoff <mcsakoff@gmail.com>"]
 categories = ["parser-implementations", "encoding"]
 description = """
@@ -16,4 +16,15 @@ repository = "https://github.com/mcsakoff/rs-fastlib"
 bytes = "1.6"
 hashbrown = "0.14"
 roxmltree = "0.20"
+serde = { version = "1.0", optional = true }
 thiserror = "1.0"
+
+[dev-dependencies]
+serde_derive = "1.0"
+serde_bytes = "0.11"
+
+[features]
+default = ["serde"]
+serde = [
+    "dep:serde",
+]

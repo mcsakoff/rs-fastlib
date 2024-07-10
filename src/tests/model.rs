@@ -1,6 +1,6 @@
 use hashbrown::HashMap;
 use crate::{Decoder, Value};
-use crate::model::{ModelFactory, TemplateData, ValueData};
+use crate::model::{ModelFactory, template::TemplateData, value::ValueData};
 
 struct TestCase {
     input: Vec<u8>,
@@ -137,16 +137,8 @@ fn test_model_data() {
                 name: "StaticReference".to_string(),
                 value: ValueData::Group(HashMap::from([
                     (
-                        "SR:RefData".to_string(),
-                        ValueData::StaticTemplateRef(
-                            "RefData".to_string(),
-                            Box::new(ValueData::Group(HashMap::from([
-                                (
-                                    "TestData".to_string(),
-                                    ValueData::Value(Some(Value::UInt32(7))),
-                                ),
-                            ]))),
-                        ),
+                        "TestData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(7))),
                     )
                 ])),
             },
@@ -157,15 +149,17 @@ fn test_model_data() {
                 name: "DynamicReference".to_string(),
                 value: ValueData::Group(HashMap::from([
                     (
-                        "DR:0".to_string(),
+                        "templateRef:0".to_string(),
                         ValueData::DynamicTemplateRef(
-                            "RefData".to_string(),
-                            Box::new(ValueData::Group(HashMap::from([
-                                (
-                                    "TestData".to_string(),
-                                    ValueData::Value(Some(Value::UInt32(5))),
-                                ),
-                            ]))),
+                            Box::new(TemplateData {
+                                name: "RefData".to_string(),
+                                value: ValueData::Group(HashMap::from([
+                                    (
+                                        "TestData".to_string(),
+                                        ValueData::Value(Some(Value::UInt32(5))),
+                                    )
+                                ])),
+                            }),
                         ),
                     )
                 ])),

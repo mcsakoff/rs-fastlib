@@ -112,7 +112,7 @@ impl MessageFactory for TextMessageFactory {
 
 /// Message factory implementation that formats decoded messages as JSON encoded `String`.
 pub struct JsonMessageFactory {
-    pub text: String,
+    pub json: String,
     block_start: bool,
     dynamic: Vec<bool>,
 }
@@ -121,7 +121,7 @@ impl JsonMessageFactory {
     /// Creates a new message factory.
     pub fn new() -> Self {
         Self {
-            text: String::with_capacity(4096),
+            json: String::with_capacity(4096),
             block_start: false,
             dynamic: Vec::new(),
         }
@@ -130,14 +130,14 @@ impl JsonMessageFactory {
     /// Resets the state of the message factory.
     /// Called every time a new message decoding started.
     pub fn reset(&mut self) {
-        self.text.clear();
+        self.json.clear();
         self.block_start = false;
         self.dynamic.clear();
     }
 
     fn delimiter(&mut self) {
         if !self.block_start {
-            self.text += ",";
+            self.json += ",";
         } else {
             self.block_start = false;
         }
@@ -147,12 +147,12 @@ impl JsonMessageFactory {
 impl MessageFactory for JsonMessageFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
         self.reset();
-        self.text = format!("{{\"{name}\":{{");
+        self.json = format!("{{\"{name}\":{{");
         self.block_start = true;
     }
 
     fn stop_template(&mut self) {
-        self.text += "}}";
+        self.json += "}}";
     }
 
     fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
@@ -168,39 +168,39 @@ impl MessageFactory for JsonMessageFactory {
                 Value::UnicodeString(v) => format!("\"{v}\""),
                 Value::Bytes(b) => bytes_to_string(&b),
             };
-            self.text += &format!("\"{name}\":{value}");
+            self.json += &format!("\"{name}\":{value}");
         }
     }
 
     fn start_sequence(&mut self, _id: u32, name: &str, _length: u32) {
         self.delimiter();
-        self.text += &format!("\"{name}\":[");
+        self.json += &format!("\"{name}\":[");
         self.block_start = true;
     }
 
     fn start_sequence_item(&mut self, _index: u32) {
         self.delimiter();
-        self.text += "{";
+        self.json += "{";
         self.block_start = true;
     }
 
     fn stop_sequence_item(&mut self) {
-        self.text += "}";
+        self.json += "}";
     }
 
     fn stop_sequence(&mut self) {
-        self.text += "]";
+        self.json += "]";
         self.block_start = false;
     }
 
     fn start_group(&mut self, name: &str) {
         self.delimiter();
-        self.text += &format!("\"{name}\":{{");
+        self.json += &format!("\"{name}\":{{");
         self.block_start = true;
     }
 
     fn stop_group(&mut self) {
-        self.text += "}";
+        self.json += "}";
         self.block_start = false
     }
 
@@ -208,7 +208,7 @@ impl MessageFactory for JsonMessageFactory {
         self.dynamic.push(dynamic);
         if dynamic {
             self.delimiter();
-            self.text += &format!("\"TemplateReference\":{{\"{name}\":{{");
+            self.json += &format!("\"TemplateReference\":{{\"{name}\":{{");
             self.block_start = true;
         }
     }
@@ -216,7 +216,7 @@ impl MessageFactory for JsonMessageFactory {
     fn stop_template_ref(&mut self) {
         let dynamic = self.dynamic.pop().unwrap();
         if dynamic {
-            self.text += "}}";
+            self.json += "}}";
         }
     }
 }
