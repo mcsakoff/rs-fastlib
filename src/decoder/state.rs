@@ -7,6 +7,7 @@ use crate::base::pmap::PresenceMap;
 use crate::base::types::{Dictionary, Template, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::decoder::{context::DictionaryType, decoder::Decoder, reader::Reader};
+use crate::utils::stacked::Stacked;
 
 // Processing context of the decoder. It represents context state during one message decoding.
 // Created when it starts decoding a new message and destroyed after decoding of a message.
@@ -15,27 +16,21 @@ pub(crate) struct DecoderState<'a> {
     pub(crate) rdr: Box<&'a mut dyn Reader>,
     pub(crate) msg: Box<&'a mut dyn MessageFactory>,
 
-    // TODO: implement that!
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
     // the current template as described in the Template Reference Instruction section.
-    pub(crate) template_id: u32,
-    template_id_stack: Vec<u32>,
+    pub(crate) template_id: Stacked<u32>,
 
     // The dictionary set and initial value are described in the Operators section.
-    pub(crate) dictionary: Option<Dictionary>,
-    dictionary_stack: Vec<Dictionary>,
+    pub(crate) dictionary: Stacked<Dictionary>,
 
-    // TODO: implement that!
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
     // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
-    pub(crate) type_ref: Option<TypeRef>,
-    type_ref_stack: Vec<TypeRef>,
+    pub(crate) type_ref: Stacked<TypeRef>,
 
-    // TODO: add description
-    pub(crate) presence_map: Option<PresenceMap>,
-    presence_map_stack: Vec<PresenceMap>,
+    // The presence map of the current segment.
+    pub(crate) presence_map: Stacked<PresenceMap>,
 }
 
 impl<'a> DecoderState<'a> {
@@ -47,14 +42,10 @@ impl<'a> DecoderState<'a> {
             decoder: d,
             rdr: Box::new(r),
             msg: Box::new(m),
-            template_id: 0,
-            template_id_stack: Vec::new(),
-            dictionary: Some(Dictionary::Global),
-            dictionary_stack: Vec::new(),
-            type_ref: Some(TypeRef::Any),
-            type_ref_stack: Vec::new(),
-            presence_map: Some(PresenceMap::new_empty()),
-            presence_map_stack: Vec::new(),
+            template_id: Stacked::new_empty(),
+            dictionary: Stacked::new(Dictionary::Global),
+            type_ref: Stacked::new(TypeRef::Any),
+            presence_map: Stacked::new(PresenceMap::new_empty()),
         }
     }
 
@@ -71,29 +62,26 @@ impl<'a> DecoderState<'a> {
     // Decode template id from the stream and change the current processing context accordingly.
     fn decode_template_id(&mut self) -> Result<()> {
         let template_id = self.read_template_id()?;
-        self.template_id_stack.push(self.template_id);
-        self.template_id = template_id;
+        self.template_id.push(template_id);
         Ok(())
     }
 
     // Stop processing the current template id, restore the previous value in the processing context.
     fn drop_template_id(&mut self) {
-        self.template_id = self.template_id_stack.pop().unwrap();
+        self.template_id.pop();
     }
 
     // Decode presence map from the stream and change the current processing context accordingly.
     fn decode_presence_map(&mut self) -> Result<()> {
         let (bitmap, size) = self.rdr.read_presence_map()?;
         let presence_map = PresenceMap::new(bitmap, size);
-        let curr_presence_map = self.presence_map.replace(presence_map).unwrap();
-        self.presence_map_stack.push(curr_presence_map);
+        self.presence_map.push(presence_map);
         Ok(())
     }
 
     // Restore the previous value for presence map in the processing context.
     fn drop_presence_map(&mut self) {
-        let prev_presence_map = self.presence_map_stack.pop().unwrap();
-        self.presence_map.replace(prev_presence_map);
+        _ = self.presence_map.pop();
     }
 
     // Decode a template from the stream.
@@ -101,8 +89,8 @@ impl<'a> DecoderState<'a> {
         self.decode_presence_map()?;
         self.decode_template_id()?;
         let template = self.decoder.templates_by_id
-            .get(&self.template_id)
-            .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id)))? // [ErrD09]
+            .get(self.template_id.peek().unwrap())
+            .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
             .clone(); //
         self.msg.start_template(template.id, &template.name);
 
@@ -222,8 +210,8 @@ impl<'a> DecoderState<'a> {
             self.decode_presence_map()?;
             self.decode_template_id()?;
             template = self.decoder.templates_by_id
-                .get(&self.template_id)
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id)))? // [ErrD09]
+                .get(self.template_id.peek().unwrap())
+                .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
                 .clone();
         } else {
             template = self.decoder.templates_by_name
@@ -262,8 +250,7 @@ impl<'a> DecoderState<'a> {
     #[inline]
     fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
         if *dictionary != Dictionary::Inherit {
-            let cur_dict = self.dictionary.replace(dictionary.clone()).unwrap();
-            self.dictionary_stack.push(cur_dict);
+            self.dictionary.push(dictionary.clone());
             true
         } else {
             false
@@ -272,15 +259,13 @@ impl<'a> DecoderState<'a> {
 
     #[inline]
     fn restore_dictionary(&mut self) {
-        let prev_dict = self.dictionary_stack.pop().unwrap();
-        self.dictionary.replace(prev_dict);
+        _ = self.dictionary.pop();
     }
 
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
         if *type_ref != TypeRef::Any {
-            let cur_type_ref = self.type_ref.replace(type_ref.clone()).unwrap();
-            self.type_ref_stack.push(cur_type_ref);
+            self.type_ref.push(type_ref.clone());
             true
         } else {
             false
@@ -289,14 +274,12 @@ impl<'a> DecoderState<'a> {
 
     #[inline]
     fn restore_type_ref(&mut self) {
-        let prev_type_ref = self.type_ref_stack.pop().unwrap();
-        self.type_ref.replace(prev_type_ref);
+        _ = self.type_ref.pop();
     }
-
 
     #[inline]
     pub(crate) fn pmap_next_bit_set(&mut self) -> bool {
-        self.presence_map.as_mut().unwrap().next_bit_set()
+        self.presence_map.must_peek_mut().next_bit_set()
     }
 
     #[inline]
@@ -310,20 +293,19 @@ impl<'a> DecoderState<'a> {
     }
 
     fn make_dict_type(&self) -> DictionaryType {
-        let dictionary = self.dictionary.as_ref().unwrap();
+        let dictionary = self.dictionary.must_peek();
         match dictionary {
             Dictionary::Inherit => unreachable!(),
             Dictionary::Global => {
                 DictionaryType::Global
             }
             Dictionary::Template => {
-                DictionaryType::Template(self.template_id)
+                DictionaryType::Template(*self.template_id.must_peek())
             }
             Dictionary::Type => {
-                let name = match &self.type_ref {
-                    None => unreachable!(),
-                    Some(TypeRef::Any) => Rc::new("__any__".to_string()), // TODO: optimize
-                    Some(TypeRef::ApplicationType(name)) => name.clone(),
+                let name = match self.type_ref.must_peek() {
+                    TypeRef::Any => Rc::new("__any__".to_string()), // TODO: optimize
+                    TypeRef::ApplicationType(name) => name.clone(),
                 };
                 DictionaryType::Type(name)
             },
