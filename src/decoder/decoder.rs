@@ -45,7 +45,7 @@ impl Decoder {
             initial_value: None,
             instructions: Vec::new(),
             dictionary: Dictionary::Global,
-            key: Rc::new("__template_id__".to_string()),
+            key: Rc::from("__template_id__"),
             type_ref: TypeRef::Any,
             has_pmap: Cell::new(false),
         });

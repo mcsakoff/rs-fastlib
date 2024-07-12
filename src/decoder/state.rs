@@ -308,7 +308,7 @@ impl<'a> DecoderState<'a> {
             }
             Dictionary::Type => {
                 let name = match self.type_ref.must_peek() {
-                    TypeRef::Any => Rc::new("__any__".to_string()), // TODO: optimize
+                    TypeRef::Any => Rc::from("__any__"),
                     TypeRef::ApplicationType(name) => name.clone(),
                 };
                 DictionaryType::Type(name)

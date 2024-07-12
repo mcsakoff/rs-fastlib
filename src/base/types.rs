@@ -114,7 +114,7 @@ pub(crate) enum Dictionary {
     Global,
     Template,
     Type,
-    UserDefined(Rc<String>),
+    UserDefined(Rc<str>),
 }
 
 impl Dictionary {
@@ -123,7 +123,7 @@ impl Dictionary {
             "global" => Self::Global,
             "template" => Self::Template,
             "type" => Self::Type,
-            _ => Self::UserDefined(Rc::new(name.to_string())),
+            _ => Self::UserDefined(Rc::from(name)),
         }
     }
 }
@@ -134,11 +134,11 @@ impl Dictionary {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum TypeRef {
     Any,
-    ApplicationType(Rc<String>),
+    ApplicationType(Rc<str>),
 }
 
 impl TypeRef {
     pub(crate) fn from_str(name: &str) -> Self {
-        Self::ApplicationType(Rc::new(name.to_string()))
+        Self::ApplicationType(Rc::from(name))
     }
 }

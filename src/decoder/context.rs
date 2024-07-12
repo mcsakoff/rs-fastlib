@@ -8,8 +8,8 @@ use crate::Value;
 pub enum DictionaryType {
     Global,
     Template(u32),
-    Type(Rc<String>),
-    UserDefined(Rc<String>),
+    Type(Rc<str>),
+    UserDefined(Rc<str>),
 }
 
 /// Decoder state that stores global state during all messages decoding.
@@ -17,10 +17,10 @@ pub enum DictionaryType {
 /// Destroyed when decoder is destroyed.
 /// Can be reset during messages decoding.
 pub(crate) struct DecoderContext {
-    global: HashMap<Rc<String>, Option<Value>>,
-    template: HashMap<u32, HashMap<Rc<String>, Option<Value>>>,
-    type_: HashMap<Rc<String>, HashMap<Rc<String>, Option<Value>>>,
-    user: HashMap<Rc<String>, HashMap<Rc<String>, Option<Value>>>,
+    global: HashMap<Rc<str>, Option<Value>>,
+    template: HashMap<u32, HashMap<Rc<str>, Option<Value>>>,
+    type_: HashMap<Rc<str>, HashMap<Rc<str>, Option<Value>>>,
+    user: HashMap<Rc<str>, HashMap<Rc<str>, Option<Value>>>,
 }
 
 impl DecoderContext {
@@ -40,7 +40,7 @@ impl DecoderContext {
         self.user.clear();
     }
 
-    pub(crate) fn set(&mut self, dict: DictionaryType, key: Rc<String>, val: &Option<Value>) {
+    pub(crate) fn set(&mut self, dict: DictionaryType, key: Rc<str>, val: &Option<Value>) {
         match dict {
             DictionaryType::Global => {
                 self.global.insert(key, val.clone());
@@ -75,7 +75,7 @@ impl DecoderContext {
         }
     }
 
-    pub(crate) fn get(&self, dict: DictionaryType, key: &Rc<String>) -> Result<Option<Value>> {
+    pub(crate) fn get(&self, dict: DictionaryType, key: &Rc<str>) -> Result<Option<Value>> {
         match dict {
             DictionaryType::Global => {
                 match self.global.get(key) {

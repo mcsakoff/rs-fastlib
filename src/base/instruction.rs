@@ -53,7 +53,7 @@ pub(crate) struct Instruction {
     pub(crate) type_ref: TypeRef,
 
     // Internal key name for lookup in storage
-    pub(crate) key: Rc<String>,
+    pub(crate) key: Rc<str>,
 
     // For ::Sequence it shows if the instruction needs a pmap.
     // For ::Decimal it shows if any of its subcomponent needs a pmap.
@@ -84,7 +84,7 @@ impl Instruction {
             instructions: Vec::new(),
             dictionary: Dictionary::Inherit,
             type_ref: TypeRef::Any,
-            key: Rc::new(ky),
+            key: Rc::from(ky),
             has_pmap: Cell::new(false),
         }
     }
@@ -130,7 +130,7 @@ impl Instruction {
             instruction.dictionary = Dictionary::from_str(d);
         }
         if let Some(k) = node.attribute("key") {
-            instruction.key = Rc::new(k.to_string());
+            instruction.key = Rc::from(k);
         }
         if let Some(k) = node.attribute("typeRef") {
             instruction.type_ref = TypeRef::from_str(k);
@@ -258,10 +258,10 @@ impl Instruction {
                 mn.presence = Presence::Mandatory;
                 // Set proper storage keys if it is not set explicitly with 'key' attribute.
                 if ex.key.is_empty() {
-                    ex.key = Rc::new(format!("{}:exponent", &instruction.key));
+                    ex.key = Rc::from(format!("{}:exponent", &instruction.key));
                 }
                 if mn.key.is_empty() {
-                    mn.key = Rc::new(format!("{}:mantissa", &instruction.key));
+                    mn.key = Rc::from(format!("{}:mantissa", &instruction.key));
                 }
                 instruction.operator = op;
                 // Put subcomponents into instruction.
