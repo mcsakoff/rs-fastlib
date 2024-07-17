@@ -1,4 +1,4 @@
-# FIX/FAST Protocol Decoder
+# FIX/FAST Protocol Decoder/Encoder
 [![Crates.io](https://img.shields.io/crates/v/fastlib?style=flat-square)](https://crates.io/crates/fastlib)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/mcsakoff/rs-fastlib/rust.yml?branch=main&style=flat-square)](https://github.com/mcsakoff/rs-fastlib/actions/workflows/rust.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE-MIT)
@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fastlib = "0.2"
+fastlib = "0.3"
 ```
 
 ### Deserialize using serde

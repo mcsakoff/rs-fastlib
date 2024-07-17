@@ -1,86 +1,43 @@
-use std::cell::Cell;
-use std::collections::HashMap;
 use std::io::Read;
 use std::rc::Rc;
 
 use crate::{Error, Result};
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
-use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
-use crate::base::value::ValueType;
-use crate::decoder::{context::DecoderContext, reader::Reader, state::DecoderState};
+use crate::base::pmap::PresenceMap;
+use crate::base::types::{Dictionary, TypeRef};
+use crate::base::types::Template;
+use crate::base::value::{Value, ValueType};
+use crate::common::context::{Context, DictionaryType};
+use crate::common::definitions::Definitions;
+use crate::decoder::reader::Reader;
 use crate::decoder::reader::StreamReader;
+use crate::utils::stacked::Stacked;
 
 /// Decoder for FAST protocol messages.
 pub struct Decoder {
-    pub(crate) context: DecoderContext,
-    pub(crate) templates: Vec<Rc<Template>>,
-    pub(crate) templates_by_id: HashMap<u32, Rc<Template>>,
-    pub(crate) templates_by_name: HashMap<String, Rc<Template>>,
-    pub(crate) template_id_instruction: Rc<Instruction>,
+    pub(crate) definitions: Definitions,
+    pub(crate) context: Context,
 }
 
 impl Decoder {
+    #[allow(unused)]
     pub(crate) fn new_from_templates(ts: Vec<Template>) -> Result<Self> {
-        let mut templates = Vec::with_capacity(ts.len());
-        let mut templates_by_id = HashMap::with_capacity(ts.len());
-        let mut templates_by_name = HashMap::with_capacity(ts.len());
-        for t in ts {
-            let t = Rc::new(t);
-            if t.id != 0 {
-                templates_by_id.insert(t.id, t.clone());
-            }
-            if !t.name.is_empty() {
-                templates_by_name.insert(t.name.clone(), t.clone());
-            }
-            templates.push(t);
-        }
-
-        let template_id_instruction = Rc::new(Instruction {
-            id: 0,
-            name: "__template_id__".to_string(),
-            value_type: ValueType::UInt32,
-            presence: Presence::Mandatory,
-            operator: Operator::Copy,
-            initial_value: None,
-            instructions: Vec::new(),
-            dictionary: Dictionary::Global,
-            key: Rc::from("__template_id__"),
-            type_ref: TypeRef::Any,
-            has_pmap: Cell::new(false),
-        });
-
-        let decoder = Self {
-            context: DecoderContext::new(),
-            templates,
-            templates_by_id,
-            templates_by_name,
-            template_id_instruction,
-        };
-        decoder.finalize()?;
-        Ok(decoder)
+        Ok(Decoder {
+            definitions: Definitions::new_from_templates(ts)?,
+            context: Context::new(),
+        })
     }
 
     pub fn new_from_xml(text: &str) -> Result<Self> {
-        let doc = roxmltree::Document::parse(text)?;
-        let root = doc
-            .root()
-            .first_child()
-            .ok_or_else(|| Error::Static("no root element found".to_string()))?;
-        if root.tag_name().name() != "templates" {
-            return Err(Error::Static("<templates/> node not found".to_string()));
-        }
-        let mut templates = Vec::new();
-        for child in root.children() {
-            if child.is_element() {
-                templates.push(Template::from_node(child)?);
-            }
-        }
-        Self::new_from_templates(templates)
+        Ok(Decoder {
+            definitions: Definitions::new_from_xml(text)?,
+            context: Context::new(),
+        })
     }
 
     pub fn reset(&mut self) {
-        self.context.reset();
+        self.context.reset()
     }
 
     /// Decode single message from bytes vector.
@@ -99,113 +56,327 @@ impl Decoder {
         self.decode_reader(bytes, msg)
     }
 
-    /// Decode single message from object that implements [`fastlib::Reader`][crate::decoder::reader::Reader] trait.
-    pub fn decode_reader(&mut self, rdr: &mut impl Reader, msg: &mut impl MessageFactory) -> Result<()> {
-        DecoderState::new(self, rdr, msg).decode_template()
-    }
-
     /// Decode single message from object that implements [`std::io::Read`][std::io::Read] trait.
     pub fn decode_stream(&mut self, rdr: &mut dyn Read, msg: &mut impl MessageFactory) -> Result<()> {
         let mut rdr = StreamReader::new(rdr);
         self.decode_reader(&mut rdr, msg)
     }
 
-    // After generating the templates we have to go through all the instructions and set flags
-    // for structures that must have a presence map. That can only be done when whole
-    // templates structure is generated.
-    fn finalize(&self) -> Result<()> {
-        for tpl in &self.templates {
-            let need_pmap = self.require_presence_map_bit(&tpl.instructions)?;
-            tpl.require_pmap.set(Some(need_pmap));
+    /// Decode single message from object that implements [`fastlib::Reader`][crate::decoder::reader::Reader] trait.
+    pub fn decode_reader(&mut self, rdr: &mut impl Reader, msg: &mut impl MessageFactory) -> Result<()> {
+        DecoderContext::new(self, rdr, msg).decode_template()
+    }
+}
+
+/// Processing context of the decoder. It represents context state during one message decoding.
+/// Created when it starts decoding a new message and destroyed after decoding of a message.
+pub(crate) struct DecoderContext<'a> {
+    pub(crate) definitions: &'a mut Definitions,
+    pub(crate) context: &'a mut Context,
+    pub(crate) rdr: Box<&'a mut dyn Reader>,
+    pub(crate) msg: Box<&'a mut dyn MessageFactory>,
+
+    // The current template id.
+    // It is updated when a template identifier is encountered in the stream. A static template reference can also change
+    // the current template as described in the Template Reference Instruction section.
+    pub(crate) template_id: Stacked<u32>,
+
+    // The dictionary set and initial value are described in the Operators section.
+    pub(crate) dictionary: Stacked<Dictionary>,
+
+    // The current application type is initially the special type `any`. The current application type changes when the processor
+    // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
+    // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
+    pub(crate) type_ref: Stacked<TypeRef>,
+
+    // The presence map of the current segment.
+    pub(crate) presence_map: Stacked<PresenceMap>,
+}
+
+impl<'a> DecoderContext<'a> {
+    pub(crate) fn new(d: &'a mut Decoder,
+                      r: &'a mut impl Reader,
+                      m: &'a mut impl MessageFactory,
+    ) -> Self {
+        Self {
+            definitions: &mut d.definitions,
+            context: &mut d.context,
+            rdr: Box::new(r),
+            msg: Box::new(m),
+            template_id: Stacked::new_empty(),
+            dictionary: Stacked::new(Dictionary::Global),
+            type_ref: Stacked::new(TypeRef::Any),
+            presence_map: Stacked::new(PresenceMap::new_empty()),
+        }
+    }
+
+    // Read template id from the stream.
+    fn read_template_id(&mut self) -> Result<u32> {
+        let instruction = self.definitions.template_id_instruction.clone();
+        match instruction.extract(self)? {
+            Some(Value::UInt32(id)) => Ok(id),
+            Some(_) => Err(Error::Runtime("Wrong template id type in context storage".to_string())),
+            None => Err(Error::Runtime("No template id in context storage".to_string())),
+        }
+    }
+
+    // Decode template id from the stream and change the current processing context accordingly.
+    fn decode_template_id(&mut self) -> Result<()> {
+        let template_id = self.read_template_id()?;
+        self.template_id.push(template_id);
+        Ok(())
+    }
+
+    // Stop processing the current template id, restore the previous value in the processing context.
+    fn drop_template_id(&mut self) {
+        self.template_id.pop();
+    }
+
+    // Decode presence map from the stream and change the current processing context accordingly.
+    fn decode_presence_map(&mut self) -> Result<()> {
+        let (bitmap, size) = self.rdr.read_presence_map()?;
+        let presence_map = PresenceMap::new(bitmap, size);
+        self.presence_map.push(presence_map);
+        Ok(())
+    }
+
+    // Restore the previous value for presence map in the processing context.
+    fn drop_presence_map(&mut self) {
+        _ = self.presence_map.pop();
+    }
+
+    // Decode a template from the stream.
+    pub(crate) fn decode_template(&mut self) -> Result<()> {
+        self.decode_presence_map()?;
+        self.decode_template_id()?;
+        let template = self.definitions.templates_by_id
+            .get(self.template_id.peek().unwrap())
+            .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
+            .clone(); //
+        self.msg.start_template(template.id, &template.name);
+
+        // Update some context variables
+        let has_dictionary = self.switch_dictionary(&template.dictionary);
+        let has_type_ref = self.switch_type_ref(&template.type_ref);
+
+        self.decode_instructions(&template.instructions)?;
+
+        if has_dictionary { self.restore_dictionary() }
+        if has_type_ref { self.restore_type_ref() }
+
+        self.msg.stop_template();
+        self.drop_template_id();
+        self.drop_presence_map();
+        Ok(())
+    }
+
+    fn decode_instructions(&mut self, instructions: &[Instruction]) -> Result<()> {
+        for instruction in instructions {
+            match instruction.value_type {
+                ValueType::Sequence => {
+                    self.decode_sequence(instruction)?;
+                }
+                ValueType::Group => {
+                    self.decode_group(instruction)?;
+                }
+                ValueType::TemplateReference => {
+                    self.decode_template_ref(instruction)?;
+                }
+                _ => {
+                    self.decode_field(instruction)?;
+                }
+            }
         }
         Ok(())
     }
 
-    // Go through sequence of instructions and check if any of them require presence map bit.
-    // No early exit! Must iterate over all items because has_presence_map_bit() also initializes has_pmap bit.
-    fn require_presence_map_bit(&self, instructions: &[Instruction]) -> Result<bool> {
-        let mut has_pmap_bit = false;
-        for i in instructions {
-            if self.has_presence_map_bit(i)? {
-                has_pmap_bit = true;
-            }
-        }
-        Ok(has_pmap_bit)
-    }
-
-    fn set_has_pmap(&self, instr: &Instruction) -> Result<()> {
-        let instructions: &[Instruction];
-        match instr.value_type {
-            ValueType::Group | ValueType::TemplateReference | ValueType::Decimal => {
-                instructions = &instr.instructions;
-            }
-            ValueType::Sequence => {
-                instructions = &instr.instructions[1..];
-            }
-            _ => {
-                return Ok(());
-            }
-        }
-        let need_pmap = self.require_presence_map_bit(instructions)?;
-        instr.has_pmap.set(need_pmap);
+    fn decode_segment(&mut self, instructions: &[Instruction]) -> Result<()> {
+        self.decode_presence_map()?;
+        self.decode_instructions(instructions)?;
+        self.drop_presence_map();
         Ok(())
     }
 
-    fn has_presence_map_bit(&self, instr: &Instruction) -> Result<bool> {
-        // first, initialize internals of the instruction
-        self.set_has_pmap(instr)?;
+    fn decode_field(&mut self, instruction: &Instruction) -> Result<()> {
+        let value = self.extract_field(instruction)?;
+        self.msg.set_value(instruction.id, &instruction.name, value);
+        Ok(())
+    }
 
-        // then, check if it has a presence map bit
-        match instr.value_type {
-            ValueType::Group => {
-                // If a ::Group field is optional, it will occupy a single bit in the presence map.
-                return Ok(instr.is_optional())
-            }
-            ValueType::Sequence => {
-                // For ::Sequence its length field show if the sequence has a bit in the presence map.
-                return self.has_presence_map_bit(
-                    instr.instructions.get(0)
-                        .ok_or_else(|| Error::Static(format!("sequence '{}' has no length field", instr.name)))?
-                );
-            }
-            ValueType::TemplateReference => {
-                if !instr.name.is_empty() {
-                    // Static template ref checks corresponding template it is needs any presence bit.
-                    let template = match self.templates_by_name.get(&instr.name) {
-                        None => return Err(Error::Static(format!("template '{}' not found", instr.name))),
-                        Some(t) => t,
-                    };
-                    match template.require_pmap.get() {
-                        None => return Err(Error::Static(
-                                format!("template '{}' not initialized yet; consider reordering templates", instr.name)
-                            )),
-                        Some(b) => return Ok(b),
+    // A sequence field instruction specifies that the field in the application type is of sequence type and that
+    // the contained group of instructions should be used repeatedly to encode each element.
+    fn decode_sequence(&mut self, instruction: &Instruction) -> Result<()> {
+        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
+        let has_type_ref = self.switch_type_ref(&instruction.type_ref);
+
+        // A sequence has an associated length field containing an unsigned integer indicating the number of encoded
+        // elements. When a length field is present in the stream, it must appear directly before the encoded elements.
+        // The length field has a name, is of type uInt32 and can have a field operator.
+        let length_instruction = instruction.instructions.get(0).unwrap();
+        match self.extract_field(length_instruction)? {
+            None => {}
+            Some(Value::UInt32(length)) => {
+                self.msg.start_sequence(instruction.id, &instruction.name, length);
+                for idx in 0..length {
+                    self.msg.start_sequence_item(idx);
+                    // If any instruction of the sequence needs to allocate a bit in a presence map, each element is represented
+                    // as a segment in the transfer encoding.
+                    if instruction.has_pmap.get() {
+                        self.decode_segment(&instruction.instructions[1..])?;
+                    } else {
+                        self.decode_instructions(&instruction.instructions[1..])?;
                     }
-                } else {
-                    // Dynamic template ref doesn't need a presence map bit.
-                    return Ok(false);
+                    self.msg.stop_sequence_item();
                 }
-            }
-            ValueType::Decimal => {
-                if instr.has_pmap.get() {
-                    // We already know that this field require a presence bit due to its subcomponents.
-                    return Ok(true);
-                }
-                // Otherwise, fall-though and check the field's operator (like for normal field).
-            }
-            _ => {}
+                self.msg.stop_sequence();
+            },
+            _ => return Err(Error::Dynamic("Length field must be UInt32".to_string())), // [ErrD10]
         }
-        match instr.operator {
-            // If a field (is mandatory and) has no field operator, it will not occupy any bit in the presence map
-            // and its value must always appear in the stream.
-            // TODO: Check! According to Presence Map table from the spec, field with no operator is always present in the stream!
-            Operator::None => Ok(false),
-            // Delta is always present in the stream, so doesn't need a presence bit.
-            Operator::Delta => Ok(false),
-            // Always require a presence bit.
-            Operator::Default | Operator::Copy | Operator::Increment | Operator::Tail => Ok(true),
-            // An optional field with the constant operator will occupy a single bit.
-            Operator::Constant => Ok(instr.is_optional()),
+
+        if has_dictionary { self.restore_dictionary() }
+        if has_type_ref { self.restore_type_ref() }
+        Ok(())
+    }
+
+    // A group field instruction associates a name and presence attribute with a group of instructions.
+    // If any instruction of the group needs to allocate a bit in a presence map, the group is represented
+    // as a segment in the transfer encoding.
+    fn decode_group(&mut self, instruction: &Instruction) -> Result<()> {
+        if instruction.is_optional() && !self.pmap_next_bit_set() {
+            return Ok(());
+        }
+
+        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
+        let has_type_ref = self.switch_type_ref(&instruction.type_ref);
+
+        self.msg.start_group(&instruction.name);
+        // If any instruction of the group needs to allocate a bit in a presence map, each element is represented
+        // as a segment in the transfer encoding.
+        if instruction.has_pmap.get() {
+            self.decode_segment(&instruction.instructions)?;
+        } else {
+            self.decode_instructions(&instruction.instructions)?;
+        }
+        self.msg.stop_group();
+
+        if has_dictionary { self.restore_dictionary() }
+        if has_type_ref { self.restore_type_ref() }
+        Ok(())
+    }
+
+    // The template reference instruction specifies that a part of the template is specified by another template.
+    // A template reference can be either static or dynamic. A reference is static when a name is specified in the
+    // instruction. Otherwise, it is dynamic.
+    fn decode_template_ref(&mut self, instruction: &Instruction) -> Result<()> {
+        let is_dynamic = instruction.name.is_empty();
+
+        let template: Rc<Template>;
+        if is_dynamic {
+            self.decode_presence_map()?;
+            self.decode_template_id()?;
+            template = self.definitions.templates_by_id
+                .get(self.template_id.peek().unwrap())
+                .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
+                .clone();
+        } else {
+            template = self.definitions.templates_by_name
+                .get(&instruction.name)
+                .ok_or_else(|| Error::Dynamic(format!("Unknown template: {}", instruction.name)))? // [ErrD09]
+                .clone();
+        }
+        self.msg.start_template_ref(&template.name, is_dynamic);
+
+        // Update some context variables
+        let has_dictionary = self.switch_dictionary(&template.dictionary);
+        let has_type_ref = self.switch_type_ref(&template.type_ref);
+
+        self.decode_instructions(&template.instructions)?;
+
+        if has_dictionary { self.restore_dictionary() }
+        if has_type_ref { self.restore_type_ref() }
+
+        self.msg.stop_template_ref();
+        if is_dynamic {
+            self.drop_template_id();
+            self.drop_presence_map();
+        }
+        Ok(())
+    }
+
+    fn extract_field(&mut self, instruction: &Instruction) -> Result<Option<Value>> {
+        let has_dict = self.switch_dictionary(&instruction.dictionary);
+        let value = instruction.extract(self)?;
+        if has_dict {
+            self.restore_dictionary();
+        }
+        Ok(value)
+    }
+
+    #[inline]
+    fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
+        if *dictionary != Dictionary::Inherit {
+            self.dictionary.push(dictionary.clone());
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn restore_dictionary(&mut self) {
+        _ = self.dictionary.pop();
+    }
+
+    #[inline]
+    fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
+        if *type_ref != TypeRef::Any {
+            self.type_ref.push(type_ref.clone());
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn restore_type_ref(&mut self) {
+        _ = self.type_ref.pop();
+    }
+
+    #[inline]
+    pub(crate) fn pmap_next_bit_set(&mut self) -> bool {
+        self.presence_map.must_peek_mut().next_bit_set()
+    }
+
+    #[inline]
+    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: &Option<Value>) {
+        self.context.set(self.make_dict_type(), i.key.clone(), v);
+    }
+
+    #[inline]
+    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Value>> {
+        self.context.get(self.make_dict_type(), &i.key)
+    }
+
+    fn make_dict_type(&self) -> DictionaryType {
+        let dictionary = self.dictionary.must_peek();
+        match dictionary {
+            Dictionary::Inherit => unreachable!(),
+            Dictionary::Global => {
+                DictionaryType::Global
+            }
+            Dictionary::Template => {
+                DictionaryType::Template(*self.template_id.must_peek())
+            }
+            Dictionary::Type => {
+                let name = match self.type_ref.must_peek() {
+                    TypeRef::Any => Rc::from("__any__"),
+                    TypeRef::ApplicationType(name) => name.clone(),
+                };
+                DictionaryType::Type(name)
+            },
+            Dictionary::UserDefined(name) => {
+                DictionaryType::UserDefined(name.clone())
+            }
         }
     }
 }

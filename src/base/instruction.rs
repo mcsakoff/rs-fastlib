@@ -6,7 +6,7 @@ use roxmltree::Node;
 use crate::{Decimal, Error, Result};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::decoder::state::DecoderState;
+use crate::decoder::decoder::DecoderContext;
 
 const MAX_INT32: i64 = 2147483647;
 const MIN_INT32: i64 = -2147483648;
@@ -370,7 +370,7 @@ impl Instruction {
         }
     }
 
-    pub(crate) fn extract(&self, s: &mut DecoderState) -> Result<Option<Value>> {
+    pub(crate) fn extract(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.operator {
             Operator::None => {
                 let v = self.read(s)?;
@@ -630,7 +630,7 @@ impl Instruction {
         }
     }
 
-    fn read(&self, s: &mut DecoderState) -> Result<Option<Value>> {
+    fn read(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.value_type {
             ValueType::UInt32 | ValueType::Length => {
                 match self.read_uint32(s)? {
@@ -700,7 +700,7 @@ impl Instruction {
         }
     }
 
-    fn read_uint32(&self, s: &mut DecoderState) -> Result<Option<u32>> {
+    fn read_uint32(&self, s: &mut DecoderContext) -> Result<Option<u32>> {
         if self.is_nullable() {
             match s.rdr.read_uint_nullable()? {
                 None => Ok(None),
@@ -720,7 +720,7 @@ impl Instruction {
         }
     }
 
-    fn read_uint64(&self, s: &mut DecoderState) -> Result<Option<u64>> {
+    fn read_uint64(&self, s: &mut DecoderContext) -> Result<Option<u64>> {
         if self.is_nullable() {
             Ok(s.rdr.read_uint_nullable()?)
         } else {
@@ -728,7 +728,7 @@ impl Instruction {
         }
     }
 
-    fn read_int32(&self, s: &mut DecoderState) -> Result<Option<i32>> {
+    fn read_int32(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
         if self.is_nullable() {
             match s.rdr.read_int_nullable()? {
                 None => Ok(None),
@@ -748,7 +748,7 @@ impl Instruction {
         }
     }
 
-    fn read_int64(&self, s: &mut DecoderState) -> Result<Option<i64>> {
+    fn read_int64(&self, s: &mut DecoderContext) -> Result<Option<i64>> {
         if self.is_nullable() {
             Ok(s.rdr.read_int_nullable()?)
         } else {
@@ -756,7 +756,7 @@ impl Instruction {
         }
     }
 
-    fn read_ascii_string(&self, s: &mut DecoderState) -> Result<Option<String>> {
+    fn read_ascii_string(&self, s: &mut DecoderContext) -> Result<Option<String>> {
         if self.is_nullable() {
             Ok(s.rdr.read_ascii_string_nullable()?)
         } else {
@@ -764,7 +764,7 @@ impl Instruction {
         }
     }
 
-    fn read_unicode_string(&self, s: &mut DecoderState) -> Result<Option<String>> {
+    fn read_unicode_string(&self, s: &mut DecoderContext) -> Result<Option<String>> {
         if self.is_nullable() {
             Ok(s.rdr.read_unicode_string_nullable()?)
         } else {
@@ -772,7 +772,7 @@ impl Instruction {
         }
     }
 
-    fn read_bytes(&self, s: &mut DecoderState) -> Result<Option<Vec<u8>>> {
+    fn read_bytes(&self, s: &mut DecoderContext) -> Result<Option<Vec<u8>>> {
         if self.is_nullable() {
             Ok(s.rdr.read_bytes_nullable()?)
         } else {
@@ -783,7 +783,7 @@ impl Instruction {
     // The delta operator specifies that a delta value is present in the stream.
     // If the field has optional presence, the delta value can be NULL. In that case the value of the field
     // is considered absent. Otherwise, the field is obtained by combining the delta value with a base value.
-    fn read_delta(&self, s: &mut DecoderState) -> Result<Option<(Value, i32)>> {
+    fn read_delta(&self, s: &mut DecoderContext) -> Result<Option<(Value, i32)>> {
         match self.value_type {
             ValueType::UInt32 | ValueType::Int32 | ValueType::UInt64 | ValueType::Int64 |
             ValueType::Length | ValueType::Exponent | ValueType::Mantissa => {
@@ -814,7 +814,7 @@ impl Instruction {
         }
     }
 
-    fn read_tail(&self, s: &mut DecoderState) -> Result<Option<Value>> {
+    fn read_tail(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.value_type {
             ValueType::ASCIIString => {
                 let tail = self.read_ascii_string(s)?.unwrap();
@@ -828,7 +828,7 @@ impl Instruction {
         }
     }
 
-    fn read_decimal_components(&self, s: &mut DecoderState) -> Result<Option<(i32, i64)>> {
+    fn read_decimal_components(&self, s: &mut DecoderContext) -> Result<Option<(i32, i64)>> {
         let exponent = self.instructions
             .get(0)
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
@@ -848,7 +848,7 @@ impl Instruction {
         }
     }
 
-    fn read_exponent(&self, s: &mut DecoderState) -> Result<Option<i32>> {
+    fn read_exponent(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
         let e = match self.read_int32(s)? {
             None => return Ok(None),
             Some(e) => e,

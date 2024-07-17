@@ -16,14 +16,14 @@ pub enum DictionaryType {
 /// Created when decoder is created.
 /// Destroyed when decoder is destroyed.
 /// Can be reset during messages decoding.
-pub(crate) struct DecoderContext {
+pub(crate) struct Context {
     global: HashMap<Rc<str>, Option<Value>>,
     template: HashMap<u32, HashMap<Rc<str>, Option<Value>>>,
     type_: HashMap<Rc<str>, HashMap<Rc<str>, Option<Value>>>,
     user: HashMap<Rc<str>, HashMap<Rc<str>, Option<Value>>>,
 }
 
-impl DecoderContext {
+impl Context {
     pub(crate) fn new() -> Self {
         Self {
             global: HashMap::new(),

@@ -29,8 +29,8 @@ struct TestTemplate {
 }
 
 fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
-    assert_eq!(d.templates.len(), tts.len(), "templates count mismatch");
-    for (t, tt) in d.templates.iter().zip(tts) {
+    assert_eq!(d.definitions.templates.len(), tts.len(), "templates count mismatch");
+    for (t, tt) in d.definitions.templates.iter().zip(tts) {
         assert_eq!(t.id, tt.id, "{} id mismatch", t.name);
         assert_eq!(t.name, t.name, "{} name mismatch", t.name);
         assert_eq!(t.dictionary, tt.dictionary, "{} dictionary mismatch", t.name);

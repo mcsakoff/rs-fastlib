@@ -8,7 +8,7 @@ use super::*;
 #[test]
 fn parse_xml_template() {
     let d = Decoder::new_from_xml(include_str!("templates/spec.xml")).unwrap();
-    assert_eq!(d.templates.len(), 16);
+    assert_eq!(d.definitions.templates.len(), 16);
 }
 
 struct TestCase {

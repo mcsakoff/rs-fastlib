@@ -157,6 +157,7 @@
 //!
 mod base;
 mod decoder;
+mod encoder;
 mod utils;
 mod text;
 
@@ -167,6 +168,7 @@ mod model;
 
 #[cfg(test)]
 mod tests;
+mod common;
 
 pub use decoder::{decoder::Decoder, reader::Reader};
 pub use base::{value::Value, decimal::Decimal};
