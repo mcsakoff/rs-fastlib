@@ -39,6 +39,7 @@ pub trait Reader {
             byte = self.read_u8()?
         }
     }
+
     fn read_uint(&mut self) -> Result<u64> {
         let mut value: u64 = 0;
         loop {
