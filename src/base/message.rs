@@ -1,4 +1,5 @@
 use crate::Value;
+use crate::Result;
 
 /// Defines the interface for message factories.
 ///
@@ -49,4 +50,30 @@ pub trait MessageFactory {
 
     /// Called when a template reference (\<templateRef>) processing is finished.
     fn stop_template_ref(&mut self);
+}
+
+/// Defines the interface for message visitors.
+///
+/// The callback functions are called when the specific information required during message processing.
+///
+pub trait MessageVisitor {
+    fn get_template_name(&mut self) -> Result<String>;
+
+    fn get_value(&mut self, name: &str) -> Result<Option<Value>>;
+
+    fn select_group(&mut self, name: &str) -> Result<bool>;
+
+    fn release_group(&mut self) -> Result<()>;
+
+    fn select_sequence(&mut self, name: &str) -> Result<Option<usize>>;
+
+    fn select_sequence_item(&mut self, index: usize) -> Result<()>;
+
+    fn release_sequence_item(&mut self) -> Result<()>;
+
+    fn release_sequence(&mut self) -> Result<()>;
+
+    fn select_template_ref(&mut self, name: &str, dynamic: bool) -> Result<Option<String>>;
+
+    fn release_template_ref(&mut self) -> Result<()>;
 }

@@ -132,11 +132,14 @@ fn test_model_data() {
             },
         },
         TestCase {
-            input: vec![0xe0, 0x88, 0x87],
+            input: vec![0xe0, 0x88, 0x86, 0x87],
             result: TemplateData {
                 name: "StaticReference".to_string(),
                 value: ValueData::Group(HashMap::from([
                     (
+                        "PreRefData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(6))),
+                    ), (
                         "TestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(7))),
                     )
@@ -144,11 +147,14 @@ fn test_model_data() {
             },
         },
         TestCase {
-            input: vec![0xc0, 0x89, 0xe0, 0x87, 0x85],
+            input: vec![0xc0, 0x89, 0x86,0xe0, 0x87, 0x85],
             result: TemplateData {
                 name: "DynamicReference".to_string(),
                 value: ValueData::Group(HashMap::from([
                     (
+                        "PreRefData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(6))),
+                    ), (
                         "templateRef:0".to_string(),
                         ValueData::DynamicTemplateRef(
                             Box::new(TemplateData {

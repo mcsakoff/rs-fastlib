@@ -1,18 +1,24 @@
+use hashbrown::HashMap;
 use crate::base::types::Dictionary;
 use crate::base::instruction::Instruction;
-use crate::base::message::MessageFactory;
+use crate::base::message::{MessageFactory};
 use crate::base::types::Operator;
 use crate::base::types::Presence;
 use crate::base::value::ValueType;
 use crate::decoder::decoder::Decoder;
+use crate::encoder::encoder::Encoder;
+use crate::model::{ModelFactory, ModelVisitor};
+use crate::model::template::TemplateData;
+use crate::model::value::ValueData;
 use crate::Value;
 
 mod base;
 mod base_serde;
 mod spec;
+mod spec2;
 mod model;
 
-struct TestField {
+pub struct TestField {
     id: u32,
     name: &'static str,
     presence: Presence,
@@ -21,14 +27,15 @@ struct TestField {
     instructions: Vec<TestField>,
     has_pmap: bool,
 }
-struct TestTemplate {
+
+pub struct TestTemplate {
     id: u32,
     name: &'static str,
     dictionary: Dictionary,
     instructions: Vec<TestField>,
 }
 
-fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
+pub fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
     assert_eq!(d.definitions.templates.len(), tts.len(), "templates count mismatch");
     for (t, tt) in d.definitions.templates.iter().zip(tts) {
         assert_eq!(t.id, tt.id, "{} id mismatch", t.name);
@@ -38,7 +45,7 @@ fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
     }
 }
 
-fn test_instructions(iss: &Vec<Instruction>, tis: &Vec<TestField>, name: &str) {
+pub fn test_instructions(iss: &Vec<Instruction>, tis: &Vec<TestField>, name: &str) {
     assert_eq!(iss.len(), tis.len(), "{name} fields count mismatch");
     for (t, tt) in iss.iter().zip(tis) {
         assert_eq!(t.id, tt.id, "{} id mismatch", tt.name);
@@ -107,4 +114,89 @@ impl MessageFactory for LoggingMessageFactory {
     fn stop_template_ref(&mut self) {
         self.calls.push("stop_template_ref".to_string());
     }
+}
+
+pub struct TestMsgValue<'a> {
+    pub template: &'a str,
+    pub value: Option<Value>,
+}
+
+pub struct TestCase<'a> {
+    name: &'a str,
+    raw: Vec<u8>,
+    data: TestMsgValue<'a>,
+}
+
+pub struct TestCaseSeq<'a> {
+    name: &'a str,
+    raw: Vec<Vec<u8>>,
+    data: Vec<TestMsgValue<'a>>,
+}
+
+fn extract_value(msg: ModelFactory, name: &str, test_name: &str) -> Option<Value> {
+    match msg.data.unwrap().value {
+        ValueData::Group(g) => {
+            match g.get(name).unwrap() {
+                ValueData::Value(v) => v.clone(),
+                _ => panic!("{} failed (Value expected)", test_name),
+            }
+        }
+        _ => panic!("{} failed (Group expected)", test_name),
+    }
+}
+
+fn pack_value(templaet_name: &str, name: &str, value: Option<Value>) -> TemplateData {
+    TemplateData {
+        name: templaet_name.to_string(),
+        value: ValueData::Group(HashMap::from([
+            (name.to_string(), ValueData::Value(value)),
+        ])),
+    }
+}
+
+fn do_test(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCase)
+{
+    let mut d = Decoder::new_from_xml(definitions).unwrap();
+    let mut e = Encoder::new_from_xml(definitions).unwrap();
+    if decode {
+        test_decode(&mut d, &tt);
+    }
+    if encode {
+        test_encode(&mut e, &tt);
+    }
+    if decode && encode && context {
+        assert_eq!(d.context, e.context, "{} context mismatch", tt.name)
+    }
+}
+
+fn do_test_seq(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCaseSeq)
+{
+    let mut d = Decoder::new_from_xml(definitions).unwrap();
+    let mut e = Encoder::new_from_xml(definitions).unwrap();
+    for (i, (raw, data)) in tt.raw.into_iter().zip(tt.data).enumerate() {
+        let name = format!("{} #{}", tt.name, i + 1);
+        let tt = TestCase { name: &name, raw, data};
+        if decode {
+            test_decode(&mut d, &tt);
+        }
+        if encode {
+            test_encode(&mut e, &tt);
+        }
+        if decode && encode && context {
+            assert_eq!(d.context, e.context, "{} context mismatch", tt.name)
+        }
+    }
+}
+
+fn test_decode(decoder: &mut Decoder, tt: &TestCase) {
+    let mut msg = ModelFactory::new();
+    decoder.decode_vec(tt.raw.clone(), &mut msg).unwrap();
+    let data = extract_value(msg, "Value", tt.name);
+    assert_eq!(data, tt.data.value, "{} decode failed", tt.name);
+}
+
+fn test_encode(encoder: &mut Encoder, tt: &TestCase) {
+    let mut msg = ModelVisitor::new(pack_value(tt.data.template, "Value", tt.data.value.clone()));
+    let raw = encoder.encode_vec(&mut msg).unwrap();
+    assert_eq!(raw, tt.raw, "{} encode failed", tt.name);
 }

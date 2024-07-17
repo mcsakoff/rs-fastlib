@@ -1,7 +1,9 @@
 use hashbrown::HashMap;
 
-use crate::{MessageFactory, Value};
+use crate::{Error, MessageFactory, Value};
+use crate::base::message::MessageVisitor;
 use crate::utils::stacked::Stacked;
+use crate::Result;
 
 use self::template::TemplateData;
 use self::value::ValueData;
@@ -122,8 +124,8 @@ impl MessageFactory for ModelFactory {
                 name: name.to_string(),
                 value: ValueData::None,
             }));
-            self.context.push((format!("templateRef:{}", self.ref_num.must_peek()), tpl_ref));
             let rc = self.ref_num.must_peek_mut();
+            self.context.push((format!("templateRef:{}", rc), tpl_ref));
             *rc += 1;
         } else {
             let tpl_ref = ValueData::StaticTemplateRef(name.to_string(), Box::new(ValueData::None));
@@ -158,5 +160,207 @@ impl MessageFactory for ModelFactory {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+/// # Model Visitor
+/// Template model for serialization and message encoding.
+pub struct ModelVisitor {
+    data: TemplateData,
+
+    /// Stores current context value.
+    /// Here context value can be `ValueData::Group` or `ValueData::Sequence`.
+    context: Stacked<ValueData>,
+
+    // Indicates whether the current reference is dynamic.
+    ref_dynamic: Stacked<bool>,
+
+    // Counter for dynamic references.
+    // Used to generate unique names for dynamic references within one context.
+    ref_num: Stacked<u32>,
+}
+
+impl ModelVisitor {
+    #[allow(unused)]
+    pub fn new(data: TemplateData) -> Self {
+        Self {
+            data,
+            context: Stacked::new_empty(),
+            ref_dynamic: Stacked::new_empty(),
+            ref_num: Stacked::new(0),
+        }
+    }
+}
+
+impl MessageVisitor for ModelVisitor {
+    fn get_template_name(&mut self) -> Result<String> {
+        match self.data.value {
+            ValueData::Group(_) => {
+                self.context.push(self.data.value.clone());
+                Ok(self.data.name.clone())
+            }
+            _ => {
+                Err(Error::Runtime(format!("Template {} data expected to be ValueData::Group, got {:?}", self.data.name, self.data.value)))
+            }
+        }
+    }
+
+    fn get_value(&mut self, name: &str) -> Result<Option<Value>> {
+        match self.context.must_peek() {
+            ValueData::Group(context) => {
+                if let Some(v) = context.get(name) {
+                    match v {
+                        ValueData::Value(v) => {
+                            Ok(v.clone())
+                        }
+                        _ => {
+                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Value, got {:?}", v)))
+                        }
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn select_group(&mut self, name: &str) -> Result<bool> {
+        self.ref_num.push(0);
+        match self.context.must_peek() {
+            ValueData::Group(context) => {
+                if let Some(v) = context.get(name) {
+                    match v {
+                        ValueData::None | ValueData::Value(None) => {
+                            Ok(false)
+                        }
+                        ValueData::Group(_) => {
+                            self.context.push(v.clone());
+                            Ok(true)
+                        }
+                        _ => {
+                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Group, got {:?}", v)))
+                        }
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn release_group(&mut self) -> Result<()> {
+        self.context.pop();
+        self.ref_num.pop();
+        Ok(())
+    }
+
+    fn select_sequence(&mut self, name: &str) -> Result<Option<usize>> {
+        match self.context.must_peek() {
+            ValueData::Group(context) => {
+                if let Some(v) = context.get(name) {
+                    match v {
+                        ValueData::None | ValueData::Value(None) => {
+                            Ok(None)
+                        }
+                        ValueData::Sequence(s) => {
+                            let len  = s.len();
+                            self.context.push(v.clone());
+                            Ok(Some(len))
+                        }
+                        _ => {
+                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Sequence, got: {:?}", v)))
+                        }
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn select_sequence_item(&mut self, index: usize) -> Result<()> {
+        self.ref_num.push(0);
+        match self.context.must_peek() {
+            ValueData::Sequence(sequence) => {
+                if let Some(v) = sequence.get(index) {
+                    match v {
+                        ValueData::Group(_) => {
+                            self.context.push(v.clone());
+                            Ok(())
+                        }
+                        _ => {
+                            Err(Error::Runtime(format!("Sequence item #{index} expected to be ValueData::Group, got {:?}", v)))
+                        }
+                    }
+                } else {
+                    Err(Error::Runtime(format!("Sequence item #{index} not found")))
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn release_sequence_item(&mut self) -> Result<()> {
+        self.context.pop();
+        self.ref_num.pop();
+        Ok(())
+    }
+
+    fn release_sequence(&mut self) -> Result<()> {
+        self.context.pop();
+        Ok(())
+    }
+
+    fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<String>> {
+        self.ref_dynamic.push(dynamic);
+        if dynamic {
+            let rc = self.ref_num.must_peek_mut();
+            let name = format!("templateRef:{}", rc);
+            *rc += 1;
+            self.ref_num.push(0);
+            match self.context.must_peek() {
+                ValueData::Group(context) => {
+                    if let Some(v) = context.get(&name) {
+                        match v {
+                            ValueData::None => {
+                                return Ok(None)
+                            }
+                            ValueData::DynamicTemplateRef(t) => {
+                                match t.value {
+                                    ValueData::Group(_) => {
+                                        let template_name = t.name.clone();
+                                        self.context.push(t.value.clone());
+                                        Ok(Some(template_name))
+                                    }
+                                    _ => {
+                                        Err(Error::Runtime(format!("Field {name} value expected to be ValueData::Group, got {:?}", t.value)))
+                                    }}
+                            }
+                            _ => {
+                                Err(Error::Runtime(format!("Field {name} expected to be ValueData::DynamicTemplateRef, got {:?}", v)))
+                            }
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        } else {
+            self.ref_num.push(0);
+            // do nothing because static template ref is embedded into current context
+            Ok(None)
+        }
+    }
+
+    fn release_template_ref(&mut self) -> Result<()> {
+        self.ref_num.pop();
+        if self.ref_dynamic.pop().unwrap() {
+            self.context.pop();
+        }
+        Ok(())
     }
 }

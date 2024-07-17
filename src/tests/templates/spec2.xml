@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+
+    <template id="1" name="Mandatory">
+        <uInt32 id="1" name="Value" />
+    </template>
+
+    <template id="2" name="Optional">
+        <uInt32 id="1" name="Value" presence="optional"/>
+    </template>
+
+    <template id="3" name="MandatoryCopy">
+        <uInt32 id="1" name="Value">
+            <copy/>
+        </uInt32>
+    </template>
+
+    <template id="4" name="OptionalCopy">
+        <uInt32 id="1" name="Value" presence="optional">
+            <copy/>
+        </uInt32>
+    </template>
+
+    <template id="5" name="MandatoryConstant">
+        <uInt32 id="1" name="Value">
+            <constant value="4"/>
+        </uInt32>
+    </template>
+
+    <template id="6" name="OptionalConstant">
+        <uInt32 id="1" name="Value" presence="optional">
+            <constant value="4"/>
+        </uInt32>
+    </template>
+
+    <template id="7" name="MandatoryDefault">
+        <uInt32 id="1" name="Value">
+            <default value="4"/>
+        </uInt32>
+    </template>
+
+    <template id="8" name="OptionalDefaultNone">
+        <uInt32 id="1" name="Value" presence="optional">
+            <default />
+        </uInt32>
+    </template>
+
+    <template id="9" name="OptionalDefaultValue">
+        <uInt32 id="1" name="Value" presence="optional">
+            <default value="4"/>
+        </uInt32>
+    </template>
+
+    <template id="10" name="MandatoryTail">
+        <string id="1" name="Value">
+            <tail />
+        </string>
+    </template>
+
+    <template id="11" name="OptionalTail">
+        <string id="1" name="Value" presence="optional">
+            <tail />
+        </string>
+    </template>
+
+    <template id="12" name="OptionalTailDefault">
+        <string id="1" name="Value" presence="optional">
+            <tail value="ABC"/>
+        </string>
+    </template>
+
+</templates>

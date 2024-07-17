@@ -3,14 +3,18 @@
 //! See: https://github.com/mcsakoff/goFAST/tree/main
 //!
 use std::io::Cursor;
+use hashbrown::HashMap;
 use crate::decoder::decoder::Decoder;
-use crate::Error;
+use crate::encoder::encoder::Encoder;
+use crate::{Decimal, Error};
+use crate::model::{ModelFactory, ModelVisitor};
+use crate::model::value::ValueData;
 use super::*;
 
 #[test]
 fn parse_xml_template() {
     let d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-        test_templates(&d, &vec![
+    test_templates(&d, &vec![
         TestTemplate {
             id: 1,
             name: "Integer",
@@ -88,7 +92,7 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 2,
@@ -131,7 +135,7 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 3,
@@ -156,7 +160,7 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 4,
@@ -374,8 +378,8 @@ fn parse_xml_template() {
                         },
                     ],
                     has_pmap: true,
-                }
-            ]
+                },
+            ],
         },
         TestTemplate {
             id: 6,
@@ -425,11 +429,11 @@ fn parse_xml_template() {
                                 },
                             ],
                             has_pmap: false,
-                        }
+                        },
                     ],
                     has_pmap: true,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 7,
@@ -445,13 +449,22 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 8,
             name: "StaticReference",
             dictionary: Dictionary::Global,
             instructions: vec![
+                TestField {
+                    id: 1,
+                    name: "PreRefData",
+                    presence: Presence::Mandatory,
+                    operator: Operator::None,
+                    value: ValueType::UInt32,
+                    instructions: vec![],
+                    has_pmap: false,
+                },
                 TestField {
                     id: 0,
                     name: "RefData",
@@ -461,13 +474,22 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
         TestTemplate {
             id: 9,
             name: "DynamicReference",
             dictionary: Dictionary::Global,
             instructions: vec![
+                TestField {
+                    id: 1,
+                    name: "PreRefData",
+                    presence: Presence::Mandatory,
+                    operator: Operator::None,
+                    value: ValueType::UInt32,
+                    instructions: vec![],
+                    has_pmap: false,
+                },
                 TestField {
                     id: 0,
                     name: "",
@@ -477,215 +499,233 @@ fn parse_xml_template() {
                     instructions: vec![],
                     has_pmap: false,
                 },
-            ]
+            ],
         },
     ]);
 }
 
-#[test]
-fn decode_integers() {
-    let r = vec![0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80, 0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 1:Integer",
-            "set_value: 1:MandatoryUint32 Some(UInt32(3))",
-            "set_value: 2:OptionalUint32 Some(UInt32(4))",
-            "set_value: 3:MandatoryUint64 Some(UInt64(9999999998))",
-            "set_value: 4:OptionalUint64 Some(UInt64(9999999999))",
-            "set_value: 5:MandatoryInt32 Some(Int32(5))",
-            "set_value: 6:OptionalInt32 Some(Int32(6))",
-            "set_value: 7:MandatoryInt64 Some(Int64(2222222221))",
-            "set_value: 8:OptionalInt64 Some(Int64(2222222222))",
-        "stop_template",
-    ]);
+fn do_test(raw: Vec<u8>, data: TemplateData) {
+    {
+        let mut msg = ModelFactory::new();
+        let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+        d.decode_vec(raw.clone(), &mut msg).unwrap();
+        assert_eq!(msg.data.unwrap(), data, "decode mismatch");
+    }
+    {
+        let mut msg = ModelVisitor::new(data.clone());
+        let mut e = Encoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+        assert_eq!(e.encode_vec(&mut msg).unwrap(), raw, "encode mismatch");
+    }
 }
 
 #[test]
-fn decode_strings() {
-    let r = vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 2:String",
-            "set_value: 1:MandatoryAscii Some(ASCIIString(\"abc\"))",
-            "set_value: 2:OptionalAscii Some(ASCIIString(\"def\"))",
-            "set_value: 3:MandatoryUnicode Some(UnicodeString(\"ghi\"))",
-            "set_value: 4:OptionalUnicode Some(UnicodeString(\"klm\"))",
-        "stop_template",
-    ]);
+fn decode_encode_integers() {
+    do_test(
+        vec![0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80, 0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f],
+        TemplateData {
+            name: "Integer".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("MandatoryUint32".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
+                ("OptionalUint32".to_string(), ValueData::Value(Some(Value::UInt32(4)))),
+                ("MandatoryUint64".to_string(), ValueData::Value(Some(Value::UInt64(9999999998)))),
+                ("OptionalUint64".to_string(), ValueData::Value(Some(Value::UInt64(9999999999)))),
+                ("MandatoryInt32".to_string(), ValueData::Value(Some(Value::Int32(5)))),
+                ("OptionalInt32".to_string(), ValueData::Value(Some(Value::Int32(6)))),
+                ("MandatoryInt64".to_string(), ValueData::Value(Some(Value::Int64(2222222221)))),
+                ("OptionalInt64".to_string(), ValueData::Value(Some(Value::Int64(2222222222)))),
+            ])),
+        },
+    );
 }
 
 #[test]
-fn decode_bytes() {
-    let r = vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 3:ByteVector",
-            "set_value: 1:MandatoryVector Some(Bytes([193]))",
-            "set_value: 2:OptionalVector Some(Bytes([179]))",
-        "stop_template",
-    ]);
+fn decode_encode_strings() {
+    do_test(
+        vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d],
+        TemplateData {
+            name: "String".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("MandatoryAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("abc".to_string())))),
+                ("OptionalAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("def".to_string())))),
+                ("MandatoryUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("ghi".to_string())))),
+                ("OptionalUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("klm".to_string())))),
+            ])),
+        });
 }
 
 #[test]
-fn decode_decimals_1() {
-    let r = vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 4:Decimal",
-            "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
-            "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
-            "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
-            "set_value: 4:IndividualDecimalOpt Some(Decimal(Decimal { exponent: -1, mantissa: 111 }))",
-        "stop_template",
-    ]);
+fn decode_encode_bytes() {
+    do_test(
+        vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3],
+        TemplateData {
+            name: "ByteVector".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("MandatoryVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![193])))),
+                ("OptionalVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![179])))),
+            ])),
+        },
+    );
 }
 
 #[test]
-fn decode_decimals_2() {
-    let r = vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 4:Decimal",
-            "set_value: 1:CopyDecimal Some(Decimal(Decimal { exponent: -2, mantissa: 515 }))",
-            "set_value: 2:MandatoryDecimal Some(Decimal(Decimal { exponent: -1, mantissa: 1546 }))",
-            "set_value: 3:IndividualDecimal Some(Decimal(Decimal { exponent: -4, mantissa: 32 }))",
-            "set_value: 4:IndividualDecimalOpt None",
-        "stop_template",
-    ]);
+fn decode_encode_decimals_1() {
+    do_test(
+        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef],
+        TemplateData {
+            name: "Decimal".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("CopyDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515))))),
+                ("MandatoryDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546))))),
+                ("IndividualDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32))))),
+                ("IndividualDecimalOpt".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 111))))),
+            ])),
+        },
+    );
 }
 
 #[test]
-fn decode_sequence_1() {
-    let r = vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 5:Sequence",
-            "set_value: 1:TestData Some(UInt32(1))",
-            "start_sequence: 0:OuterSequence 1",
-                "start_sequence_item: 0",
-                    "set_value: 3:OuterTestData Some(UInt32(2))",
-                    "start_sequence: 0:InnerSequence 2",
-                        "start_sequence_item: 0",
-                            "set_value: 5:InnerTestData Some(UInt32(3))",
-                        "stop_sequence_item",
-                        "start_sequence_item: 1",
-                            "set_value: 5:InnerTestData Some(UInt32(4))",
-                        "stop_sequence_item",
-                    "stop_sequence",
-                "stop_sequence_item",
-            "stop_sequence",
-            "start_sequence: 0:NextOuterSequence 1",
-                "start_sequence_item: 0",
-                    "set_value: 7:NextOuterTestData Some(UInt32(2))",
-                "stop_sequence_item",
-            "stop_sequence",
-        "stop_template",
-    ]);
+fn decode_encode_decimals_2() {
+    do_test(
+        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80],
+        TemplateData {
+            name: "Decimal".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("CopyDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515))))),
+                ("MandatoryDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546))))),
+                ("IndividualDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32))))),
+                ("IndividualDecimalOpt".to_string(), ValueData::Value(None)),
+            ])),
+        },
+    );
 }
 
 #[test]
-fn decode_sequence_2() {
-    let r = vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 5:Sequence",
-            "set_value: 1:TestData Some(UInt32(1))",
-            "start_sequence: 0:OuterSequence 1",
-                "start_sequence_item: 0",
-                    "set_value: 3:OuterTestData Some(UInt32(2))",
-                "stop_sequence_item",
-            "stop_sequence",
-            "start_sequence: 0:NextOuterSequence 1",
-                "start_sequence_item: 0",
-                    "set_value: 7:NextOuterTestData Some(UInt32(2))",
-                "stop_sequence_item",
-            "stop_sequence",
-        "stop_template",
-    ]);
+fn decode_encode_sequence_1() {
+    do_test(
+        vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82],
+        TemplateData {
+            name: "Sequence".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
+                ("OuterSequence".to_string(), ValueData::Sequence(vec![
+                    ValueData::Group(HashMap::from([
+                        ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                        ("InnerSequence".to_string(), ValueData::Sequence(vec![
+                            ValueData::Group(HashMap::from([
+                                ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
+                            ])),
+                            ValueData::Group(HashMap::from([
+                                ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(4)))),
+                            ])),
+                        ])),
+                    ])),
+                ])),
+                ("NextOuterSequence".to_string(), ValueData::Sequence(vec![
+                    ValueData::Group(HashMap::from([
+                        ("NextOuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                    ])),
+                ])),
+            ])),
+        }
+    );
 }
 
 #[test]
-fn decode_group_1() {
-    let r = vec![0xc0, 0x86, 0x81, 0xc0, 0x82, 0x83];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 6:Group",
-            "set_value: 1:TestData Some(UInt32(1))",
-            "start_group: OuterGroup",
-                "set_value: 2:OuterTestData Some(UInt32(2))",
-                "start_group: InnerGroup",
-                    "set_value: 3:InnerTestData Some(UInt32(3))",
-                "stop_group",
-            "stop_group",
-        "stop_template",
-    ]);
+fn decode_encode_sequence_2() {
+    do_test(
+        vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82],
+        TemplateData {
+            name: "Sequence".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
+                ("OuterSequence".to_string(), ValueData::Sequence(vec![
+                    ValueData::Group(HashMap::from([
+                        ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                    ])),
+                ])),
+                ("NextOuterSequence".to_string(), ValueData::Sequence(vec![
+                    ValueData::Group(HashMap::from([
+                        ("NextOuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                    ])),
+                ])),
+            ])),
+        }
+    );
 }
 
 #[test]
-fn decode_group_2() {
-    let r = vec![0xc0, 0x86, 0x81, 0x80, 0x82];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 6:Group",
-            "set_value: 1:TestData Some(UInt32(1))",
-            "start_group: OuterGroup",
-                "set_value: 2:OuterTestData Some(UInt32(2))",
-            "stop_group",
-        "stop_template",
-    ]);
+fn decode_encode_group_1() {
+    do_test(
+        vec![0xc0, 0x86, 0x81, 0xc0, 0x82, 0x83],
+        TemplateData {
+            name: "Group".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
+                ("OuterGroup".to_string(), ValueData::Group(HashMap::from([
+                    ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                    ("InnerGroup".to_string(), ValueData::Group(HashMap::from([
+                        ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
+                    ]))),
+                ]))),
+            ])),
+        },
+    );
+}
+
+#[test]
+fn decode_encode_group_2() {
+    do_test(
+        vec![0xc0, 0x86, 0x81, 0x80, 0x82],
+        TemplateData {
+            name: "Group".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
+                ("OuterGroup".to_string(), ValueData::Group(HashMap::from([
+                    ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
+                ]))),
+            ])),
+        }
+    );
 }
 
 #[test]
 fn decode_static_reference() {
-    let r = vec![0xe0, 0x88, 0x87];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 8:StaticReference",
-            "start_template_ref: RefData:false",
-                "set_value: 1:TestData Some(UInt32(7))",
-            "stop_template_ref",
-        "stop_template",
-    ]);
+    do_test(
+        vec![0xe0, 0x88, 0x86, 0x87],
+        TemplateData {
+            name: "StaticReference".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("PreRefData".to_string(), ValueData::Value(Some(Value::UInt32(6)))),
+                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(7))))
+            ])),
+        }
+    );
 }
 
 #[test]
 fn decode_dynamic_reference() {
-    let r = vec![0xc0, 0x89, 0xe0, 0x87, 0x85];
-    let mut msg = LoggingMessageFactory::new();
-    let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    d.decode_vec(r, &mut msg).unwrap();
-    assert_eq!(&msg.calls, &vec![
-        "start_template: 9:DynamicReference",
-            "start_template_ref: RefData:true",
-                "set_value: 1:TestData Some(UInt32(5))",
-            "stop_template_ref",
-        "stop_template",
-    ]);
+    do_test(
+        vec![0xc0, 0x89, 0x86,0xe0, 0x87, 0x85],
+        TemplateData {
+            name: "DynamicReference".to_string(),
+            value: ValueData::Group(HashMap::from([
+                ("PreRefData".to_string(), ValueData::Value(Some(Value::UInt32(6)))),
+                ("templateRef:0".to_string(), ValueData::DynamicTemplateRef(
+                    Box::new(TemplateData {
+                        name: "RefData".to_string(),
+                        value: ValueData::Group(HashMap::from([
+                            ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(5))))
+                        ])),
+                    })
+                ))
+            ])),
+        }
+    );
 }
 
 #[test]
 fn decode_eof() {
-    let mut r: Cursor<Vec<u8>>  = Cursor::new(vec![]);
+    let mut r: Cursor<Vec<u8>> = Cursor::new(vec![]);
     let mut msg = LoggingMessageFactory::new();
     let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
     let res = d.decode_stream(&mut r, &mut msg);
@@ -697,7 +737,7 @@ fn decode_eof() {
 
 #[test]
 fn decode_unexpected_eof() {
-    let mut r: Cursor<Vec<u8>>  = Cursor::new(vec![0x00]);
+    let mut r: Cursor<Vec<u8>> = Cursor::new(vec![0x00]);
     let mut msg = LoggingMessageFactory::new();
     let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
     let res = d.decode_stream(&mut r, &mut msg);

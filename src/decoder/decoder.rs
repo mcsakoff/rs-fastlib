@@ -353,8 +353,16 @@ impl<'a> DecoderContext<'a> {
     }
 
     #[inline]
-    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Value>> {
-        self.context.get(self.make_dict_type(), &i.key)
+    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
+        let v = self.context.get(self.make_dict_type(), &i.key);
+        if let Some(Some(ref v)) = v {
+            if !i.value_type.matches_type(v) {
+                // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+                // the same type as the value of the entry.
+                return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
+            }
+        }
+        Ok(v)
     }
 
     fn make_dict_type(&self) -> DictionaryType {

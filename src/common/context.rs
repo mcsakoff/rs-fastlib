@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use hashbrown::HashMap;
 
-use crate::{Error, Result};
 use crate::Value;
 
 pub enum DictionaryType {
@@ -16,6 +15,7 @@ pub enum DictionaryType {
 /// Created when decoder is created.
 /// Destroyed when decoder is destroyed.
 /// Can be reset during messages decoding.
+#[derive(Debug, PartialEq)]
 pub(crate) struct Context {
     global: HashMap<Rc<str>, Option<Value>>,
     template: HashMap<u32, HashMap<Rc<str>, Option<Value>>>,
@@ -75,38 +75,38 @@ impl Context {
         }
     }
 
-    pub(crate) fn get(&self, dict: DictionaryType, key: &Rc<str>) -> Result<Option<Value>> {
+    pub(crate) fn get(&self, dict: DictionaryType, key: &Rc<str>) -> Option<Option<Value>> {
         match dict {
             DictionaryType::Global => {
                 match self.global.get(key) {
-                    None => Err(Error::Runtime(format!("key {key} not found in global dictionary"))),
-                    Some(v) => Ok(v.clone()),
+                    None => None,
+                    Some(v) => Some(v.clone()),
                 }
             }
             DictionaryType::Template(id) => {
                 match self.template.get(&id) {
-                    None => Err(Error::Runtime(format!("sub-dictionary {id} not found in template dictionaries"))),
+                    None => None,
                     Some(hm) => match hm.get(key) {
-                        None => Err(Error::Runtime(format!("key {key} not found in {id} template dictionary"))),
-                        Some(v) => Ok(v.clone()),
+                        None => None,
+                        Some(v) => Some(v.clone()),
                     }
                 }
             }
             DictionaryType::Type(name) => {
                 match self.type_.get(&name) {
-                    None => Err(Error::Runtime(format!("sub-dictionary {name} not found in type dictionaries"))),
+                    None => None,
                     Some(hm) => match hm.get(key) {
-                        None => Err(Error::Runtime(format!("key {key} not found in {name} type dictionary"))),
-                        Some(v) => Ok(v.clone()),
+                        None => None,
+                        Some(v) => Some(v.clone()),
                     }
                 }
             }
             DictionaryType::UserDefined(name) => {
                 match self.user.get(&name) {
-                    None => Err(Error::Runtime(format!("sub-dictionary {name} not found in user dictionaries"))),
+                    None => None,
                     Some(hm) => match hm.get(key) {
-                        None => Err(Error::Runtime(format!("key {key} not found in {name} user dictionary"))),
-                        Some(v) => Ok(v.clone()),
+                        None => None,
+                        Some(v) => Some(v.clone()),
                     }
                 }
             }

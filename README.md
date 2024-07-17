@@ -23,7 +23,7 @@ Add to your `Cargo.toml`:
 fastlib = "0.3"
 ```
 
-### Deserialize using serde
+### Serialize/Deserialize using serde
 
 For templates defined in XML, e.g.:
 
@@ -47,15 +47,15 @@ For templates defined in XML, e.g.:
 Define the message types in Rust:
 
 ```rust
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 enum Message {
     MDHeartbeat(Heartbeat),
     MDLogout(Logout),
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct MsgHeader {
     #[serde(rename = "MsgSeqNum")]
     msg_seq_num: u32,
@@ -63,14 +63,14 @@ struct MsgHeader {
     sending_time: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Heartbeat {
     #[serde(flatten)]
     msg_header: MsgHeader,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Logout {
     #[serde(flatten)]
@@ -104,6 +104,25 @@ let raw_data: Vec<u8> = vec![ ... ];
 
 // Deserialize a message.
 let msg: Message = fastlib::from_vec(&mut decoder, raw_data)?;
+```
+
+To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes` or `to_stream`:
+
+```rust
+use fastlib::Encoder;
+
+// Create a encoder from XML templates.
+let mut encoder = Encoder::new_from_xml(include_str!("templates.xml"))?;
+
+// Message to serialize.
+let msg = Message::MDHeartbeat{
+    Heartbeat {
+        ...
+    }
+};
+
+// Serialize a message.
+let raw: Vec<u8> = fastlib::to_vec(&mut encoder, &msg)?;
 ```
 
 ### Decode to JSON
@@ -196,7 +215,7 @@ decoder.decode_vec(raw_data, &mut msg)?;
 
 ## TODO
 
-- Encoder.
+- Optimize encoder: use references instead of copying/cloning the data.
 
 
 ## License

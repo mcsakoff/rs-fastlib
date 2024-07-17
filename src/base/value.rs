@@ -1,7 +1,8 @@
+use std::cmp::min;
 use std::fmt::{Display, Formatter};
 
 use crate::{Error, Result};
-use crate::utils::bytes::string_to_bytes;
+use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
 use crate::base::decimal::Decimal;
 
 /// Represents type of field instruction.
@@ -105,6 +106,23 @@ impl ValueType {
         value.set_from_string(s)?;
         Ok(value)
     }
+
+    pub fn matches_type(&self, v: &Value) -> bool {
+        match (self, v) {
+            (ValueType::UInt32, Value::UInt32(_)) => true,
+            (ValueType::Int32, Value::Int32(_)) => true,
+            (ValueType::UInt64, Value::UInt64(_)) => true,
+            (ValueType::Int64, Value::Int64(_)) => true,
+            (ValueType::Length, Value::UInt32(_)) => true,
+            (ValueType::Exponent, Value::Int32(_)) => true,
+            (ValueType::Mantissa, Value::Int64(_)) => true,
+            (ValueType::Decimal, Value::Decimal(_)) => true,
+            (ValueType::ASCIIString, Value::ASCIIString(_)) => true,
+            (ValueType::UnicodeString, Value::UnicodeString(_)) => true,
+            (ValueType::Bytes, Value::Bytes(_)) => true,
+            _ => false
+        }
+    }
 }
 
 
@@ -157,6 +175,41 @@ impl Value {
     }
 
     pub fn apply_delta(&self, delta: Value, sub: i32) -> Result<Value> {
+
+        fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
+            // A negative subtraction length is used to remove values from the front of the string.
+            // Negative zero is used to append values to the front of the string.
+            let front: bool;
+            let mut i: usize;
+            if sub < 0 {
+                front = true;
+                i = (-sub - 1) as usize;
+            } else {
+                front = false;
+                i = sub as usize;
+            }
+            if i > len {
+                return Err(Error::Dynamic(format!("subtraction length ({i}) is larger than string length ('{len}')")));  // [ERR D7]
+            }
+            if !front {
+                i = len - i;
+            }
+            Ok((front, i))
+        }
+
+        fn bytes_delta(v: &[u8], d: &[u8], sub: i32) -> Result<Vec<u8>> {
+            let (front, i) = sub2index(sub, v.len())?;
+            let mut b = Vec::with_capacity(v.len() + d.len());
+            if front {
+                b.extend_from_slice(d);
+                b.extend_from_slice(&v[i..]);
+            } else {
+                b.extend_from_slice(&v[..i]);
+                b.extend_from_slice(d);
+            }
+            Ok(b)
+        }
+
         match (self, &delta) {
             (Value::UInt32(v), Value::Int64(d)) => {
                 if *d < 0 {
@@ -166,7 +219,7 @@ impl Value {
                 }
             }
             (Value::Int32(v), Value::Int64(d)) => {
-                Ok(Value::Int32(v + *d as i32))
+                Ok(Value::Int32(*v + *d as i32))
             }
             (Value::UInt64(v), Value::Int64(d)) => {
                 if *d < 0 {
@@ -176,7 +229,7 @@ impl Value {
                 }
             }
             (Value::Int64(v), Value::Int64(d)) => {
-                Ok(Value::Int64(v + *d))
+                Ok(Value::Int64(*v + *d))
             }
             (Value::ASCIIString(v), Value::ASCIIString(d)) => {
                 let (front, i) = sub2index(sub, v.len())?;
@@ -203,14 +256,14 @@ impl Value {
     pub fn apply_tail(&self, tail: Value) -> Result<Value> {
         let len: usize;
         match (self, &tail) {
-            (Value::ASCIIString(_), Value::ASCIIString(t)) => {
-                len = t.len();
+            (Value::ASCIIString(v), Value::ASCIIString(t)) => {
+                len = min(t.len(), v.len());
             }
-            (Value::UnicodeString(_), Value::Bytes(t)) => {
-                len = t.len();
+            (Value::UnicodeString(v), Value::Bytes(t)) => {
+                len = min(t.len(), v.len());
             }
-            (Value::Bytes(_), Value::Bytes(t)) => {
-                len = t.len();
+            (Value::Bytes(v), Value::Bytes(t)) => {
+                len = min(t.len(), v.len());
             }
             _ => return Err(Error::Runtime(format!("Cannot apply tail {:?} to {:?}", tail, self))),
         }
@@ -234,6 +287,58 @@ impl Value {
             _ => Err(Error::Runtime(format!("Cannot apply increment to {:?}", self)))
         }
     }
+
+    pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
+        match (self, prev) {
+            (Value::Int32(v), Value::Int32(p)) => {
+                Ok((Value::Int64((v - p) as i64), 0))
+            }
+            (Value::Int64(v), Value::Int64(p)) => {
+                Ok((Value::Int64(v - p), 0))
+            }
+            (Value::UInt32(v), Value::UInt32(p)) => {
+                Ok((Value::Int64(*v as i64 - *p as i64), 0))
+            }
+            (Value::UInt64(v), Value::UInt64(p)) => {
+                if *v < *p {
+                    Ok((Value::Int64(-((*p - *v) as i64)), 0))
+                } else {
+                    Ok((Value::Int64((*v - *p) as i64), 0))
+                }
+            }
+            (Value::ASCIIString(v), Value::ASCIIString(p)) => {
+                let (delta, sub) = string_delta(p, v)?;
+                Ok((Value::ASCIIString(delta.to_string()), sub))
+            }
+            (Value::UnicodeString(v), Value::UnicodeString(p)) => {
+                let (delta, sub) = bytes_delta(p.as_bytes(), v.as_bytes())?;
+                Ok((Value::Bytes(delta.to_vec()), sub))
+            }
+            (Value::Bytes(v), Value::Bytes(p)) => {
+                let (delta, sub) = bytes_delta(p, v)?;
+                Ok((Value::Bytes(delta.to_vec()), sub))
+            }
+            _ => unimplemented!()
+        }
+    }
+
+    pub fn find_tail(&self, prev: &Value) -> Result<Value> {
+        match (self, prev) {
+            (Value::ASCIIString(v), Value::ASCIIString(p)) => {
+                let tail = string_tail(p, v)?;
+                Ok(Value::ASCIIString(tail.to_string()))
+            }
+            (Value::UnicodeString(v), Value::UnicodeString(p)) => {
+                let tail = bytes_tail(p.as_bytes(), v.as_bytes())?;
+                Ok(Value::Bytes(tail.to_vec()))
+            }
+            (Value::Bytes(v), Value::Bytes(p)) => {
+                let tail = bytes_tail(p, v)?;
+                Ok(Value::Bytes(tail.to_vec()))
+            }
+            _ => unimplemented!()
+        }
+    }
 }
 
 impl Display for Value {
@@ -255,38 +360,4 @@ impl Display for Value {
             }
         }
     }
-}
-
-fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
-    // A negative subtraction length is used to remove values from the front of the string.
-    // Negative zero is used to append values to the front of the string.
-    let front: bool;
-    let mut i: usize;
-    if sub < 0 {
-        front = true;
-        i = (-sub - 1) as usize;
-    } else {
-        front = false;
-        i = sub as usize;
-    }
-    if i > len {
-        return Err(Error::Dynamic(format!("subtraction length ({i}) is larger than string length ('{len}')")))  // [ERR D7]
-    }
-    if !front {
-        i = len - i;
-    }
-    Ok((front, i))
-}
-
-fn bytes_delta(v: &[u8], d: &[u8], sub: i32) -> Result<Vec<u8>> {
-    let (front, i) = sub2index(sub, v.len())?;
-    let mut b = Vec::with_capacity(v.len() + d.len());
-    if front {
-        b.extend_from_slice(d);
-        b.extend_from_slice(&v[i..]);
-    } else {
-        b.extend_from_slice(&v[..i]);
-        b.extend_from_slice(d);
-    }
-    Ok(b)
 }

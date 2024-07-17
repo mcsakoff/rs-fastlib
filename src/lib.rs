@@ -13,7 +13,7 @@
 //!
 //! # Usage
 //!
-//! ## Deserialize using serde
+//! ## Serialize/Deserialize using serde
 //!
 //! For templates defined in XML, e.g.:
 //!
@@ -37,15 +37,15 @@
 //! Define the message types in Rust:
 //!
 //! ```rust,ignore
-//! use serde::Deserialize;
+//! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Deserialize)]
+//! #[derive(Serialize, Deserialize)]
 //! enum Message {
 //!     MDHeartbeat(Heartbeat),
 //!     MDLogout(Logout),
 //! }
 //!
-//! #[derive(Deserialize)]
+//! #[derive(Serialize, Deserialize)]
 //! struct MsgHeader {
 //!     #[serde(rename = "MsgSeqNum")]
 //!     msg_seq_num: u32,
@@ -53,14 +53,14 @@
 //!     sending_time: u64,
 //! }
 //!
-//! #[derive(Deserialize)]
+//! #[derive(Serialize, Deserialize)]
 //! #[serde(rename_all = "PascalCase")]
 //! struct Heartbeat {
 //!     #[serde(flatten)]
 //!     msg_header: MsgHeader,
 //! }
 //!
-//! #[derive(Deserialize)]
+//! #[derive(Serialize, Deserialize)]
 //! #[serde(rename_all = "PascalCase")]
 //! struct Logout {
 //!     #[serde(flatten)]
@@ -86,32 +86,52 @@
 //! ```rust,ignore
 //! use fastlib::Decoder;
 //!
-//! //! Create a decoder from XML templates.
+//! // Create a decoder from XML templates.
 //! let mut decoder = Decoder::new_from_xml(include_str!("templates.xml"))?;
 //!
-//! //! Raw data that contains one message.
+//! // Raw data that contains one message.
 //! let raw_data: Vec<u8> = vec![ ... ];
 //!
-//! //! Deserialize a message.
+//! // Deserialize a message.
 //! let msg: Message = fastlib::from_vec(&mut decoder, raw_data)?;
 //! ```
 //!
-//! ### Decode to JSON
+//! To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes` or `to_stream`:
+//!
+//! ```rust,ignore
+//! use fastlib::Encoder;
+//!
+//! // Create an encoder from XML templates.
+//! let mut encoder = Encoder::new_from_xml(include_str!("templates.xml"))?;
+//!
+//! // Message to serialize.
+//! let msg = Message::MDHeartbeat{
+//!     Heartbeat {
+//!         ...
+//!     }
+//! };
+//!
+//! // Serialize a message.
+//! let raw: Vec<u8> = fastlib::to_vec(&mut encoder, &msg)?;
+//! ```
+//!
+//!
+//! ## Decode to JSON
 //!
 //! ```rust,ignore
 //! use fastlib::Decoder;
 //! use fastlib::JsonMessageFactory;
 //!
-//! //! Raw data that contains one message.
+//! // Raw data that contains one message.
 //! let raw_data: Vec<u8> = vec![ ... ];
 //!
-//! //! Create a decoder from XML templates.
+//! // Create a decoder from XML templates.
 //! let mut decoder = Decoder::new_from_xml(include_str!("templates.xml"))?;
 //!
-//! //! Create a JSON message factory.
+//! // Create a JSON message factory.
 //! let mut msg = JsonMessageFactory::new();
 //!
-//! //! Decode the message.
+//! // Decode the message.
 //! decoder.decode_vec(raw_data, &mut msg)?;
 //!
 //! println!("{}", msg.json);
@@ -124,11 +144,11 @@
 //! ```rust,ignore
 //! use fastlib::{MessageFactory, Value};
 //!
-//! //! Message factory stuct that will build a message during decoding.
+//! // Message factory stuct that will build a message during decoding.
 //! pub struct MyMessageFactory {
 //! }
 //!
-//! //! Callback functions that will be called for each message during decoding process.
+//! // Callback functions that will be called for each message during decoding process.
 //! impl MessageFactory for MyMessageFactory {
 //!     // ... your implementation here ...
 //! }
@@ -138,16 +158,16 @@
 //! ```rust,ignore
 //! use fastlib::Decoder;
 //!
-//! //! Raw data that contains one message.
+//! // Raw data that contains one message.
 //! let raw_data: Vec<u8> = vec![ ... ];
 //!
-//! //! Create a decoder from XML templates.
+//! // Create a decoder from XML templates.
 //! let mut decoder = Decoder::new_from_xml(include_str!("templates.xml"))?;
 //!
-//! //! Create a message factory.
+//! // Create a message factory.
 //! let mut msg = MyMessageFactory{};
 //!
-//! //! Decode the message.
+//! // Decode the message.
 //! decoder.decode_vec(raw_data, &mut msg)?;
 //! ```
 //!
@@ -169,14 +189,19 @@ mod model;
 #[cfg(test)]
 mod tests;
 mod common;
+mod ser;
 
 pub use decoder::{decoder::Decoder, reader::Reader};
+pub use encoder::{encoder::Encoder, writer::Writer};
 pub use base::{value::Value, decimal::Decimal};
-pub use base::message::MessageFactory;
+pub use base::message::{MessageFactory, MessageVisitor};
 pub use text::{TextMessageFactory, JsonMessageFactory};
 
 #[cfg(feature = "serde")]
 pub use de::*;
+#[cfg(feature = "serde")]
+pub use ser::*;
+
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 

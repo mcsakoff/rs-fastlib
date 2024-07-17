@@ -81,10 +81,12 @@
     </template>
 
     <template name="StaticReference" id="8" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="PreRefData" id="1" />
         <templateRef name="RefData"/>
     </template>
 
     <template name="DynamicReference" id="9" xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <uInt32 name="PreRefData" id="1" />
         <templateRef />
     </template>
 </templates>

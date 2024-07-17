@@ -52,6 +52,10 @@ impl Decimal {
         Ok(Decimal::new(exponent, mantissa))
     }
 
+    pub fn from_float(value: f64) -> Result<Decimal> {
+        Decimal::from_string(&format!("{value}"))
+    }
+
     /// If the number is in fact an integer, it is converted as if was of integer type. Otherwise, the number
     /// is represented by an integer part and a decimal part separated by a decimal point (‘.’). Each part is
     /// a sequence of digits ‘0’ – ‘9’. There must be at least one digit on each side of the decimal point.

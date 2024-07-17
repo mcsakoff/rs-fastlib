@@ -83,7 +83,7 @@
         </string>
     </template>
 
-    <template id="16" name="MultiplePmapSlot">
+    <template id="16" name="MultiplePMapSlot">
         <decimal id="1" name="Value" presence="optional">
             <exponent>
                 <copy/>
@@ -93,5 +93,4 @@
             </mantissa>
         </decimal>
     </template>
-
 </templates>

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+- Implement encoding.
+- Fix decoder context issues.
+
 ## 0.2.1
 - Add deserialization with serde.
 - Fix decoding optional groups.
