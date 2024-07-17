@@ -38,7 +38,6 @@
 //!
 //! ```rust,ignore
 //! use serde::Deserialize;
-//! use fastlib::Decoder;
 //!
 //! #[derive(Deserialize)]
 //! enum Message {
@@ -85,6 +84,8 @@
 //! To deserialize a message call `fastlib::from_vec`, `fastlib::from_bytes` or `from_stream`:
 //!
 //! ```rust,ignore
+//! use fastlib::Decoder;
+//!
 //! //! Create a decoder from XML templates.
 //! let mut decoder = Decoder::new_from_xml(include_str!("templates.xml"))?;
 //!
