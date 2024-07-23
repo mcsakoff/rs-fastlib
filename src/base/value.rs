@@ -2,8 +2,8 @@ use std::cmp::min;
 use std::fmt::{Display, Formatter};
 
 use crate::{Error, Result};
-use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
 use crate::base::decimal::Decimal;
+use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
 
 /// Represents type of field instruction.
 ///
@@ -175,7 +175,6 @@ impl Value {
     }
 
     pub fn apply_delta(&self, delta: Value, sub: i32) -> Result<Value> {
-
         fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
             // A negative subtraction length is used to remove values from the front of the string.
             // Negative zero is used to append values to the front of the string.

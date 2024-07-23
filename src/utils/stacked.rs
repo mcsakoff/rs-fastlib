@@ -4,7 +4,7 @@ pub struct Stacked<T> {
     pub(crate) stack: Vec<T>,
 }
 
-impl<T> Stacked<T>  {
+impl<T> Stacked<T> {
     pub fn new_empty() -> Self {
         Self {
             current: None,

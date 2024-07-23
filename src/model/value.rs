@@ -352,7 +352,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 visitor.visit_seq(d)
             } else {
                 Err(Error::Runtime("deserialize_tuple_struct: expected Value::Decimal".to_string()))
-            }
+            };
         }
         Err(Error::Runtime("deserialize_seq: unsupported data model".to_string()))
     }
@@ -549,7 +549,7 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        let s =v.to_string();
+        let s = v.to_string();
         self.serialize_str(&s)
     }
 
@@ -571,7 +571,7 @@ impl serde::Serializer for ValueDataSerializer {
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         value.serialize(self)
     }
@@ -590,14 +590,14 @@ impl serde::Serializer for ValueDataSerializer {
 
     fn serialize_newtype_struct<T>(self, _name: &'static str, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         Err(Error::Runtime(format!("Serialization to {} is not supported", "newtype struct")))
     }
 
     fn serialize_newtype_variant<T>(self, _name: &'static str, _variant_index: u32, variant: &'static str, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         Ok(ValueData::DynamicTemplateRef(Box::new(TemplateData {
             name: variant.to_string(),
@@ -611,7 +611,6 @@ impl serde::Serializer for ValueDataSerializer {
 
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         Err(Error::Runtime(format!("Serialization to {} is not supported", "tuple")))
-
     }
 
     fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeTupleStruct, Self::Error> {
@@ -645,7 +644,7 @@ impl SerializeTuple for ValueDataSerializer {
 
     fn serialize_element<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -661,7 +660,7 @@ impl SerializeTupleVariant for ValueDataSerializer {
 
     fn serialize_field<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -678,7 +677,7 @@ impl SerializeStructVariant for ValueDataSerializer {
 
     fn serialize_field<T>(&mut self, _key: &'static str, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -690,7 +689,7 @@ impl SerializeStructVariant for ValueDataSerializer {
 
 
 pub(crate) struct ValueDataMapSerializer {
-    data: HashMap<String, ValueData>
+    data: HashMap<String, ValueData>,
 }
 
 
@@ -711,14 +710,14 @@ impl SerializeMap for ValueDataMapSerializer {
 
     fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
 
     fn serialize_value<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -726,7 +725,7 @@ impl SerializeMap for ValueDataMapSerializer {
     fn serialize_entry<K, V>(&mut self, key: &K, value: &V) -> Result<(), Self::Error>
     where
         K: ?Sized + Serialize,
-        V: ?Sized + Serialize
+        V: ?Sized + Serialize,
     {
         let key = match key.serialize(ValueDataSerializer)? {
             ValueData::Value(Some(Value::ASCIIString(s))) => s,
@@ -745,7 +744,7 @@ impl SerializeMap for ValueDataMapSerializer {
 
 
 pub(crate) struct ValueDataGroupSerializer {
-    data: HashMap<String, ValueData>
+    data: HashMap<String, ValueData>,
 }
 
 impl ValueDataGroupSerializer {
@@ -762,7 +761,7 @@ impl SerializeStruct for ValueDataGroupSerializer {
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         self.data.insert(key.to_string(), value.serialize(ValueDataSerializer)?);
         Ok(())
@@ -775,7 +774,7 @@ impl SerializeStruct for ValueDataGroupSerializer {
 
 
 pub(crate) struct ValueDataSequenceSerializer {
-    data: Vec<ValueData>
+    data: Vec<ValueData>,
 }
 
 impl ValueDataSequenceSerializer {
@@ -795,7 +794,7 @@ impl SerializeSeq for ValueDataSequenceSerializer {
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         self.data.push(value.serialize(ValueDataSerializer)?);
         Ok(())
@@ -808,7 +807,7 @@ impl SerializeSeq for ValueDataSequenceSerializer {
 
 
 pub(crate) struct ValueDataDecimalSerializer {
-    data: Decimal
+    data: Decimal,
 }
 
 impl ValueDataDecimalSerializer {
@@ -825,7 +824,7 @@ impl SerializeTupleStruct for ValueDataDecimalSerializer {
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         value.serialize(&mut self.data)
     }

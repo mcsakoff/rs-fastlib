@@ -1,6 +1,8 @@
 use std::io::Write;
-use crate::{Error, Result};
+
 use bytes::BufMut;
+
+use crate::{Error, Result};
 
 /// A trait that provides methods for writing basic primitive types.
 pub trait Writer {

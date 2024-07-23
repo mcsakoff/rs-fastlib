@@ -1,5 +1,5 @@
-use crate::Value;
 use crate::Result;
+use crate::Value;
 
 /// Defines the interface for message factories.
 ///

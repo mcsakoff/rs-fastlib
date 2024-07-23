@@ -19,23 +19,23 @@ fn operator_none_context() {
             vec![0xc0, 0x83],
         ],
         data: vec![
-            TestMsgValue{
+            TestMsgValue {
                 template: "Mandatory",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "MandatoryCopy",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "MandatoryCopy",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "Mandatory",
                 value: Some(Value::UInt32(5)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "MandatoryCopy",
                 value: Some(Value::UInt32(4)),
             },
@@ -57,31 +57,31 @@ fn operator_default() {
             vec![0xa0, 0x86],
         ],
         data: vec![
-            TestMsgValue{
+            TestMsgValue {
                 template: "MandatoryDefault",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "MandatoryDefault",
                 value: Some(Value::UInt32(5)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "OptionalDefaultNone",
                 value: None,
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "OptionalDefaultNone",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "OptionalDefaultValue",
                 value: None,
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "OptionalDefaultValue",
                 value: Some(Value::UInt32(4)),
             },
-            TestMsgValue{
+            TestMsgValue {
                 template: "OptionalDefaultValue",
                 value: Some(Value::UInt32(5)),
             },
@@ -154,7 +154,7 @@ fn operator_tail() {
         name: "TAIL operator",
         raw: vec![
             vec![0xe0, 0x8c, 0x80],
-            vec![0x80],  // TODO: check this is correct
+            vec![0x80],
             vec![0xa0, 0x59, 0xd9],
         ],
         data: vec![

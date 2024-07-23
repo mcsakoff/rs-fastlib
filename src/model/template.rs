@@ -1,6 +1,7 @@
 use std::string::ToString;
-use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, value::StringDeserializer, VariantAccess, Visitor};
+
 use serde::{forward_to_deserialize_any, Serialize};
+use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, value::StringDeserializer, VariantAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant};
 
 use crate::Error;
@@ -27,7 +28,7 @@ impl<'de> serde::Deserializer<'de> for TemplateData {
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
-        V: Visitor<'de>
+        V: Visitor<'de>,
     {
         Err(Error::Static("message must be enum".to_string()))
     }
@@ -40,9 +41,9 @@ impl<'de> serde::Deserializer<'de> for TemplateData {
 
     fn deserialize_enum<V>(self, _name: &'static str, _variants: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
     where
-        V: Visitor<'de>
+        V: Visitor<'de>,
     {
-        visitor.visit_enum(EnumDeserializer{
+        visitor.visit_enum(EnumDeserializer {
             variant: self.name,
             value: self.value,
         })
@@ -84,7 +85,7 @@ impl<'de> VariantAccess<'de> for VariantDeserializer {
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
     where
-        T: DeserializeSeed<'de>
+        T: DeserializeSeed<'de>,
     {
         match self.value {
             ValueData::Group(_) => {
@@ -98,14 +99,14 @@ impl<'de> VariantAccess<'de> for VariantDeserializer {
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
-        V: Visitor<'de>
+        V: Visitor<'de>,
     {
         Err(Error::Static("message body must be struct".to_string()))
     }
 
     fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value, Self::Error>
     where
-        V: Visitor<'de>
+        V: Visitor<'de>,
     {
         Err(Error::Static("message body must be struct".to_string()))
     }
@@ -185,7 +186,7 @@ impl serde::Serializer for &mut TemplateData {
 
     fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         Err(Error::Runtime(format!("Serialization to {} is not supported", "some")))
     }
@@ -204,14 +205,14 @@ impl serde::Serializer for &mut TemplateData {
 
     fn serialize_newtype_struct<T>(self, _name: &'static str, _value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         Err(Error::Runtime(format!("Serialization to {} is not supported", "newtype struct")))
     }
 
     fn serialize_newtype_variant<T>(self, _name: &'static str, _variant_index: u32, variant: &'static str, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         self.name = variant.to_string();
         self.value = value.serialize(ValueDataSerializer)?;
@@ -253,7 +254,7 @@ impl<'a> SerializeSeq for &'a mut TemplateData {
 
     fn serialize_element<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -269,7 +270,7 @@ impl<'a> SerializeTuple for &'a mut TemplateData {
 
     fn serialize_element<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -285,7 +286,7 @@ impl<'a> SerializeTupleStruct for &'a mut TemplateData {
 
     fn serialize_field<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -301,7 +302,7 @@ impl<'a> SerializeTupleVariant for &'a mut TemplateData {
 
     fn serialize_field<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -317,14 +318,14 @@ impl<'a> SerializeMap for &'a mut TemplateData {
 
     fn serialize_key<T>(&mut self, _key: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
 
     fn serialize_value<T>(&mut self, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -340,7 +341,7 @@ impl<'a> SerializeStruct for &'a mut TemplateData {
 
     fn serialize_field<T>(&mut self, _key: &'static str, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }
@@ -356,7 +357,7 @@ impl<'a> SerializeStructVariant for &'a mut TemplateData {
 
     fn serialize_field<T>(&mut self, _key: &'static str, _value: &T) -> Result<(), Self::Error>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         unreachable!()
     }

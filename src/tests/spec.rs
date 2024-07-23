@@ -4,6 +4,7 @@
 //!
 use crate::Decimal;
 use crate::decoder::decoder::Decoder;
+
 use super::*;
 
 const DEFINITION: &str = include_str!("templates/spec.xml");
@@ -359,11 +360,11 @@ fn decode_encode_multiple_pmap() {
             TestMsgValue {
                 template: "MultiplePMapSlot",
                 value: Some(Value::Decimal(Decimal::new(-2, 942755))), // 9427.55
-                },
+            },
             TestMsgValue {
                 template: "MultiplePMapSlot",
                 value: Some(Value::Decimal(Decimal::new(-2, 942761))), // 9427.61
-                },
+            },
             TestMsgValue {
                 template: "MultiplePMapSlot",
                 value: None,

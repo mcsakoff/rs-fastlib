@@ -2,7 +2,8 @@
 //!
 //! See: https://help.cqg.com/apihelp/#!Documents/quotesdirectfixfast.htm
 //!
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
+
 use fastlib::{Decimal, Decoder, Encoder};
 
 /// Message templates must be implements as `enum`.

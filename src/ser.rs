@@ -1,6 +1,8 @@
 use std::io::Write;
+
 use serde::ser::Serialize;
-use crate::{Error, Result, Encoder, Writer};
+
+use crate::{Encoder, Error, Result, Writer};
 use crate::model::ModelVisitor;
 use crate::model::template::TemplateData;
 

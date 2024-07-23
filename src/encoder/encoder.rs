@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::rc::Rc;
+
 use bytes::BytesMut;
 
 use crate::{Error, Result};
@@ -150,7 +151,7 @@ impl<'a> EncoderContext<'a> {
         self.template_id.pop();
     }
 
-    fn encode_instructions(&mut self, buf: &mut dyn Writer , instructions: &[Instruction]) -> Result<()> {
+    fn encode_instructions(&mut self, buf: &mut dyn Writer, instructions: &[Instruction]) -> Result<()> {
         for instruction in instructions {
             match instruction.value_type {
                 ValueType::Sequence => {
@@ -276,7 +277,6 @@ impl<'a> EncoderContext<'a> {
 
             self.write_presence_map(buf)?;
             buf.write_buf(buf2.as_ref())?;
-
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
             let template = self.definitions.templates_by_name
@@ -364,7 +364,7 @@ impl<'a> EncoderContext<'a> {
                     TypeRef::ApplicationType(name) => name.clone(),
                 };
                 DictionaryType::Type(name)
-            },
+            }
             Dictionary::UserDefined(name) => {
                 DictionaryType::UserDefined(name.clone())
             }

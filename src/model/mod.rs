@@ -2,8 +2,8 @@ use hashbrown::HashMap;
 
 use crate::{Error, MessageFactory, Value};
 use crate::base::message::MessageVisitor;
-use crate::utils::stacked::Stacked;
 use crate::Result;
+use crate::utils::stacked::Stacked;
 
 use self::template::TemplateData;
 use self::value::ValueData;
@@ -120,7 +120,7 @@ impl MessageFactory for ModelFactory {
 
     fn start_template_ref(&mut self, name: &str, dynamic: bool) {
         if dynamic {
-            let tpl_ref = ValueData::DynamicTemplateRef(Box::new(TemplateData{
+            let tpl_ref = ValueData::DynamicTemplateRef(Box::new(TemplateData {
                 name: name.to_string(),
                 value: ValueData::None,
             }));
@@ -207,7 +207,7 @@ impl MessageVisitor for ModelVisitor {
 
     fn get_value(&mut self, name: &str) -> Result<Option<Value>> {
         // SAFETY: the reference to context is always valid because we never modify `self.data`
-        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
@@ -230,7 +230,7 @@ impl MessageVisitor for ModelVisitor {
     fn select_group(&mut self, name: &str) -> Result<bool> {
         self.ref_num.push(0);
         // SAFETY: the reference to context is always valid because we never modify `self.data`
-        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
@@ -262,7 +262,7 @@ impl MessageVisitor for ModelVisitor {
 
     fn select_sequence(&mut self, name: &str) -> Result<Option<usize>> {
         // SAFETY: the reference to context is always valid because we never modify `self.data`
-        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
@@ -271,7 +271,7 @@ impl MessageVisitor for ModelVisitor {
                             Ok(None)
                         }
                         ValueData::Sequence(s) => {
-                            let len  = s.len();
+                            let len = s.len();
                             self.context.push(v);
                             Ok(Some(len))
                         }
@@ -290,7 +290,7 @@ impl MessageVisitor for ModelVisitor {
     fn select_sequence_item(&mut self, index: usize) -> Result<()> {
         self.ref_num.push(0);
         // SAFETY: the reference to context is always valid because we never modify `self.data`
-        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
             ValueData::Sequence(sequence) => {
                 if let Some(v) = sequence.get(index) {
@@ -331,7 +331,7 @@ impl MessageVisitor for ModelVisitor {
             self.ref_num.push(0);
 
             // SAFETY: the reference to context is always valid because we never modify `self.data`
-            let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+            let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
             match ctx {
                 ValueData::Group(context) => {
                     if let Some(v) = context.get(&name) {
@@ -348,7 +348,8 @@ impl MessageVisitor for ModelVisitor {
                                     }
                                     _ => {
                                         Err(Error::Runtime(format!("Field {name} value expected to be ValueData::Group, got {:?}", t.value)))
-                                    }}
+                                    }
+                                }
                             }
                             _ => {
                                 Err(Error::Runtime(format!("Field {name} expected to be ValueData::DynamicTemplateRef, got {:?}", v)))

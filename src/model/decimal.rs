@@ -1,6 +1,8 @@
 use std::fmt::Formatter;
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser, forward_to_deserialize_any};
+
+use serde::{de, Deserialize, Deserializer, forward_to_deserialize_any, ser, Serialize, Serializer};
 use serde::ser::SerializeTupleStruct;
+
 use crate::{Decimal, Error};
 
 impl<'de> Deserialize<'de> for Decimal {
@@ -135,7 +137,7 @@ impl Serializer for &mut Decimal {
 
     fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> { unreachable!() }
 
-    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error>{ unreachable!() }
+    fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> { unreachable!() }
 
     fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> { unreachable!() }
 

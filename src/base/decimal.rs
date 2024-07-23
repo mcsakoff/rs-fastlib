@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+
 use crate::{Error, Result};
 
 /// Represents a scaled decimal number.

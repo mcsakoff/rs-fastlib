@@ -138,11 +138,11 @@ impl Definitions {
                         None => return Err(Error::Static(format!("template '{}' not found", instr.name))),
                         Some(t) => t,
                     };
-                    match template.require_pmap.get() {
-                        None => return Err(Error::Static(
+                    return match template.require_pmap.get() {
+                        None => Err(Error::Static(
                             format!("template '{}' not initialized yet; consider reordering templates", instr.name)
                         )),
-                        Some(b) => return Ok(b),
+                        Some(b) => Ok(b),
                     }
                 } else {
                     // Dynamic template ref doesn't need a presence map bit.
@@ -161,7 +161,6 @@ impl Definitions {
         match instr.operator {
             // If a field (is mandatory and) has no field operator, it will not occupy any bit in the presence map
             // and its value must always appear in the stream.
-            // TODO: Check! According to Presence Map table from the spec, field with no operator is always present in the stream!
             Operator::None => Ok(false),
             // Delta is always present in the stream, so doesn't need a presence bit.
             Operator::Delta => Ok(false),

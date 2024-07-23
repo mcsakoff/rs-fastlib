@@ -891,7 +891,7 @@ impl Instruction {
                     None => {
                         s.ctx_set(self, &self.initial_value);
                         self.initial_value.clone()
-                    },
+                    }
                 };
                 if prev_value == *value {
                     s.pmap_set_next_bit(false);
@@ -929,7 +929,7 @@ impl Instruction {
 
                 let base = match s.ctx_get(self)? {
                     Some(v) => match v {
-                        Some(v) => v ,
+                        Some(v) => v,
                         None => {
                             return Err(Error::Runtime("delta operator has empty previous value".to_string())); // [ERR D6]
                         }
@@ -1147,7 +1147,7 @@ impl Instruction {
                             }
                             _ => unreachable!(),
                         }
-                    },
+                    }
                 }
             }
             _ => unreachable!(),

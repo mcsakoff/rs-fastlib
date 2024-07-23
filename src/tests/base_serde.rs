@@ -2,12 +2,13 @@
 //!
 //! See: https://github.com/mcsakoff/goFAST/tree/main
 //!
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
+
 use crate::{Decimal, Decoder, Encoder, from_vec};
 use crate::ser::to_vec;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum Message{
+enum Message {
     Integer(IntegerMsg),
     String(StringMsg),
     ByteVector(BytesMsg),
@@ -156,7 +157,7 @@ fn decode_integers() {
             optional_int32: Some(6),
             mandatory_int64: 2222222221,
             optional_int64: Some(2222222222),
-        })
+        }),
     )
 }
 
@@ -164,12 +165,12 @@ fn decode_integers() {
 fn decode_strings() {
     do_test(
         vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d],
-        Message::String(StringMsg{
+        Message::String(StringMsg {
             mandatory_ascii: "abc".to_string(),
             optional_ascii: Some("def".to_string()),
             mandatory_unicode: "ghi".to_string(),
             optional_unicode: Some("klm".to_string()),
-        })
+        }),
     )
 }
 
@@ -177,10 +178,10 @@ fn decode_strings() {
 fn decode_bytes() {
     do_test(
         vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3],
-        Message::ByteVector(BytesMsg{
+        Message::ByteVector(BytesMsg {
             mandatory_vector: vec![0xc1],
-            optional_vector: Some(vec![0xb3])
-        })
+            optional_vector: Some(vec![0xb3]),
+        }),
     )
 }
 
@@ -188,12 +189,12 @@ fn decode_bytes() {
 fn decode_decimals_1() {
     do_test(
         vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef],
-        Message::Decimal(DecimalMsg{
+        Message::Decimal(DecimalMsg {
             copy_decimal: Some(5.15),
             mandatory_decimal: Decimal::new(-1, 1546),
             individual_decimal: 0.0032,
             individual_decimal_opt: Some(11.1),
-        })
+        }),
     )
 }
 
@@ -201,12 +202,12 @@ fn decode_decimals_1() {
 fn decode_decimals_2() {
     do_test(
         vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80],
-        Message::Decimal(DecimalMsg{
+        Message::Decimal(DecimalMsg {
             copy_decimal: Some(5.15),
             mandatory_decimal: Decimal::new(-1, 1546),
             individual_decimal: 0.0032,
             individual_decimal_opt: None,
-        })
+        }),
     )
 }
 
@@ -214,7 +215,7 @@ fn decode_decimals_2() {
 fn decode_sequence_1() {
     do_test(
         vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82],
-        Message::Sequence(SequenceMsg{
+        Message::Sequence(SequenceMsg {
             test_data: 1,
             outer_sequence: vec![
                 OuterSequenceItem {
@@ -234,14 +235,15 @@ fn decode_sequence_1() {
                     next_outer_test_data: 2,
                 },
             ],
-        })
+        }),
     )
 }
 
 #[test]
 fn decode_sequence_2() {
-    do_test(vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82],
-        Message::Sequence(SequenceMsg{
+    do_test(
+        vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82],
+        Message::Sequence(SequenceMsg {
             test_data: 1,
             outer_sequence: vec![
                 OuterSequenceItem {
@@ -254,7 +256,7 @@ fn decode_sequence_2() {
                     next_outer_test_data: 2,
                 },
             ],
-        })
+        }),
     )
 }
 
@@ -270,7 +272,7 @@ fn decode_group_1() {
                     inner_test_data: 3,
                 }),
             },
-        })
+        }),
     )
 }
 
@@ -284,7 +286,7 @@ fn decode_group_2() {
                 outer_test_data: 2,
                 inner_group: None,
             },
-        })
+        }),
     )
 }
 
@@ -297,7 +299,7 @@ fn decode_static_reference() {
             ref_data: RefDataMsg {
                 test_data: 7,
             },
-        })
+        }),
     )
 }
 
@@ -310,6 +312,6 @@ fn decode_dynamic_reference() {
             ref0: Box::new(Message::RefData(RefDataMsg {
                 test_data: 5,
             })),
-        })
+        }),
     )
 }

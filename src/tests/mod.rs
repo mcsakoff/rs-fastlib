@@ -1,9 +1,8 @@
 use hashbrown::HashMap;
-use crate::base::types::Dictionary;
+
 use crate::base::instruction::Instruction;
-use crate::base::message::{MessageFactory};
-use crate::base::types::Operator;
-use crate::base::types::Presence;
+use crate::base::message::MessageFactory;
+use crate::base::types::{Dictionary, Operator, Presence};
 use crate::base::value::ValueType;
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
@@ -14,9 +13,9 @@ use crate::Value;
 
 mod base;
 mod base_serde;
+mod model;
 mod spec;
 mod spec2;
-mod model;
 
 pub struct TestField {
     id: u32,
@@ -175,7 +174,7 @@ fn do_test_seq(decode: bool, encode: bool, context: bool, definitions: &str, tt:
     let mut e = Encoder::new_from_xml(definitions).unwrap();
     for (i, (raw, data)) in tt.raw.into_iter().zip(tt.data).enumerate() {
         let name = format!("{} #{}", tt.name, i + 1);
-        let tt = TestCase { name: &name, raw, data};
+        let tt = TestCase { name: &name, raw, data };
         if decode {
             test_decode(&mut d, &tt);
         }

@@ -79,7 +79,7 @@
 //! * fields with optional presence are `Option<...>`;
 //! * static template reference can be plain fields from the template or flattened `struct`,
 //! * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
-//!   is a 0-based index of the `<teplateRef>` in its group.
+//!   is a 0-based index of the `<templateRef>` in its group.
 //!
 //! To deserialize a message call `fastlib::from_vec`, `fastlib::from_bytes` or `from_stream`:
 //!
@@ -144,7 +144,7 @@
 //! ```rust,ignore
 //! use fastlib::{MessageFactory, Value};
 //!
-//! // Message factory stuct that will build a message during decoding.
+//! // Message factory struct that will build a message during decoding.
 //! pub struct MyMessageFactory {
 //! }
 //!
@@ -175,7 +175,19 @@
 //! [`crate::text::JsonMessageFactory`][crate::JsonMessageFactory] but more likely you will want to construct
 //! you own message structs.
 //!
+pub use base::{decimal::Decimal, value::Value};
+pub use base::message::{MessageFactory, MessageVisitor};
+pub use decoder::{decoder::Decoder, reader::Reader};
+pub use encoder::{encoder::Encoder, writer::Writer};
+pub use text::{JsonMessageFactory, TextMessageFactory};
+
+#[cfg(feature = "serde")]
+pub use de::*;
+#[cfg(feature = "serde")]
+pub use ser::*;
+
 mod base;
+mod common;
 mod decoder;
 mod encoder;
 mod utils;
@@ -185,22 +197,11 @@ mod text;
 mod de;
 #[cfg(feature = "serde")]
 mod model;
+#[cfg(feature = "serde")]
+mod ser;
 
 #[cfg(test)]
 mod tests;
-mod common;
-mod ser;
-
-pub use decoder::{decoder::Decoder, reader::Reader};
-pub use encoder::{encoder::Encoder, writer::Writer};
-pub use base::{value::Value, decimal::Decimal};
-pub use base::message::{MessageFactory, MessageVisitor};
-pub use text::{TextMessageFactory, JsonMessageFactory};
-
-#[cfg(feature = "serde")]
-pub use de::*;
-#[cfg(feature = "serde")]
-pub use ser::*;
 
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;

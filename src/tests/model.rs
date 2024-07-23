@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+
 use crate::{Decoder, Value};
 use crate::model::{ModelFactory, template::TemplateData, value::ValueData};
 
@@ -40,7 +41,7 @@ fn test_model_data() {
                 ])),
             },
         },
-        TestCase{
+        TestCase {
             input: vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3],
             result: TemplateData {
                 name: "ByteVector".to_string(),
@@ -67,11 +68,11 @@ fn test_model_data() {
                         "OuterSequence".to_string(),
                         ValueData::Sequence(vec![
                             ValueData::Group(HashMap::from([
-                               (
-                                   "OuterTestData".to_string(),
-                                   ValueData::Value(Some(Value::UInt32(2))),
-                               ), (
-                                   "InnerSequence".to_string(),
+                                (
+                                    "OuterTestData".to_string(),
+                                    ValueData::Value(Some(Value::UInt32(2))),
+                                ), (
+                                    "InnerSequence".to_string(),
                                     ValueData::Sequence(vec![
                                         ValueData::Group(HashMap::from([
                                             (
@@ -147,7 +148,7 @@ fn test_model_data() {
             },
         },
         TestCase {
-            input: vec![0xc0, 0x89, 0x86,0xe0, 0x87, 0x85],
+            input: vec![0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85],
             result: TemplateData {
                 name: "DynamicReference".to_string(),
                 value: ValueData::Group(HashMap::from([

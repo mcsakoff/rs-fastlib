@@ -5,13 +5,11 @@ use crate::{Error, Result};
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
-use crate::base::types::{Dictionary, TypeRef};
-use crate::base::types::Template;
+use crate::base::types::{Dictionary, Template, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::common::context::{Context, DictionaryType};
 use crate::common::definitions::Definitions;
-use crate::decoder::reader::Reader;
-use crate::decoder::reader::StreamReader;
+use crate::decoder::reader::{Reader, StreamReader};
 use crate::utils::stacked::Stacked;
 
 /// Decoder for FAST protocol messages.
@@ -229,7 +227,7 @@ impl<'a> DecoderContext<'a> {
                     self.msg.stop_sequence_item();
                 }
                 self.msg.stop_sequence();
-            },
+            }
             _ => return Err(Error::Dynamic("Length field must be UInt32".to_string())), // [ErrD10]
         }
 
@@ -381,7 +379,7 @@ impl<'a> DecoderContext<'a> {
                     TypeRef::ApplicationType(name) => name.clone(),
                 };
                 DictionaryType::Type(name)
-            },
+            }
             Dictionary::UserDefined(name) => {
                 DictionaryType::UserDefined(name.clone())
             }

@@ -3,12 +3,15 @@
 //! See: https://github.com/mcsakoff/goFAST/tree/main
 //!
 use std::io::Cursor;
+
 use hashbrown::HashMap;
+
+use crate::{Decimal, Error};
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
-use crate::{Decimal, Error};
 use crate::model::{ModelFactory, ModelVisitor};
 use crate::model::value::ValueData;
+
 use super::*;
 
 #[test]
@@ -626,7 +629,7 @@ fn decode_encode_sequence_1() {
                     ])),
                 ])),
             ])),
-        }
+        },
     );
 }
 
@@ -649,7 +652,7 @@ fn decode_encode_sequence_2() {
                     ])),
                 ])),
             ])),
-        }
+        },
     );
 }
 
@@ -684,7 +687,7 @@ fn decode_encode_group_2() {
                     ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
                 ]))),
             ])),
-        }
+        },
     );
 }
 
@@ -698,14 +701,14 @@ fn decode_static_reference() {
                 ("PreRefData".to_string(), ValueData::Value(Some(Value::UInt32(6)))),
                 ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(7))))
             ])),
-        }
+        },
     );
 }
 
 #[test]
 fn decode_dynamic_reference() {
     do_test(
-        vec![0xc0, 0x89, 0x86,0xe0, 0x87, 0x85],
+        vec![0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85],
         TemplateData {
             name: "DynamicReference".to_string(),
             value: ValueData::Group(HashMap::from([
@@ -719,7 +722,7 @@ fn decode_dynamic_reference() {
                     })
                 ))
             ])),
-        }
+        },
     );
 }
 

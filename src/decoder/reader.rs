@@ -5,6 +5,7 @@
 //! The encoding and decoding of a value is not affected by the size of the integer.
 //!
 use std::io::{ErrorKind, Read};
+
 use bytes::Buf;
 
 use crate::{Error, Result};
