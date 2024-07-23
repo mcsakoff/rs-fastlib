@@ -36,18 +36,22 @@ impl<T> Stacked<T>  {
         }
     }
 
+    #[inline]
     pub fn peek(&self) -> Option<&T> {
         self.current.as_ref()
     }
 
+    #[inline]
     pub fn must_peek(&self) -> &T {
         self.peek().unwrap()
     }
 
+    #[inline]
     pub fn peek_mut(&mut self) -> Option<&mut T> {
         self.current.as_mut()
     }
 
+    #[inline]
     pub fn must_peek_mut(&mut self) -> &mut T {
         self.peek_mut().unwrap()
     }

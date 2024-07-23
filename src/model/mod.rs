@@ -168,9 +168,9 @@ impl MessageFactory for ModelFactory {
 pub struct ModelVisitor {
     data: TemplateData,
 
-    /// Stores current context value.
-    /// Here context value can be `ValueData::Group` or `ValueData::Sequence`.
-    context: Stacked<ValueData>,
+    /// Stores context values as references to self.data internals.
+    /// Context value can be `ValueData::Group` or `ValueData::Sequence`.
+    context: Stacked<*const ValueData>,
 
     // Indicates whether the current reference is dynamic.
     ref_dynamic: Stacked<bool>,
@@ -196,7 +196,7 @@ impl MessageVisitor for ModelVisitor {
     fn get_template_name(&mut self) -> Result<String> {
         match self.data.value {
             ValueData::Group(_) => {
-                self.context.push(self.data.value.clone());
+                self.context.push(&self.data.value);
                 Ok(self.data.name.clone())
             }
             _ => {
@@ -206,7 +206,9 @@ impl MessageVisitor for ModelVisitor {
     }
 
     fn get_value(&mut self, name: &str) -> Result<Option<Value>> {
-        match self.context.must_peek() {
+        // SAFETY: the reference to context is always valid because we never modify `self.data`
+        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
@@ -227,7 +229,9 @@ impl MessageVisitor for ModelVisitor {
 
     fn select_group(&mut self, name: &str) -> Result<bool> {
         self.ref_num.push(0);
-        match self.context.must_peek() {
+        // SAFETY: the reference to context is always valid because we never modify `self.data`
+        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
@@ -235,7 +239,7 @@ impl MessageVisitor for ModelVisitor {
                             Ok(false)
                         }
                         ValueData::Group(_) => {
-                            self.context.push(v.clone());
+                            self.context.push(v);
                             Ok(true)
                         }
                         _ => {
@@ -257,7 +261,9 @@ impl MessageVisitor for ModelVisitor {
     }
 
     fn select_sequence(&mut self, name: &str) -> Result<Option<usize>> {
-        match self.context.must_peek() {
+        // SAFETY: the reference to context is always valid because we never modify `self.data`
+        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
@@ -266,7 +272,7 @@ impl MessageVisitor for ModelVisitor {
                         }
                         ValueData::Sequence(s) => {
                             let len  = s.len();
-                            self.context.push(v.clone());
+                            self.context.push(v);
                             Ok(Some(len))
                         }
                         _ => {
@@ -283,12 +289,14 @@ impl MessageVisitor for ModelVisitor {
 
     fn select_sequence_item(&mut self, index: usize) -> Result<()> {
         self.ref_num.push(0);
-        match self.context.must_peek() {
+        // SAFETY: the reference to context is always valid because we never modify `self.data`
+        let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+        match ctx {
             ValueData::Sequence(sequence) => {
                 if let Some(v) = sequence.get(index) {
                     match v {
                         ValueData::Group(_) => {
-                            self.context.push(v.clone());
+                            self.context.push(v);
                             Ok(())
                         }
                         _ => {
@@ -321,7 +329,10 @@ impl MessageVisitor for ModelVisitor {
             let name = format!("templateRef:{}", rc);
             *rc += 1;
             self.ref_num.push(0);
-            match self.context.must_peek() {
+
+            // SAFETY: the reference to context is always valid because we never modify `self.data`
+            let ctx = unsafe{ self.context.must_peek().as_ref().unwrap() };
+            match ctx {
                 ValueData::Group(context) => {
                     if let Some(v) = context.get(&name) {
                         match v {
@@ -332,7 +343,7 @@ impl MessageVisitor for ModelVisitor {
                                 match t.value {
                                     ValueData::Group(_) => {
                                         let template_name = t.name.clone();
-                                        self.context.push(t.value.clone());
+                                        self.context.push(&t.value);
                                         Ok(Some(template_name))
                                     }
                                     _ => {

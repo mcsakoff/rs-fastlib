@@ -213,11 +213,6 @@ decoder.decode_vec(raw_data, &mut msg)?;
 - [fast-tools](https://github.com/mcsakoff/rs-fast-tools)
 
 
-## TODO
-
-- Optimize encoder: use references instead of copying/cloning the data.
-
-
 ## License
 
 This project is licensed under the [MIT license](LICENSE-MIT).
