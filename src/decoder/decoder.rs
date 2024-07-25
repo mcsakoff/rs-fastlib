@@ -104,7 +104,7 @@ impl<'a> DecoderContext<'a> {
             template_id: Stacked::new_empty(),
             dictionary: Stacked::new(Dictionary::Global),
             type_ref: Stacked::new(TypeRef::Any),
-            presence_map: Stacked::new(PresenceMap::new_empty()),
+            presence_map: Stacked::new_empty(),
         }
     }
 

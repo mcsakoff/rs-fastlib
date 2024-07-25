@@ -1,6 +1,6 @@
 use hashbrown::HashMap;
 
-use crate::{Error, MessageFactory, Value};
+use crate::{Error, MessageFactory, Value, ValueType};
 use crate::base::message::MessageVisitor;
 use crate::Result;
 use crate::utils::stacked::Stacked;
@@ -205,7 +205,7 @@ impl MessageVisitor for ModelVisitor {
         }
     }
 
-    fn get_value(&mut self, name: &str) -> Result<Option<Value>> {
+    fn get_value(&mut self, name: &str, _type_: &ValueType) -> Result<Option<Value>> {
         // SAFETY: the reference to context is always valid because we never modify `self.data`
         let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
@@ -223,7 +223,7 @@ impl MessageVisitor for ModelVisitor {
                     Ok(None)
                 }
             }
-            _ => unimplemented!(),
+            _ => unreachable!(),
         }
     }
 
@@ -250,7 +250,7 @@ impl MessageVisitor for ModelVisitor {
                     Ok(false)
                 }
             }
-            _ => unimplemented!(),
+            _ => unreachable!(),
         }
     }
 
@@ -283,7 +283,7 @@ impl MessageVisitor for ModelVisitor {
                     Ok(None)
                 }
             }
-            _ => unimplemented!(),
+            _ => unreachable!(),
         }
     }
 
@@ -307,7 +307,7 @@ impl MessageVisitor for ModelVisitor {
                     Err(Error::Runtime(format!("Sequence item #{index} not found")))
                 }
             }
-            _ => unimplemented!(),
+            _ => unreachable!(),
         }
     }
 
@@ -359,7 +359,7 @@ impl MessageVisitor for ModelVisitor {
                         Ok(None)
                     }
                 }
-                _ => unimplemented!(),
+                _ => unreachable!(),
             }
         } else {
             self.ref_num.push(0);

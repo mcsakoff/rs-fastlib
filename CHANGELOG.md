@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+- Fix presence map encoding with trailing zeros.
+- Add encoding text messages.
+
 ## 0.3.0
 - Implement encoding.
 - Fix decoder context issues.

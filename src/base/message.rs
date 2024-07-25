@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, ValueType};
 use crate::Value;
 
 /// Defines the interface for message factories.
@@ -59,7 +59,7 @@ pub trait MessageFactory {
 pub trait MessageVisitor {
     fn get_template_name(&mut self) -> Result<String>;
 
-    fn get_value(&mut self, name: &str) -> Result<Option<Value>>;
+    fn get_value(&mut self, name: &str, type_: &ValueType) -> Result<Option<Value>>;
 
     fn select_group(&mut self, name: &str) -> Result<bool>;
 

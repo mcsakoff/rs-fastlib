@@ -175,11 +175,11 @@
 //! [`crate::text::JsonMessageFactory`][crate::JsonMessageFactory] but more likely you will want to construct
 //! you own message structs.
 //!
-pub use base::{decimal::Decimal, value::Value};
+pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use base::message::{MessageFactory, MessageVisitor};
 pub use decoder::{decoder::Decoder, reader::Reader};
 pub use encoder::{encoder::Encoder, writer::Writer};
-pub use text::{JsonMessageFactory, TextMessageFactory};
+pub use text::{JsonMessageFactory, TextMessageFactory, TextMessageVisitor};
 
 #[cfg(feature = "serde")]
 pub use de::*;

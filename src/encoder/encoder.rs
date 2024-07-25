@@ -172,7 +172,7 @@ impl<'a> EncoderContext<'a> {
     }
 
     fn encode_field(&mut self, buf: &mut dyn Writer, instruction: &Instruction) -> Result<()> {
-        let value = self.msg.get_value(&instruction.name)?;
+        let value = self.msg.get_value(&instruction.name, &instruction.value_type)?;
         instruction.inject(self, buf, &value)
     }
 
