@@ -26,14 +26,25 @@ pub trait Writer {
             return Err(Error::Runtime("write_presence_map: size must be multiple of 7".to_string()));
         }
 
+        let mut trim = true;
         let len = (size / 7) as usize;
         let mut bitmap = bitmap;
         let mut buf: Vec<u8> = Vec::with_capacity(len);
-        buf.push(((bitmap & 0x7f) as u8) | 0x80);
-        for _ in 1..len {
+        for _ in 0..len {
+            let b7 = (bitmap & 0x7f) as u8;
+            if trim && b7 == 0 {
+                // trim trailing zeros
+            } else {
+                buf.push(b7);
+                trim = false;
+            }
             bitmap >>= 7;
-            buf.push((bitmap & 0x7f) as u8);
         }
+        if buf.len() == 0 {
+            buf.push(0x00);
+        }
+        // set stop bit
+        *buf.get_mut(0).unwrap() |= 0x80;
         buf.reverse();
         self.write_buf(&buf)
     }
