@@ -38,7 +38,9 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                     Value::Bytes(b) => visitor.visit_byte_buf(b),
                 }
             }
-            _ => Err(Error::Runtime("deserialize_any: data model must be ValueData::Value".to_string())),
+            ValueData::Group(_) => self.deserialize_map(visitor),
+            ValueData::Sequence(_) => self.deserialize_seq(visitor),
+            _ => Err(Error::Runtime(format!("deserialize_any: data model unsupported type: {:?}", self))),
         }
     }
 
@@ -691,7 +693,6 @@ impl SerializeStructVariant for ValueDataSerializer {
 pub(crate) struct ValueDataMapSerializer {
     data: HashMap<String, ValueData>,
 }
-
 
 impl ValueDataMapSerializer {
     fn new(len: Option<usize>) -> Self {
