@@ -100,7 +100,7 @@ struct SecurityDefinition {
     min_price_increment_amount: Option<f64>,
     display_factor: Option<Decimal>,
     #[serde(rename = "ApplID")]
-    appl_id: Option<String>,
+    appl_id: String,
     most_active_flag: Option<String>,
     connections: Vec<Connection>,
     trading_sessions: Vec<TradingSession>,
@@ -322,7 +322,7 @@ fn test_definitions() {
                 min_price_increment: Some(1.0),
                 min_price_increment_amount: Some(0.1),
                 display_factor: Some(Decimal::new(0, 1)),
-                appl_id: Some("4".to_string()),
+                appl_id: "4".to_string(),
                 most_active_flag: None,
                 connections: vec![
                     Connection {
