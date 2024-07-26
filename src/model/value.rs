@@ -77,12 +77,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_i32(n)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_i32: data model must be Value::Int32".to_string()))
+                        Err(Error::Runtime(format!("deserialize_i32: data model must be Value::Int32, got: {:?}", v)))
                     }
                 }
             }
             _ => {
-                Err(Error::Runtime("deserialize_i32: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_i32: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -99,12 +99,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_i64(n)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_i64: data model must be Value::Int64".to_string()))
+                        Err(Error::Runtime(format!("deserialize_i64: data model must be Value::Int64, got: {:?}", v)))
                     }
                 }
             }
             _ => {
-                Err(Error::Runtime("deserialize_i64: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_i64: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -135,12 +135,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_u32(n)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_u64: data model must be Value::UInt32".to_string()))
+                        Err(Error::Runtime(format!("deserialize_u64: data model must be Value::UInt32, got: {:?}", v)))
                     }
                 }
             }
             _ => {
-                Err(Error::Runtime("deserialize_u64: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_u64: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -157,12 +157,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_u64(n)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_u64: data model must be Value::UInt64".to_string()))
+                        Err(Error::Runtime(format!("deserialize_u64: data model must be Value::UInt64, got: {:?}", v)))
                     }
                 }
             }
             _ => {
-                Err(Error::Runtime("deserialize_u64: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_u64: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -186,12 +186,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_f64(n.to_float())
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_f64: data model must be Value::Decimal".to_string()))
+                        Err(Error::Runtime(format!("deserialize_f64: data model must be Value::Decimal, got: {:?}", v)))
                     }
                 }
             }
             _ => {
-                Err(Error::Runtime("deserialize_f64: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_f64: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -213,12 +213,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         }
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString".to_string()))
+                        Err(Error::Runtime(format!("deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}", v)))
                     }
                 }
             },
             _ => {
-                Err(Error::Runtime("deserialize_char: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_char: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -242,12 +242,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_string(s)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString".to_string()))
+                        Err(Error::Runtime(format!("deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}", v)))
                     }
                 }
             },
             _ => {
-                Err(Error::Runtime("deserialize_string: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_string: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -271,12 +271,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         visitor.visit_byte_buf(b)
                     }
                     _ => {
-                        Err(Error::Runtime("deserialize_byte_buf: data model must be Value::Bytes".to_string()))
+                        Err(Error::Runtime(format!("deserialize_byte_buf: data model must be Value::Bytes, got: {:?}", v)))
                     }
                 }
             },
             _ => {
-                Err(Error::Runtime("deserialize_string: data model must be ValueData::Value".to_string()))
+                Err(Error::Runtime(format!("deserialize_string: data model must be ValueData::Value, got: {:?}", self)))
             }
         }
     }
@@ -298,7 +298,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 visitor.visit_some(self)
             }
             _ => {
-                Err(Error::Runtime("deserialize_option: cannot be optional".to_string()))
+                Err(Error::Runtime(format!("deserialize_option: cannot be optional, got: {:?}", self)))
             }
         }
     }
@@ -333,7 +333,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 visitor.visit_seq(SequenceDeserializer::new(q))
             }
             _ => {
-                Err(Error::Runtime("deserialize_seq: data model must be ValueData::Sequence".to_string()))
+                Err(Error::Runtime(format!("deserialize_seq: data model must be ValueData::Sequence, got {:?}", self)))
             }
         }
     }
@@ -353,10 +353,10 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             return if let ValueData::Value(Some(Value::Decimal(d))) = self {
                 visitor.visit_seq(d)
             } else {
-                Err(Error::Runtime("deserialize_tuple_struct: expected Value::Decimal".to_string()))
+                Err(Error::Runtime(format!("deserialize_tuple_struct: expected Value::Decimal, got {:?}", self)))
             };
         }
-        Err(Error::Runtime("deserialize_seq: unsupported data model".to_string()))
+        Err(Error::Runtime(format!("deserialize_seq: unsupported data model {:?}", self)))
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -368,7 +368,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 visitor.visit_map(GroupDeserializer::new(group))
             }
             _ => {
-                Err(Error::Runtime("deserialize_map: data model must be ValueData::Group".to_string()))
+                Err(Error::Runtime(format!("deserialize_map: data model must be ValueData::Group, got: {:?}", self)))
             }
         }
     }
@@ -389,7 +389,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 t.deserialize_enum(name, variants, visitor)
             }
             _ => {
-                Err(Error::Runtime("deserialize_enum: data model must be ValueData::DynamicTemplateRef".to_string()))
+                Err(Error::Runtime(format!("deserialize_enum: data model must be ValueData::DynamicTemplateRef, got: {:?}", self)))
             }
         }
     }
