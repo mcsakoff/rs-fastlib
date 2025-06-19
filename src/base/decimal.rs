@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use crate::{Error, Result};
 
 /// Represents a scaled decimal number.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Decimal {
     pub exponent: i32,
     pub mantissa: i64,
@@ -114,7 +114,6 @@ impl Into<f64> for Decimal {
         self.to_float()
     }
 }
-
 
 #[cfg(test)]
 mod test {

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.3
+- Make `Decimal` derive `Eq` and `Hash`.
+
 ## 0.3.2
 - Libraries updated to the latest version.
 
