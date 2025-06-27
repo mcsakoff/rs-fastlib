@@ -2,6 +2,7 @@
 
 ## 0.3.4
 - Add functions and methods to decode from a `&[u8]` slice.
+- Add functions and methods to encode into pre-allocated `&mut [u8]` buffer.
 
 ## 0.3.3
 - Make `Decimal` derive `Eq` and `Hash`.

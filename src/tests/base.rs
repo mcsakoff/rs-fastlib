@@ -750,3 +750,48 @@ fn decode_unexpected_eof() {
         Ok(_) => assert!(false, "Expected Err(UnexpectedEof)"),
     }
 }
+
+#[test]
+fn encode_to_buffer() {
+    // user data
+    let data = TemplateData {
+        name: "String".to_string(),
+        value: ValueData::Group(HashMap::from([
+            ("MandatoryAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("abc".to_string())))),
+            ("OptionalAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("def".to_string())))),
+            ("MandatoryUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("ghi".to_string())))),
+            ("OptionalUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("klm".to_string())))),
+        ])),
+    };
+    let mut msg = ModelVisitor::new(data);
+
+    // encode user data to buffer
+    let mut buffer = [u8::default(); 20];
+    let mut e = Encoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    let n = e.encode_buffer(&mut buffer, &mut msg).unwrap();
+
+    // check encoded data
+    let encoded: Vec<u8> = vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d];
+    assert_eq!(&buffer[0..n], encoded);
+}
+
+#[test]
+fn encode_to_buffer_eof() {
+    // try to encode user data to buffer with not enough space
+    let data = TemplateData {
+        name: "ByteVector".to_string(),
+        value: ValueData::Group(HashMap::from([
+            ("MandatoryVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![193])))),
+            ("OptionalVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![179])))),
+        ])),
+    };
+    let mut msg = ModelVisitor::new(data);
+
+    let mut buffer = [u8::default(); 5]; // actually 6 bytes required
+    let mut e = Encoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    match e.encode_buffer(&mut buffer, &mut msg) {
+        Err(Error::IoError(_)) => {}
+        Err(e) => assert!(false, "Unexpected error: {:?}", e),
+        Ok(_) => assert!(false, "Expected Err(UnexpectedEof)"),
+    }
+}

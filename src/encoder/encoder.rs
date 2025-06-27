@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::rc::Rc;
 
 use bytes::BytesMut;
@@ -55,6 +55,13 @@ impl Encoder {
     pub fn encode_stream(&mut self, wrt: &mut dyn Write, msg: &mut impl MessageVisitor) -> Result<()> {
         let mut wrt = StreamWriter::new(wrt);
         self.encode_writer(&mut wrt, msg)
+    }
+
+    pub fn encode_buffer(&mut self, buffer: &mut [u8], msg: &mut impl MessageVisitor) -> Result<usize> {
+        let mut buffer = Cursor::new(buffer);
+        let mut wrt = StreamWriter::new(&mut buffer);
+        self.encode_writer(&mut wrt, msg)?;
+        Ok(buffer.position() as usize)
     }
 
     pub fn encode_writer(&mut self, wrt: &mut impl Writer, msg: &mut impl MessageVisitor) -> Result<()> {
