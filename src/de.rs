@@ -5,7 +5,8 @@ use serde::de::Deserialize;
 use crate::{Decoder, Error, Reader, Result};
 use crate::model::ModelFactory;
 
-#[deprecated(since = "0.3.4", note = "use from_buffer() for from_slice() instead")]
+/// Decode single message from `Vec<u8>`.
+#[deprecated(since = "0.3.4", note = "use from_buffer() or from_slice() instead")]
 #[allow(deprecated)]
 pub fn from_vec<'de, T>(decoder: &mut Decoder, bytes: Vec<u8>) -> Result<T>
 where
@@ -21,7 +22,7 @@ where
 }
 
 /// Decode single message from buffer.
-/// Returns the decoded message and number of bytes consumed from the buffer.
+/// Returns the decoded message and number of bytes consumed.
 pub fn from_buffer<'de, T>(decoder: &mut Decoder, buffer: &[u8]) -> Result<(T, u64)>
 where
     T: Deserialize<'de>,
@@ -51,6 +52,7 @@ where
     T::deserialize(data)
 }
 
+/// Decode single message from `bytes::Bytes`.
 #[allow(unused)]
 pub fn from_bytes<'de, T>(decoder: &mut Decoder, bytes: &mut bytes::Bytes) -> Result<T>
 where
@@ -65,6 +67,7 @@ where
     T::deserialize(data)
 }
 
+/// Decode single message from object that implements `fastlib::Reader` trait.
 #[allow(unused)]
 pub fn from_reader<'de, T>(decoder: &mut Decoder, rdr: &mut impl Reader) -> Result<T>
 where
@@ -79,6 +82,7 @@ where
     T::deserialize(data)
 }
 
+/// Decode single message from object that implements `std::io::Read` trait.
 #[allow(unused)]
 pub fn from_stream<'de, T>(decoder: &mut Decoder, rdr: &mut dyn Read) -> Result<T>
 where

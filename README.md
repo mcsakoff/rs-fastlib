@@ -106,12 +106,12 @@ let raw_data: Vec<u8> = vec![ ... ];
 let msg: Message = fastlib::from_slice(&mut decoder, &raw_data)?;
 ```
 
-To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes` or `to_stream`:
+To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes`, `fastlib::to_writer`, `fastlib::to_stream` or `fastlib::to_buffer`:
 
 ```rust
 use fastlib::Encoder;
 
-// Create a encoder from XML templates.
+// Create an encoder from XML templates.
 let mut encoder = Encoder::new_from_xml(include_str!("templates.xml"))?;
 
 // Message to serialize.

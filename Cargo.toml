@@ -7,17 +7,17 @@ description = """
 FAST (FIX Adapted for STreaming protocol) is a space and processing efficient encoding method
 for message oriented data streams.
 """
-edition = "2021"
+edition = "2024"
 keywords = ["fix", "fast", "protocol", "parser"]
 license = "MIT"
 repository = "https://github.com/mcsakoff/rs-fastlib"
 
 [dependencies]
-bytes = "1.9"
+bytes = "1"
 hashbrown = "0.15"
 roxmltree = "0.20"
 serde = { version = "1.0", optional = true }
-thiserror = "2.0"
+thiserror = "2"
 
 [dev-dependencies]
 serde_derive = "1.0"
