@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.4
+- Add functions and methods to decode from a `&[u8]` slice.
+
 ## 0.3.3
 - Make `Decimal` derive `Eq` and `Hash`.
 

@@ -189,7 +189,7 @@ fn do_test_seq(decode: bool, encode: bool, context: bool, definitions: &str, tt:
 
 fn test_decode(decoder: &mut Decoder, tt: &TestCase) {
     let mut msg = ModelFactory::new();
-    decoder.decode_vec(tt.raw.clone(), &mut msg).unwrap();
+    decoder.decode_slice(&tt.raw, &mut msg).unwrap();
     let data = extract_value(msg, "Value", tt.name);
     assert_eq!(data, tt.data.value, "{} decode failed", tt.name);
 }

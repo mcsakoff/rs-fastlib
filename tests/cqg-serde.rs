@@ -158,7 +158,7 @@ fn do_tests_seq(raw: Vec<Vec<u8>>, data: Vec<Message>) {
         let res = fastlib::to_vec(&mut e, &data).unwrap();
         assert_eq!(res, raw, "encode failed #{}", i + 1);
 
-        let msg: Message = fastlib::from_vec(&mut d, raw).unwrap();
+        let msg: Message = fastlib::from_slice(&mut d, &raw).unwrap();
         assert_eq!(msg, data, "decode failed #{}", i + 1);
     }
 }

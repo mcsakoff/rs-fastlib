@@ -12,7 +12,7 @@ fn do_test(test_cases: Vec<TestCase>) {
     for tt in test_cases {
         let mut msg = ModelFactory::new();
         let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-        d.decode_vec(tt.input.clone(), &mut msg).unwrap();
+        d.decode_slice(&tt.input, &mut msg).unwrap();
         assert_eq!(msg.data.unwrap(), tt.result, "{} failed", tt.result.name);
     }
 }

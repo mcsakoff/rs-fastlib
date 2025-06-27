@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::rc::Rc;
-
+use bytes::Buf;
 use crate::{Error, Result};
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
@@ -38,8 +38,28 @@ impl Decoder {
         self.context.reset()
     }
 
+    /// Decode single message from buffer.
+    /// Returns number of bytes consumed from the buffer.
+    pub fn decode_buffer(&mut self, buffer: &[u8], msg: &mut impl MessageFactory) -> Result<u64> {
+        let mut cursor = std::io::Cursor::new(buffer);
+        self.decode_stream(&mut cursor, msg)?;
+        Ok(cursor.position())
+    }
+
+    /// Decode single message from slice.
+    /// The `bytes` slice must be consumed completely. It is an error if any bytes left after the message is decoded.
+    pub fn decode_slice(&mut self, bytes: &[u8], msg: &mut impl MessageFactory) -> Result<()> {
+        let mut cursor = std::io::Cursor::new(bytes);
+        self.decode_stream(&mut cursor, msg)?;
+        if cursor.has_remaining() {
+            return Err(Error::Runtime(format!("Bytes left in the buffer after decoding: {}", cursor.remaining())));
+        }
+        Ok(())
+    }
+
     /// Decode single message from bytes vector.
     /// The `bytes` vector must be the whole message. It is an error if any bytes left after the message is decoded.
+    #[deprecated(since = "0.3.4", note = "use decode_buffer() instead")]
     pub fn decode_vec(&mut self, bytes: Vec<u8>, msg: &mut impl MessageFactory) -> Result<()> {
         let mut raw = bytes::Bytes::from(bytes);
         self.decode_reader(&mut raw, msg)?;

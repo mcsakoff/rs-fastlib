@@ -4,7 +4,7 @@
 //!
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{Decimal, Decoder, Encoder, from_vec};
+use crate::{Decimal, Decoder, Encoder, from_buffer};
 use crate::ser::to_vec;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -134,7 +134,8 @@ const DEFINITION: &str = include_str!("templates/base.xml");
 fn do_test(raw: Vec<u8>, data: Message) {
     {
         let mut d = Decoder::new_from_xml(DEFINITION).unwrap();
-        let msg: Message = from_vec(&mut d, raw.clone()).unwrap();
+        let (msg, n) = from_buffer::<Message>(&mut d, &raw).unwrap();
+        assert!(n > 0, "buffer not consumed");
         assert_eq!(msg, data, "decode mismatch");
     }
     {

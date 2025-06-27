@@ -511,7 +511,7 @@ fn do_test(raw: Vec<u8>, data: TemplateData) {
     {
         let mut msg = ModelFactory::new();
         let mut d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-        d.decode_vec(raw.clone(), &mut msg).unwrap();
+        d.decode_slice(&raw, &mut msg).unwrap();
         assert_eq!(msg.data.unwrap(), data, "decode mismatch");
     }
     {

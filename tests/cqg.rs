@@ -17,7 +17,7 @@ fn do_tests_seq(raw: Vec<Vec<u8>>, data: Vec<&str>) {
         assert_eq!(res, raw, "encode failed #{}", i + 1);
 
         let mut msg = TextMessageFactory::new();
-        d.decode_vec(raw, &mut msg).unwrap();
+        d.decode_slice(&raw, &mut msg).unwrap();
         assert_eq!(&msg.text, data, "decode failed #{}", i + 1);
     }
 }
@@ -84,7 +84,7 @@ fn do_tests_seq_json(raw: Vec<Vec<u8>>, data: Vec<&str>) {
     let mut d = Decoder::new_from_xml(DEFINITION).unwrap();
     for (i, (raw, data)) in raw.into_iter().zip(data).enumerate() {
         let mut msg = JsonMessageFactory::new();
-        d.decode_vec(raw, &mut msg).unwrap();
+        d.decode_slice(&raw, &mut msg).unwrap();
         assert_eq!(&msg.json, data, "decode failed #{}", i + 1);
     }
 }

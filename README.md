@@ -91,7 +91,7 @@ Some implementation guidelines:
 * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
   is a 0-based index of the `<teplateRef>` in its group.
 
-To deserialize a message call `fastlib::from_vec`, `fastlib::from_bytes` or `from_stream`:
+To deserialize a message call `fastlib::from_slice`, `fastlib::from_buffer`, `fastlib::from_bytes` or more generic `fastlib::from_reader` or `fastlib::from_stream`:
 
 ```rust
 use fastlib::Decoder;
@@ -103,7 +103,7 @@ let mut decoder = Decoder::new_from_xml(include_str!("templates.xml"))?;
 let raw_data: Vec<u8> = vec![ ... ];
 
 // Deserialize a message.
-let msg: Message = fastlib::from_vec(&mut decoder, raw_data)?;
+let msg: Message = fastlib::from_slice(&mut decoder, &raw_data)?;
 ```
 
 To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes` or `to_stream`:
