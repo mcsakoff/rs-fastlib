@@ -91,7 +91,7 @@ Some implementation guidelines:
 * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
   is a 0-based index of the `<teplateRef>` in its group.
 
-To deserialize a message call `fastlib::from_slice`, `fastlib::from_buffer`, `fastlib::from_bytes` or more generic `fastlib::from_reader` or `fastlib::from_stream`:
+To deserialize a message call `fastlib::from_slice`, `fastlib::from_buffer`, `fastlib::from_vec`, `fastlib::from_bytes` or more generic `fastlib::from_reader` or `fastlib::from_stream`:
 
 ```rust
 use fastlib::Decoder;
@@ -148,6 +148,9 @@ println!("{}", msg.json);
 
 ### Decode using own message factory
 
+**NOTE:** Decoding using own message factory is only required if needed very specific process of decoding
+into very specific message types. In most cases using serde is the way to go!
+
 Make a new struct that implements `fastlib::MessageFactory` trait:
 
 ```rust
@@ -188,7 +191,7 @@ pub trait MessageFactory {
 }
 ```
 
-For examples see implementation for `fastlib::text::TextMessageFactory` or `fastlib::text::JsonMessageFactory` but more likely you will want to construct you own message structs.
+For message factory implementation examples see `fastlib::text::TextMessageFactory` and `fastlib::text::JsonMessageFactory`.
 
 Then create a decoder from templates XML file and decode a message:
 

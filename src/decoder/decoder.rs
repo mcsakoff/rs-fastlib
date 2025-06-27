@@ -59,7 +59,6 @@ impl Decoder {
 
     /// Decode single message from bytes vector.
     /// The `bytes` vector must be the whole message. It is an error if any bytes left after the message is decoded.
-    #[deprecated(since = "0.3.4", note = "use decode_buffer() instead")]
     pub fn decode_vec(&mut self, bytes: Vec<u8>, msg: &mut impl MessageFactory) -> Result<()> {
         let mut raw = bytes::Bytes::from(bytes);
         self.decode_reader(&mut raw, msg)?;

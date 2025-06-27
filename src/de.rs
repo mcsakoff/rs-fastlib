@@ -6,8 +6,6 @@ use crate::{Decoder, Error, Reader, Result};
 use crate::model::ModelFactory;
 
 /// Decode single message from `Vec<u8>`.
-#[deprecated(since = "0.3.4", note = "use from_buffer() or from_slice() instead")]
-#[allow(deprecated)]
 pub fn from_vec<'de, T>(decoder: &mut Decoder, bytes: Vec<u8>) -> Result<T>
 where
     T: Deserialize<'de>,

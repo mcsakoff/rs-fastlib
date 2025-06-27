@@ -1,6 +1,6 @@
 [package]
 name = "fastlib"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["Alexey McSakoff <mcsakoff@gmail.com>"]
 categories = ["parser-implementations", "encoding"]
 description = """

@@ -72,7 +72,7 @@
 //! Some guidelines:
 //!
 //! * `<templates>` must be implemented as `enum`;
-//! * `<decimal>` can be deserialized to `f64` or `fastlib::Decimal` (if you need to preserve original scale);
+//! * `<decimal>` can be deserialized to `f64` or [`Decimal`] (if you need to preserve original scale);
 //! * `<byteVector>` is a `Vec<u8>` and must be prefixed with `#[serde(with = "serde_bytes")]`;
 //! * `<sequence>` is a `Vec<SequenceItem>`, where `SequenceItem` is a `struct`;
 //! * `<group>` is a nested `struct`;
@@ -81,7 +81,7 @@
 //! * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
 //!   is a 0-based index of the `<templateRef>` in its group.
 //!
-//! To deserialize a message call `fastlib::from_slice`, `fastlib::from_buffer`, `fastlib::from_bytes` or more generic `fastlib::from_reader` or `fastlib::from_stream`:
+//! To deserialize a message call [`from_slice`], [`from_buffer`], [`from_vec`], [`from_bytes`] or more generic [`from_reader`] or [`from_stream`]:
 //!
 //! ```rust,ignore
 //! use fastlib::Decoder;
@@ -96,7 +96,7 @@
 //! let msg: Message = fastlib::from_slice(&mut decoder, &raw_data)?;
 //! ```
 //!
-//! To serialize a message call `fastlib::to_vec`, `fastlib::to_bytes` or `to_stream`:
+//! To serialize a message call [`to_vec`], [`to_bytes`], [`to_writer`], [`to_stream`] or [`to_buffer`]:
 //!
 //! ```rust,ignore
 //! use fastlib::Encoder;
@@ -114,7 +114,6 @@
 //! // Serialize a message.
 //! let raw: Vec<u8> = fastlib::to_vec(&mut encoder, &msg)?;
 //! ```
-//!
 //!
 //! ## Decode to JSON
 //!
@@ -139,7 +138,10 @@
 //!
 //! ## Decode using own message factory
 //!
-//! Make a new struct that implements [`fastlib::MessageFactory`][crate::MessageFactory] trait:
+//! **NOTE:** Decoding using own message factory is only required if needed very specific process of decoding
+//! into very specific message types. In most cases using serde is the way to go!
+//!
+//! Make a new struct that implements [`MessageFactory`] trait:
 //!
 //! ```rust,ignore
 //! use fastlib::{MessageFactory, Value};
@@ -171,9 +173,7 @@
 //! decoder.decode_vec(raw_data, &mut msg)?;
 //! ```
 //!
-//! For message factory implementations see [`fastlib::text::TextMessageFactory`][crate::TextMessageFactory] or
-//! [`crate::text::JsonMessageFactory`][crate::JsonMessageFactory] but more likely you will want to construct
-//! you own message structs.
+//! For message factory implementation examples see [`TextMessageFactory`] and [`JsonMessageFactory`].
 //!
 pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use base::message::{MessageFactory, MessageVisitor};

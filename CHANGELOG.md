@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.5
+- Un-deprecate `from_vec` and `Decoder::decode_vec()`.
+
 ## 0.3.4
 - Add functions and methods to decode from a `&[u8]` slice.
 - Add functions and methods to encode into pre-allocated `&mut [u8]` buffer.
