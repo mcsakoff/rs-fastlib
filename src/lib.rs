@@ -179,6 +179,7 @@ pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use base::message::{MessageFactory, MessageVisitor};
 pub use decoder::{decoder::Decoder, reader::Reader};
 pub use encoder::{encoder::Encoder, writer::Writer};
+pub use model::ModelFactory;
 pub use text::{JsonMessageFactory, TextMessageFactory, TextMessageVisitor};
 
 #[cfg(feature = "serde")]
