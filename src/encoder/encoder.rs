@@ -339,7 +339,7 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: &Option<Value>) {
-        self.context.set(self.make_dict_type(), i.key.clone(), v);
+        self.context.set(self.make_dict_type(), i.key.clone(), v.clone());
     }
 
     #[inline]
