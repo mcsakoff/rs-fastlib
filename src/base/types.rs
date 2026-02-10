@@ -27,8 +27,7 @@ impl Template {
         }
         let id = node
             .attribute("id")
-            .or(Some("0"))
-            .unwrap()
+            .unwrap_or("0")
             .parse::<u32>()?;
         let name = node
             .attribute("name")
@@ -36,11 +35,11 @@ impl Template {
             .to_string();
         let type_ref = node
             .attribute("typeRef")
-            .map(|d| TypeRef::from_str(d))
+            .map(TypeRef::from_str)
             .unwrap_or(TypeRef::Any);
         let dictionary = node
             .attribute("dictionary")
-            .map(|d| Dictionary::from_str(d))
+            .map(Dictionary::from_str)
             .unwrap_or(Dictionary::Global);
         let mut instructions = Vec::new();
         for child in node.children() {

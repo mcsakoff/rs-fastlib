@@ -201,7 +201,7 @@ impl Reader for StreamReader<'_> {
                 if err.kind() == ErrorKind::UnexpectedEof {
                     return Err(Error::UnexpectedEof);
                 } else {
-                    return Err(Error::Dynamic(format!("Stream read error: {}", err.to_string())));
+                    return Err(Error::Dynamic(format!("Stream read error: {}", err)));
                 }
             }
         };

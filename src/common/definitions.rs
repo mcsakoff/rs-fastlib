@@ -97,18 +97,17 @@ impl Definitions {
     }
 
     fn set_has_pmap(&self, instr: &Instruction) -> Result<()> {
-        let instructions: &[Instruction];
-        match instr.value_type {
+        let instructions: &[Instruction] = match instr.value_type {
             ValueType::Group | ValueType::TemplateReference | ValueType::Decimal => {
-                instructions = &instr.instructions;
+                &instr.instructions
             }
             ValueType::Sequence => {
-                instructions = &instr.instructions[1..];
+                &instr.instructions[1..]
             }
             _ => {
                 return Ok(());
             }
-        }
+        };
         let need_pmap = self.require_presence_map_bit(instructions)?;
         instr.has_pmap.set(need_pmap);
         Ok(())
@@ -127,7 +126,8 @@ impl Definitions {
             ValueType::Sequence => {
                 // For ::Sequence its length field show if the sequence has a bit in the presence map.
                 return self.has_presence_map_bit(
-                    instr.instructions.get(0)
+                    instr.instructions
+                        .first()
                         .ok_or_else(|| Error::Static(format!("sequence '{}' has no length field", instr.name)))?
                 );
             }

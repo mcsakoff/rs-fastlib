@@ -18,6 +18,16 @@ impl<'de> Deserialize<'de> for Decimal {
                 formatter.write_str("expecting String or tuple")
             }
 
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match Decimal::from_string(v) {
+                    Ok(d) => Ok(d),
+                    Err(e) => Err(E::custom(e))
+                }
+            }
+
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: de::Error,
@@ -59,7 +69,7 @@ impl<'de> de::SeqAccess<'de> for Decimal {
     }
 }
 
-impl<'a, 'de> Deserializer<'de> for &'a mut Decimal {
+impl<'de> Deserializer<'de> for &mut Decimal {
     type Error = Error;
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>

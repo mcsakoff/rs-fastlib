@@ -1,7 +1,7 @@
+use bytes::Buf;
 use std::io::Read;
 use std::rc::Rc;
-use bytes::Buf;
-use crate::{Error, Result};
+
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
@@ -11,6 +11,7 @@ use crate::common::context::{Context, DictionaryType};
 use crate::common::definitions::Definitions;
 use crate::decoder::reader::{Reader, StreamReader};
 use crate::utils::stacked::Stacked;
+use crate::{Error, Result};
 
 /// Decoder for FAST protocol messages.
 pub struct Decoder {
@@ -90,8 +91,8 @@ impl Decoder {
 pub(crate) struct DecoderContext<'a> {
     pub(crate) definitions: &'a mut Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) rdr: Box<&'a mut dyn Reader>,
-    pub(crate) msg: Box<&'a mut dyn MessageFactory>,
+    pub(crate) rdr: &'a mut dyn Reader,
+    pub(crate) msg: &'a mut dyn MessageFactory,
 
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
@@ -118,8 +119,8 @@ impl<'a> DecoderContext<'a> {
         Self {
             definitions: &mut d.definitions,
             context: &mut d.context,
-            rdr: Box::new(r),
-            msg: Box::new(m),
+            rdr: r,
+            msg: m,
             template_id: Stacked::new_empty(),
             dictionary: Stacked::new(Dictionary::Global),
             type_ref: Stacked::new(TypeRef::Any),
@@ -229,7 +230,7 @@ impl<'a> DecoderContext<'a> {
         // A sequence has an associated length field containing an unsigned integer indicating the number of encoded
         // elements. When a length field is present in the stream, it must appear directly before the encoded elements.
         // The length field has a name, is of type uInt32 and can have a field operator.
-        let length_instruction = instruction.instructions.get(0).unwrap();
+        let length_instruction = instruction.instructions.first().unwrap();
         match self.extract_field(length_instruction)? {
             None => {}
             Some(Value::UInt32(length)) => {
@@ -287,20 +288,19 @@ impl<'a> DecoderContext<'a> {
     fn decode_template_ref(&mut self, instruction: &Instruction) -> Result<()> {
         let is_dynamic = instruction.name.is_empty();
 
-        let template: Rc<Template>;
-        if is_dynamic {
+        let template: Rc<Template> = if is_dynamic {
             self.decode_presence_map()?;
             self.decode_template_id()?;
-            template = self.definitions.templates_by_id
+            self.definitions.templates_by_id
                 .get(self.template_id.peek().unwrap())
                 .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
-                .clone();
+                .clone()
         } else {
-            template = self.definitions.templates_by_name
+            self.definitions.templates_by_name
                 .get(&instruction.name)
                 .ok_or_else(|| Error::Dynamic(format!("Unknown template: {}", instruction.name)))? // [ErrD09]
-                .clone();
-        }
+                .clone()
+        };
         self.msg.start_template_ref(&template.name, is_dynamic);
 
         // Update some context variables
@@ -372,12 +372,10 @@ impl<'a> DecoderContext<'a> {
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
         let v = self.context.get(self.make_dict_type(), &i.key);
-        if let Some(Some(ref v)) = v {
-            if !i.value_type.matches_type(v) {
-                // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
-                // the same type as the value of the entry.
-                return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
-            }
+        if let Some(Some(ref v)) = v && !i.value_type.matches_type(v) {
+            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+            // the same type as the value of the entry.
+            return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
         }
         Ok(v)
     }

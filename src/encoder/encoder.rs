@@ -1,9 +1,7 @@
+use bytes::BytesMut;
 use std::io::{Cursor, Write};
 use std::rc::Rc;
 
-use bytes::BytesMut;
-
-use crate::{Error, Result};
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageVisitor;
 use crate::base::pmap::PresenceMap;
@@ -13,6 +11,7 @@ use crate::common::context::{Context, DictionaryType};
 use crate::common::definitions::Definitions;
 use crate::encoder::writer::{StreamWriter, Writer};
 use crate::utils::stacked::Stacked;
+use crate::{Error, Result};
 
 /// Encoder for FAST protocol messages.
 pub struct Encoder {
@@ -74,8 +73,8 @@ impl Encoder {
 pub(crate) struct EncoderContext<'a> {
     pub(crate) definitions: &'a mut Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) wrt: Box<&'a mut dyn Writer>,
-    pub(crate) msg: Box<&'a mut dyn MessageVisitor>,
+    pub(crate) wrt: &'a mut dyn Writer,
+    pub(crate) msg: &'a mut dyn MessageVisitor,
 
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
@@ -102,8 +101,8 @@ impl<'a> EncoderContext<'a> {
         Self {
             definitions: &mut d.definitions,
             context: &mut d.context,
-            wrt: Box::new(w),
-            msg: Box::new(m),
+            wrt: w,
+            msg: m,
             template_id: Stacked::new_empty(),
             dictionary: Stacked::new(Dictionary::Global),
             type_ref: Stacked::new(TypeRef::Any),
@@ -221,7 +220,7 @@ impl<'a> EncoderContext<'a> {
 
     fn encode_sequence(&mut self, buf: &mut dyn Writer, instruction: &Instruction) -> Result<()> {
         let length = self.msg.select_sequence(&instruction.name)?;
-        let length_instruction = instruction.instructions.get(0).unwrap();
+        let length_instruction = instruction.instructions.first().unwrap();
 
         let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
@@ -345,12 +344,10 @@ impl<'a> EncoderContext<'a> {
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
         let v = self.context.get(self.make_dict_type(), &i.key);
-        if let Some(Some(ref v)) = v {
-            if !i.value_type.matches_type(v) {
-                // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
-                // the same type as the value of the entry.
-                return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
-            }
+        if let Some(Some(ref v)) = v && !i.value_type.matches_type(v) {
+            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+            // the same type as the value of the entry.
+            return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
         }
         Ok(v)
     }

@@ -39,6 +39,12 @@ impl TextMessageFactory {
     }
 }
 
+impl Default for TextMessageFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageFactory for TextMessageFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
         self.reset();
@@ -145,6 +151,12 @@ impl JsonMessageFactory {
         } else {
             self.block_start = false;
         }
+    }
+}
+
+impl Default for JsonMessageFactory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -367,7 +379,7 @@ impl MessageVisitor for TextMessageVisitor {
                     }
 
                 } else {
-                    return Err(Error::Runtime(format!("Index {} is out of range", index)));
+                    Err(Error::Runtime(format!("Index {} is out of range", index)))
                 }
             }
             _ => unreachable!()
@@ -409,7 +421,7 @@ pub enum TextMessageValue {
 
 impl TextMessageValue {
     fn from_text(text: &str) -> Result<Self> {
-        return match TextMessageValue::parse_next(text)? {
+        match TextMessageValue::parse_next(text)? {
             (name, TextMessageValue::Group(value), size) => {
                 if size != text.len() {
                     Err(Error::Dynamic("Symbols left in buffer after parsing text message".to_string()))
@@ -422,7 +434,7 @@ impl TextMessageValue {
                 }
             }
             _ => Err(Error::Dynamic("Failed to parse message body".to_string())),
-        };
+        }
     }
 
     fn parse_next(text: &str) -> Result<(String, Self, usize)> {
@@ -447,9 +459,7 @@ impl TextMessageValue {
                         value = Some(v);
                     }
                     Some(TextMessageValue::Group(_)) => {
-                        let mut seq = Vec::with_capacity(2);
-                        seq.push(value.unwrap());
-                        seq.push(v);
+                        let seq = vec![value.unwrap(), v];
                         value = Some(TextMessageValue::Sequence(seq));
                     }
                     Some(TextMessageValue::Sequence(s)) => {
@@ -464,7 +474,7 @@ impl TextMessageValue {
             }
             Ok((value.unwrap(), size))
         } else {
-            let i = text.find(|c: char| c == '|' || c == '>')
+            let i = text.find(['|', '>'])
                 .ok_or_else(|| Error::Dynamic("Failed to parse next value (no delimiter)".to_string()))?;
             Ok((TextMessageValue::Value(text[..i].to_string()), i))
         }

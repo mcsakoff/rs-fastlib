@@ -208,23 +208,23 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    ///! Errors happened due to malformed XML.
+    /// Errors happened due to malformed XML.
     #[error("Static Error: {0}")]
     Static(String),
 
-    ///! Errors happened due to malformed binary data.
+    /// Errors happened due to malformed binary data.
     #[error("Dynamic Error: {0}")]
     Dynamic(String),
 
-    ///! Errors happened due to decoding algorithm.
+    /// Errors happened due to decoding algorithm.
     #[error("Runtime Error: {0}")]
     Runtime(String),
 
-    ///! End of file/stream reached.
+    /// End of file/stream reached.
     #[error("End of file/stream reached")]
     Eof,
 
-    ///! Unexpected end of file/stream reached.
+    /// Unexpected end of file/stream reached.
     #[error("Unexpected end of file/stream reached")]
     UnexpectedEof,
 

@@ -337,7 +337,7 @@ impl MessageVisitor for ModelVisitor {
                     if let Some(v) = context.get(&name) {
                         match v {
                             ValueData::None => {
-                                return Ok(None)
+                                Ok(None)
                             }
                             ValueData::DynamicTemplateRef(t) => {
                                 match t.value {

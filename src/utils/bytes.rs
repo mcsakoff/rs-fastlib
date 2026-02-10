@@ -5,12 +5,12 @@ pub(crate) fn bytes_to_string(bytes: &[u8]) -> String {
     for b in bytes {
         s.push_str(&format!("{b:02x}"));
     }
-    return s;
+    s
 }
 
 pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
     let s = s.trim().replace(" ", "");
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(Error::Runtime(format!("Invalid hex string (length): '{}'", s)));
     }
     let v = s.chars()
@@ -26,12 +26,12 @@ pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
 }
 
 fn hexchar2byte(c: char) -> Result<u8> {
-    if c >= '0' && c <= '9' {
-        Ok((c as u8) - ('0' as u8))
-    } else if c >= 'a' && c <= 'f' {
-        Ok((c as u8) - ('a' as u8) + 10)
-    } else if c >= 'A' && c <= 'F' {
-        Ok((c as u8) - ('A' as u8) + 10)
+    if c.is_ascii_digit() {
+        Ok((c as u8) - b'0')
+    } else if ('a'..='f').contains(&c) {
+        Ok((c as u8) - b'a' + 10)
+    } else if ('A'..='F').contains(&c) {
+        Ok((c as u8) - b'A' + 10)
     } else {
         Err(Error::Runtime(format!("Invalid hex char: '{c}'")))
     }
@@ -41,7 +41,7 @@ pub fn string_delta<'a>(a: &'a str, b: &'a str) -> Result<(&'a str, i32)> {
     let common_front = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
     let common_back = a.bytes().rev().zip(b.bytes().rev()).take_while(|(x, y)| x == y).count();
     if common_back == 0 && common_front == 0 {
-        return Ok((b, a.len() as i32));
+        Ok((b, a.len() as i32))
     } else if common_back > common_front {
         let sub = a.len() - common_back;
         let idx = b.len() - common_back;
@@ -58,7 +58,7 @@ pub fn bytes_delta<'a>(a: &'a [u8], b: &'a [u8]) -> Result<(&'a [u8], i32)> {
     let common_front = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
     let common_back = a.iter().rev().zip(b.iter().rev()).take_while(|(x, y)| x == y).count();
     if common_back == 0 && common_front == 0 {
-        return Ok((b, a.len() as i32));
+        Ok((b, a.len() as i32))
     } else if common_front >= common_back {
         let sub = a.len() - common_front;
         let delta = &b[common_front..];

@@ -36,11 +36,11 @@ impl Decimal {
 
         let parts: Vec<_> = value.split(".").collect();
         if parts.len() == 1 {
-            mantissa = i64::from_str_radix(parts[0], 10)?;
+            mantissa = parts[0].parse::<i64>()?;
             (exponent, mantissa) = scale_down(mantissa);
         } else if parts.len() == 2 {
             exponent = -(parts[1].len() as i32);
-            mantissa = i64::from_str_radix(&format!("{}{}", parts[0], parts[1]), 10)?;
+            mantissa = format!("{}{}", parts[0], parts[1]).parse::<i64>()?;
             if mantissa == 0 {
                 return Ok(Decimal::new(0, 0));
             }
@@ -62,6 +62,7 @@ impl Decimal {
     /// a sequence of digits ‘0’ – ‘9’. There must be at least one digit on each side of the decimal point.
     /// If the number is negative it is preceded by a minus sign (‘-’).
     /// The integer part must not have any leading zeroes.
+    #[allow(clippy::inherent_to_string_shadow_display)]
     pub fn to_string(&self) -> String {
         if self.exponent >= 0 {
             (self.mantissa * 10i64.pow(self.exponent as u32)).to_string()
@@ -109,9 +110,9 @@ impl Default for Decimal {
     }
 }
 
-impl Into<f64> for Decimal {
-    fn into(self) -> f64 {
-        self.to_float()
+impl From<Decimal> for f64 {
+    fn from(value: Decimal) -> Self {
+        value.to_float()
     }
 }
 

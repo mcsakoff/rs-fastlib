@@ -168,7 +168,7 @@ impl Instruction {
                                     instr.name = format!("{}:length", instruction.name);
                                 }
                                 // An optional sequence means that the length field is optional.
-                                instr.presence = instruction.presence.clone();
+                                instr.presence = instruction.presence;
                             }
                             // If no <length> element is specified, the length field has an implicit name and no field operator.
                             _ => {
@@ -178,7 +178,7 @@ impl Instruction {
                                     ValueType::Length,
                                 );
                                 // An optional sequence means that the length field is optional.
-                                length.presence = instruction.presence.clone();
+                                length.presence = instruction.presence;
                                 instruction.add_instruction(length);
                             }
                         }
@@ -398,11 +398,10 @@ impl Instruction {
             // if the instruction context has no initial value. If the field has optional presence and no initial value,
             // the field is considered absent when there is no value in the stream.
             Operator::Default => {
-                let v: Option<Value>;
-                if s.pmap_next_bit_set() {
-                    v = self.read(s)?;
+                let v: Option<Value> = if s.pmap_next_bit_set() {
+                    self.read(s)?
                 } else {
-                    v = match &self.initial_value {
+                    match &self.initial_value {
                         Some(v) => Some(v.clone()),
                         None => {
                             if self.is_optional() {
@@ -412,7 +411,7 @@ impl Instruction {
                             }
                         }
                     }
-                }
+                };
                 Ok(v)
             }
 
@@ -422,11 +421,11 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     // If the value is present in the stream it becomes the new previous value.
                     v = self.read(s)?;
-                    s.ctx_set(&self, &v);
+                    s.ctx_set(self, &v);
                 } else {
                     // When the value is not present in the stream there are three cases depending
                     // on the state of the previous value:
-                    v = match s.ctx_get(&self)? {
+                    v = match s.ctx_get(self)? {
                         Some(v) => match v {
                             // Assigned: The value of the field is the previous value.
                             Some(prev) => Some(prev.clone()),
@@ -455,7 +454,7 @@ impl Instruction {
                                     }
                                 }
                             };
-                            s.ctx_set(&self, &v);
+                            s.ctx_set(self, &v);
                             v
                         }
                     }
@@ -469,16 +468,16 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     //If the value is present in the stream it becomes the new previous value.
                     v = self.read(s)?;
-                    s.ctx_set(&self, &v);
+                    s.ctx_set(self, &v);
                 } else {
                     // When the value is not present in the stream there are three cases depending on the state of the previous value:
-                    v = match s.ctx_get(&self)? {
+                    v = match s.ctx_get(self)? {
                         Some(v) => match v {
                             // Assigned: the value of the field is the previous value incremented by one.
                             // The incremented value also becomes the new previous value.
                             Some(prev) => {
                                 let v = Some(prev.apply_increment()?);
-                                s.ctx_set(&self, &v);
+                                s.ctx_set(self, &v);
                                 v
                             }
                             // Empty: the value of the field is empty.
@@ -507,7 +506,7 @@ impl Instruction {
                                     }
                                 }
                             };
-                            s.ctx_set(&self, &v);
+                            s.ctx_set(self, &v);
                             v
                         }
                     };
@@ -527,7 +526,7 @@ impl Instruction {
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
-                let base = match s.ctx_get(&self)? {
+                let base = match s.ctx_get(self)? {
                     Some(v) => match v {
                         // Assigned: the base value is the previous value.
                         Some(prev) => prev.clone(),
@@ -546,7 +545,7 @@ impl Instruction {
                     }
                 };
                 let value = Some(base.apply_delta(delta, aux)?);
-                s.ctx_set(&self, &value);
+                s.ctx_set(self, &value);
                 Ok(value)
             }
 
@@ -568,7 +567,8 @@ impl Instruction {
                     };
                     // Otherwise, if the tail value is present, the value of the field is obtained by combining
                     // the tail value with a base value. The base value depends on the state of the previous value:
-                    let base = match s.ctx_get(&self)? {
+                    #[allow(clippy::collapsible_match)]
+                    let base = match s.ctx_get(self)? {
                         Some(v) => match v {
                             // Assigned: the base value is the previous value.
                             Some(prev) => prev.clone(),
@@ -592,11 +592,11 @@ impl Instruction {
                     };
                     value = Some(base.apply_tail(tail)?);
                     // The combined value becomes the new previous value.
-                    s.ctx_set(&self, &value);
+                    s.ctx_set(self, &value);
                 } else {
                     // If the tail value is not present in the stream, the value of the field depends
                     // on the state of the previous value.
-                    value = match s.ctx_get(&self)? {
+                    value = match s.ctx_get(self)? {
                         Some(v) => match v {
                             // Assigned: the value of the field is the previous value.
                             Some(prev) => Some(prev.clone()),
@@ -625,7 +625,7 @@ impl Instruction {
                                     }
                                 }
                             };
-                            s.ctx_set(&self, &value);
+                            s.ctx_set(self, &value);
                             value
                         }
                     };
@@ -732,7 +732,7 @@ impl Instruction {
             match s.rdr.read_int_nullable()? {
                 None => Ok(None),
                 Some(v) => {
-                    if v < MIN_INT32 || v > MAX_INT32 {
+                    if !(MIN_INT32..=MAX_INT32).contains(&v) {
                         return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v))); // [ERR D2]
                     }
                     Ok(Some(v as i32))
@@ -740,7 +740,7 @@ impl Instruction {
             }
         } else {
             let v = s.rdr.read_int()?;
-            if v < MIN_INT32 || v > MAX_INT32 {
+            if !(MIN_INT32..=MAX_INT32).contains(&v) {
                 return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v))); // [ERR D2]
             }
             Ok(Some(v as i32))
@@ -816,10 +816,10 @@ impl Instruction {
     fn read_tail(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.value_type {
             ValueType::ASCIIString => {
-                Ok(self.read_ascii_string(s)?.map(|s| Value::ASCIIString(s)))
+                Ok(self.read_ascii_string(s)?.map(Value::ASCIIString))
             }
             ValueType::UnicodeString | ValueType::Bytes => {
-                Ok(self.read_bytes(s)?.map(|b| Value::Bytes(b)))
+                Ok(self.read_bytes(s)?.map(Value::Bytes))
             }
             _ => unreachable!()
         }
@@ -827,10 +827,10 @@ impl Instruction {
 
     fn read_decimal_components(&self, s: &mut DecoderContext) -> Result<Option<(i32, i64)>> {
         let exponent = self.instructions
-            .get(0)
+            .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
             .extract(s)?;
-        if let None = exponent {
+        if exponent.is_none() {
             return Ok(None);
         }
         let mantissa = self.instructions
@@ -841,7 +841,7 @@ impl Instruction {
         if let (Some(Value::Int32(e)), Some(Value::Int64(m))) = (exponent, mantissa) {
             Ok(Some((e, m)))
         } else {
-            return Err(Error::Runtime("exponent or mantissa not found".to_string()));
+            Err(Error::Runtime("exponent or mantissa not found".to_string()))
         }
     }
 
@@ -850,7 +850,7 @@ impl Instruction {
             None => return Ok(None),
             Some(e) => e,
         };
-        if e > MAX_EXPONENT || e < MIN_EXPONENT {
+        if !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
             return Err(Error::Dynamic(format!("exponent value is out of range: {}", e))); // [ERR R1]
         }
         Ok(Some(e))
@@ -941,7 +941,7 @@ impl Instruction {
                 };
 
                 let delta = value.find_delta(&base)?;
-                s.ctx_set(&self, &Some(value.clone()));
+                s.ctx_set(self, &Some(value.clone()));
                 self.write_delta(buf, Some(delta))
             }
 
@@ -1181,7 +1181,7 @@ impl Instruction {
         };
         // write exponent
         self.instructions
-            .get(0)
+            .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
             .inject(s, buf, &e)?;
 
@@ -1196,10 +1196,8 @@ impl Instruction {
     }
 
     fn write_exponent(&self, buf: &mut dyn Writer, value: Option<i32>) -> Result<()> {
-        if let Some(e) = value {
-            if e > MAX_EXPONENT || e < MIN_EXPONENT {
-                return Err(Error::Dynamic(format!("exponent value is out of range: {}", e))); // [ERR R1]
-            }
+        if let Some(e) = value && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
+            return Err(Error::Dynamic(format!("exponent value is out of range: {}", e))); // [ERR R1]
         }
         self.write_int(buf, value)
     }

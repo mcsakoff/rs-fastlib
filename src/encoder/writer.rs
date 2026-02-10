@@ -22,7 +22,7 @@ pub trait Writer {
             self.write_u8(0x80)?;
             return Ok(());
         }
-        if size % 7 != 0 {
+        if !size.is_multiple_of(7) {
             return Err(Error::Runtime("write_presence_map: size must be multiple of 7".to_string()));
         }
 
@@ -40,7 +40,7 @@ pub trait Writer {
             }
             bitmap >>= 7;
         }
-        if buf.len() == 0 {
+        if buf.is_empty() {
             buf.push(0x00);
         }
         // set stop bit
@@ -121,7 +121,7 @@ pub trait Writer {
             }
             Some(s) => {
                 if s.is_empty() {
-                    self.write_buf(&vec![0x00, 0x80])
+                    self.write_buf(&[0x00, 0x80])
                 } else {
                     self._write_ascii_str(s)
                 }

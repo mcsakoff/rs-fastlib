@@ -107,6 +107,7 @@ impl ValueType {
         Ok(value)
     }
 
+    #[allow(clippy::match_like_matches_macro)]
     pub fn matches_type(&self, v: &Value) -> bool {
         match (self, v) {
             (ValueType::UInt32, Value::UInt32(_)) => true,
@@ -232,12 +233,11 @@ impl Value {
             }
             (Value::ASCIIString(v), Value::ASCIIString(d)) => {
                 let (front, i) = sub2index(sub, v.len())?;
-                let s;
-                if front {
-                    s = format!("{}{}", d, v[i..].to_string());
+                let s= if front {
+                    format!("{}{}", d, &v[i..])
                 } else {
-                    s = format!("{}{}", v[..i].to_string(), d);
-                }
+                    format!("{}{}", &v[..i], d)
+                };
                 Ok(Value::ASCIIString(s))
             }
             (Value::Bytes(v), Value::Bytes(d)) => {
@@ -253,19 +253,18 @@ impl Value {
     }
 
     pub fn apply_tail(&self, tail: Value) -> Result<Value> {
-        let len: usize;
-        match (self, &tail) {
+        let len: usize = match (self, &tail) {
             (Value::ASCIIString(v), Value::ASCIIString(t)) => {
-                len = min(t.len(), v.len());
+                min(t.len(), v.len())
             }
             (Value::UnicodeString(v), Value::Bytes(t)) => {
-                len = min(t.len(), v.len());
+                min(t.len(), v.len())
             }
             (Value::Bytes(v), Value::Bytes(t)) => {
-                len = min(t.len(), v.len());
+                min(t.len(), v.len())
             }
             _ => return Err(Error::Runtime(format!("Cannot apply tail {:?} to {:?}", tail, self))),
-        }
+        };
         self.apply_delta(tail, len as i32)
     }
 

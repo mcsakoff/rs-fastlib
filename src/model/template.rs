@@ -248,7 +248,7 @@ impl serde::Serializer for &mut TemplateData {
     }
 }
 
-impl<'a> SerializeSeq for &'a mut TemplateData {
+impl SerializeSeq for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -264,7 +264,7 @@ impl<'a> SerializeSeq for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeTuple for &'a mut TemplateData {
+impl SerializeTuple for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -280,7 +280,7 @@ impl<'a> SerializeTuple for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeTupleStruct for &'a mut TemplateData {
+impl SerializeTupleStruct for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -296,7 +296,7 @@ impl<'a> SerializeTupleStruct for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeTupleVariant for &'a mut TemplateData {
+impl SerializeTupleVariant for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -312,7 +312,7 @@ impl<'a> SerializeTupleVariant for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeMap for &'a mut TemplateData {
+impl SerializeMap for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -335,7 +335,7 @@ impl<'a> SerializeMap for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeStruct for &'a mut TemplateData {
+impl SerializeStruct for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
@@ -351,7 +351,7 @@ impl<'a> SerializeStruct for &'a mut TemplateData {
     }
 }
 
-impl<'a> SerializeStructVariant for &'a mut TemplateData {
+impl SerializeStructVariant for &mut TemplateData {
     type Ok = ();
     type Error = Error;
 
