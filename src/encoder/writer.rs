@@ -1,4 +1,7 @@
-use std::io::Write;
+use std::{
+    io::Write,
+    ops::{BitAnd, Shr},
+};
 
 use bytes::BufMut;
 
@@ -23,45 +26,44 @@ pub trait Writer {
             return Ok(());
         }
         if !size.is_multiple_of(7) {
-            return Err(Error::Runtime("write_presence_map: size must be multiple of 7".to_string()));
+            return Err(Error::Runtime(
+                "write_presence_map: size must be multiple of 7".to_string(),
+            ));
         }
 
-        let mut trim = true;
-        let len = (size / 7) as usize;
-        let mut bitmap = bitmap;
-        let mut buf: Vec<u8> = Vec::with_capacity(len);
-        for _ in 0..len {
-            let b7 = (bitmap & 0x7f) as u8;
-            if trim && b7 == 0 {
-                // trim trailing zeros
-            } else {
-                buf.push(b7);
-                trim = false;
-            }
-            bitmap >>= 7;
+        let trailing_bits = bitmap.trailing_zeros() as usize;
+        // Only if all 7 bits are 0 we treat byte as trailing
+        let trailing_bytes = trailing_bits / 7;
+        let bitmap = bitmap >> (trailing_bytes * 7);
+
+        // Skipping useless bytes.
+        let len = usize::from(size / 7).saturating_sub(trailing_bytes);
+        if len == 0 {
+            self.write_u8(0x80)?;
+            return Ok(());
         }
-        if buf.is_empty() {
-            buf.push(0x00);
-        }
-        // set stop bit
-        *buf.get_mut(0).unwrap() |= 0x80;
-        buf.reverse();
-        self.write_buf(&buf)
+        // For u64 there's only 10 bytes we can write (if number is u64::MAX) and meaning_bits is 64.
+        // Then 64.div_ceil(7) is 10;
+        let buf = encode_number(bitmap, len);
+        self.write_buf(&buf[..len])
     }
 
     fn write_uint(&mut self, value: u64) -> Result<()> {
-        let mut value = value;
-        let mut buf: Vec<u8> = Vec::with_capacity(10);
-        buf.push(((value & 0x7f) as u8) | 0x80);
-        loop {
-            value >>= 7;
-            if value == 0 {
-                break;
-            }
-            buf.push((value & 0x7f) as u8);
+        // If number is zero we only have to add last byte marker.
+        if value == 0 {
+            return self.write_u8(0x80);
         }
-        buf.reverse();
-        self.write_buf(&buf)
+
+        // Calculating position of the last 1 in number.
+        let meaning_bits = u64::BITS - value.leading_zeros();
+
+        // Since we can write only 7 bits (8 bit is the last bit marker), getting number of bytes to write.
+        // 1..=7 => 1 byte
+        // 8..=15 => 2 byte
+        // etc
+        let bytes_to_write = meaning_bits.div_ceil(7) as usize;
+        let buf = encode_number(value, bytes_to_write);
+        self.write_buf(&buf[..bytes_to_write])
     }
 
     fn write_uint_nullable(&mut self, value: Option<u64>) -> Result<()> {
@@ -72,30 +74,37 @@ pub trait Writer {
     }
 
     fn write_int(&mut self, value: i64) -> Result<()> {
-        let is_pos = value >= 0;
-        let mut buf: Vec<u8> = Vec::with_capacity(10);
-        let mut value = value;
-        loop {
-            let b7 = (value & 0x7f) as u8;
-            buf.push(b7);
-            value >>= 7;
-            if is_pos {
-                // stop condition for positive numbers
-                if value == 0 && (b7 & 0x40 == 0) {
-                    break;
-                }
-            } else {
-                // stop condition for negative numbers
-                if value == -1 && (b7 & 0x40 != 0) {
-                    break;
-                }
-            }
+        // If number contains only meaningless_bits, just write it with last byte marker.
+        if value == 0 || value == -1 {
+            return self.write_u8(value as u8 | 0x80);
         }
-        // set stop bit
-        *buf.get_mut(0).unwrap() |= 0x80;
 
-        buf.reverse();
-        self.write_buf(&buf)
+        let is_pos = value >= 0;
+
+        // For posititive numbers we ignore 0 in the MSB since we only search for last 1
+        // For negatitive number logic is reversed.
+        let useless_bits = if is_pos {
+            value.leading_zeros()
+        } else {
+            value.leading_ones()
+        };
+
+        // Calculating position of the last meaning sign in number.
+        let meaning_bits = i64::BITS - useless_bits;
+
+        // Since we can write only 7 bits (8 bit is the last bit marker), getting number of bytes to write.
+        // 1..=7 => 1 byte
+        // 8..=15 => 2 byte
+        // etc
+        let bytes_to_write = meaning_bits.div_ceil(7) as usize;
+
+        // Additional byte is required if the last signed bit position is divisible by 7.
+        let additional_byte = usize::from(
+            (value.unbounded_shr(bytes_to_write as u32 * 7 - 1)) & 0x1 == i64::from(is_pos),
+        );
+        let bytes_to_write = bytes_to_write + additional_byte;
+        let buf = encode_number(value, bytes_to_write);
+        self.write_buf(&buf[..bytes_to_write])
     }
 
     fn write_int_nullable(&mut self, value: Option<i64>) -> Result<()> {
@@ -107,36 +116,33 @@ pub trait Writer {
     }
 
     fn write_ascii_string(&mut self, value: &str) -> Result<()> {
-        if value.is_empty() {
-            self.write_u8(0x80)
-        } else {
-            self._write_ascii_str(value)
-        }
+        self.write_ascii_str(value, &[0x80])
     }
 
     fn write_ascii_string_nullable(&mut self, value: Option<&str>) -> Result<()> {
         match value {
-            None => {
-                self.write_u8(0x80)
-            }
-            Some(s) => {
-                if s.is_empty() {
-                    self.write_buf(&[0x00, 0x80])
-                } else {
-                    self._write_ascii_str(s)
-                }
-            }
+            None => self.write_u8(0x80),
+            Some(s) => self.write_ascii_str(s, &[0x00, 0x80]),
         }
     }
 
-    fn _write_ascii_str(&mut self, value: &str) -> Result<()> {
-        let mut buf = value
-            .chars()
-            .map(|ch| if ch.is_ascii() { Some(ch as u8) } else { None })
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| Error::Runtime("write_ascii_string: invalid ASCII char".to_string()))?;
-        *buf.iter_mut().last().unwrap() |= 0x80;
-        self.write_buf(&buf)
+    fn write_ascii_str(&mut self, value: &str, empty: &[u8]) -> Result<()> {
+        // Checking is string contains only ASCII chars.
+        // If so we can just use them as slice of bytes with only last byte changed.
+        if !value.is_ascii() {
+            return Err(Error::Runtime(
+                "write_ascii_string: invalid ASCII char".to_string(),
+            ));
+        }
+
+        // Splitting up last bytes since it have to be marked.
+        // If string is empty we should write only empty.
+        let [buf @ .., last_byte] = value.as_bytes() else {
+            return self.write_buf(empty);
+        };
+
+        self.write_buf(buf)?;
+        self.write_u8(*last_byte | 0x80)
     }
 
     fn write_unicode_string(&mut self, value: &str) -> Result<()> {
@@ -170,6 +176,43 @@ pub trait Writer {
     }
 }
 
+trait ToByte {
+    fn to_byte(&self) -> u8;
+}
+
+impl ToByte for i64 {
+    fn to_byte(&self) -> u8 {
+        *self as u8
+    }
+}
+
+impl ToByte for u64 {
+    fn to_byte(&self) -> u8 {
+        *self as u8
+    }
+}
+
+fn encode_number<T>(number: T, len: usize) -> [u8; 10]
+where
+    T: ToByte + Shr<usize, Output = T> + BitAnd<Output = T> + From<u8> + Copy,
+{
+    // For 64 bit number there's only 10 bytes we can write (if number is T::MAX) and meaning_bits is 64.
+    // Then 64.div_ceil(7) is 10;
+    let mut buf = [0; 10];
+    let values = (0..len).map(|i| {
+        // Writing in reversed order because most signed bits have to be written first.
+        let offset_bits_index = len - i - 1;
+        let shifted_bitmap = number >> (offset_bits_index * 7);
+        (shifted_bitmap & T::from(0x7f)).to_byte()
+    });
+    for (buf, value) in buf.iter_mut().zip(values) {
+        *buf = value;
+    }
+
+    // set stop bit
+    buf[len - 1] |= 0x80;
+    buf
+}
 
 impl Writer for bytes::BytesMut {
     fn write_u8(&mut self, value: u8) -> Result<()> {
@@ -182,7 +225,6 @@ impl Writer for bytes::BytesMut {
         Ok(())
     }
 }
-
 
 /// Wrapper around `std::io::Write` that implements [`fastlib::Writer`][crate::encoder::writer::Writer].
 pub(crate) struct StreamWriter<'a> {
@@ -323,7 +365,7 @@ mod tests {
         for tc in test_cases {
             let mut buf = bytes::BytesMut::new();
             buf.write_int(tc.input).unwrap();
-            assert_eq!(buf.to_vec(), tc.value);
+            assert_eq!(buf.to_vec(), tc.value, "Invalid encoder for {}", tc.input);
         }
     }
 
