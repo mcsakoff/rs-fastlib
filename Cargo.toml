@@ -11,6 +11,7 @@ edition = "2024"
 keywords = ["fix", "fast", "protocol", "parser"]
 license = "MIT"
 repository = "https://github.com/mcsakoff/rs-fastlib"
+rust-version = "1.88.0"
 
 [dependencies]
 bytes = "1"
