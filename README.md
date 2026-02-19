@@ -148,8 +148,8 @@ println!("{}", msg.json);
 
 ### Decode using own message factory
 
-**NOTE:** Decoding using own message factory is only required if needed very specific process of decoding
-into very specific message types. In most cases using serde is the way to go!
+**NOTE:** Decoding using own message factory is only required if very specific process of decoding
+into very specific message types is needed. In most cases using `serde` is the way to go!
 
 Make a new struct that implements `fastlib::MessageFactory` trait:
 
@@ -214,7 +214,7 @@ decoder.decode_vec(raw_data, &mut msg)?;
 ## Examples
 
 - [fast-tools](https://github.com/mcsakoff/rs-fast-tools)
-
+- [quotesdirectlib](https://github.com/mcsakoff/rs-quotesdirect)
 
 ## License
 

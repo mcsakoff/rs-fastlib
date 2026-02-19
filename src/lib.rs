@@ -138,8 +138,8 @@
 //!
 //! ## Decode using own message factory
 //!
-//! **NOTE:** Decoding using own message factory is only required if needed very specific process of decoding
-//! into very specific message types. In most cases using serde is the way to go!
+//! **NOTE:** Decoding using own message factory is only required if very specific process of decoding
+//! into very specific message types is needed. In most cases using `serde` is the way to go!
 //!
 //! Make a new struct that implements [`MessageFactory`] trait:
 //!
@@ -175,6 +175,24 @@
 //!
 //! For message factory implementation examples see [`TextMessageFactory`] and [`JsonMessageFactory`].
 //!
+//! ## Features
+//!
+//! Name           | Default?
+//! ---------------|---
+//! `serde`        | ✔
+//! `rust_decimal` |
+//!
+//! ### `serde`
+//!
+//! Enables functionality for serializing and deserializing FAST messages into Rust data types.
+//!
+//! ### `rust_decimal`
+//!
+//! Enables integration with [`rust_decimal`] library.
+//! Provides `From<Decimal>` implementation for [`rust_decimal::Decimal`] and `TryFrom<rust_decimal::Decimal>` for [`Decimal`].
+//!
+//! [`rust_decimal`]: https://docs.rs/rust_decimal/latest/rust_decimal/
+
 pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use base::message::{MessageFactory, MessageVisitor};
 pub use decoder::{decoder::Decoder, reader::Reader};
