@@ -20,9 +20,6 @@ impl Decimal {
     // by 10 is not zero: mant % 10 != 0. For example 100 would be normalized as 1 * 10^2. If the mantissa is zero,
     // the normalized decimal has a zero mantissa and a zero exponent.
     pub fn from_string(value: &str) -> Result<Decimal> {
-        let mut exponent: i32;
-        let mut mantissa: i64;
-
         fn scale_down(mut value: i64) -> (i32, i64) {
             let mut scale = 0;
             if value != 0 {
@@ -34,26 +31,35 @@ impl Decimal {
             (scale, value)
         }
 
-        let parts: Vec<_> = value.split(".").collect();
-        if parts.len() == 1 {
-            mantissa = parts[0].parse::<i64>()?;
-            (exponent, mantissa) = scale_down(mantissa);
-        } else if parts.len() == 2 {
-            exponent = -(parts[1].len() as i32);
-            mantissa = format!("{}{}", parts[0], parts[1]).parse::<i64>()?;
-            if mantissa == 0 {
-                return Ok(Decimal::new(0, 0));
-            }
-            let (e, m) = scale_down(mantissa);
-            exponent += e;
-            mantissa = m;
-        } else {
+        let mut parts = value.split('.');
+        let part1 = parts.next();
+        let part2 = parts.next();
+        let part3 = parts.next();
+
+        if part1.is_none() || part3.is_some() {
             return Err(Error::Static(format!("Not a decimal '{}'", value)));
         }
+        let integer = part1.unwrap();
+
+        let (exponent, mantissa) =
+            if let Some(fractional) = part2 {
+                let mantissa = format!("{}{}", integer, fractional).parse::<i64>()?;
+                if mantissa == 0 {
+                    return Ok(Decimal::new(0, 0));
+                }
+                let (exponent_fix, mantissa) = scale_down(mantissa);
+                let exponent = -(fractional.len() as i32) + exponent_fix;
+                (exponent, mantissa)
+            } else {
+                scale_down(integer.parse::<i64>()?)
+            };
         Ok(Decimal::new(exponent, mantissa))
     }
 
     pub fn from_float(value: f64) -> Result<Decimal> {
+        if !value.is_finite() {
+            return Err(Error::Static(format!("Not a finite decimal '{}'", value)));
+        }
         Decimal::from_string(&format!("{value}"))
     }
 
@@ -116,6 +122,62 @@ impl From<Decimal> for f64 {
     }
 }
 
+impl TryFrom<f64> for Decimal {
+    type Error = Error;
+
+    fn try_from(value: f64) ->Result<Self> {
+        Self::from_float(value)
+    }
+}
+
+#[cfg(feature = "rust_decimal")]
+impl From<Decimal> for rust_decimal::Decimal {
+    fn from(value: Decimal) -> Self {
+        if value.exponent <= 0 {
+            Self::new(value.mantissa, -value.exponent as u32)
+        } else {
+            let number = value.mantissa * 10i64.pow(value.exponent as u32);
+            Self::new(number, 0)
+        }
+    }
+}
+
+#[cfg(feature = "rust_decimal")]
+impl TryFrom<rust_decimal::Decimal> for Decimal {
+    type Error = Error;
+
+    fn try_from(value: rust_decimal::Decimal) -> Result<Self> {
+        use rust_decimal::prelude::ToPrimitive;
+
+        // Get mantissa and scale as mantissa and exponent and adjust as per
+        // the FIX specification for decimals: the integer remainder after dividing
+        // the mantissa by 10 is not zero.
+        let mut exponent = -(value.scale() as i64);
+        let mut mantissa = value.mantissa();
+        if mantissa != 0 {
+            while mantissa % 10 == 0 {
+                mantissa /= 10;
+                exponent += 1;
+            }
+        }
+        // Check mantissa and exponent are within bounds.
+        let mantissa = match mantissa.to_i64() {
+            Some(m) => m,
+            None => {
+                return Err(Error::Static("Mantissa is too large".to_string()));
+            }
+        };
+        let exponent = match exponent.to_i32() {
+            Some(e) => e,
+            None => {
+                return Err(Error::Static("Exponent is too large".to_string()));
+            }
+        };
+        Ok(Self::new(exponent, mantissa))
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -171,6 +233,16 @@ mod test {
                 input: "-1",
                 components: (0, -1),
                 float: -1.0,
+            },
+            TestCase {
+                input: "0.03",
+                components: (-2, 3),
+                float: 0.03,
+            },
+            TestCase {
+                input: "-0.03",
+                components: (-2, -3),
+                float: -0.03,
             },
         ]);
     }
@@ -236,6 +308,151 @@ mod test {
                 components: (-5, -100),
                 string: "-0.00100",
                 display: "-0.00100",
+            },
+        ]);
+    }
+
+    #[test]
+    fn decimal_from_float() {
+        struct TestCase {
+            input: f64,
+            components: (i32, i64),
+        }
+
+        fn do_test(tts: Vec<TestCase>) {
+            for tt in tts {
+                let d = Decimal::from_float(tt.input).unwrap();
+                assert_eq!((d.exponent, d.mantissa), tt.components);
+            }
+        }
+
+        do_test(vec![
+            TestCase {
+                input: 1200.45,
+                components: (-2, 120045),
+            },
+            TestCase {
+                input: 0.0,
+                components: (0, 0),
+            },
+            TestCase {
+                input: 1.0,
+                components: (0, 1),
+            },
+            TestCase {
+                input: 10.0,
+                components: (1, 1),
+            },
+            TestCase {
+                input: -1.0,
+                components: (0, -1),
+            },
+            TestCase {
+                input: 0.1,
+                components: (-1, 1),
+            },
+        ]);
+    }
+
+    #[cfg(feature = "rust_decimal")]
+    #[test]
+    fn decimal_from_rust_decimal() {
+        use rust_decimal::prelude::FromPrimitive;
+
+        struct TestCase {
+            float: f64,
+            components: (i32, i64),
+        }
+
+        fn do_test(tts: Vec<TestCase>) {
+            for tt in tts {
+                let rd = rust_decimal::Decimal::from_f64(tt.float).unwrap();
+                let d = Decimal::try_from(rd).unwrap();
+                assert_eq!((d.exponent, d.mantissa), tt.components);
+            }
+        }
+
+        do_test(vec![
+            TestCase {
+                float: 1200.45,
+                components: (-2, 120045),
+            },
+            TestCase {
+                float: 0.0,
+                components: (0, 0),
+            },
+            TestCase {
+                float: 1.0,
+                components: (0, 1),
+            },
+            TestCase {
+                float: 100.0,
+                components: (2, 1),
+            },
+            TestCase {
+                float: -1.0,
+                components: (0, -1),
+            },
+            TestCase {
+                float: 0.03,
+                components: (-2, 3),
+            },
+            TestCase {
+                float: -0.03,
+                components: (-2, -3),
+            },
+        ]);
+    }
+
+    #[test]
+    fn decimal_to_any() {
+        struct TestCase {
+            components: (i32, i64),
+            float: f64,
+        }
+
+        fn do_test(tts: Vec<TestCase>) {
+            #[cfg(feature = "rust_decimal")]
+            use rust_decimal::prelude::ToPrimitive;
+
+            for tt in tts {
+                let d = Decimal::new(tt.components.0, tt.components.1);
+                assert_eq!(d.to_float(), tt.float);
+                assert_eq!(f64::from(d.clone()), tt.float);
+
+                #[cfg(feature = "rust_decimal")]
+                assert_eq!(rust_decimal::Decimal::from(d).to_f64().unwrap(), tt.float);
+            }
+        }
+
+        do_test(vec![
+            TestCase {
+                components: (-2, 120045),
+                float: 1200.45,
+            },
+            TestCase {
+                components: (0, 0),
+                float: 0.0,
+            },
+            TestCase {
+                components: (0, 1),
+                float: 1.0,
+            },
+            TestCase {
+                components: (2, 1),
+                float: 100.0,
+            },
+            TestCase {
+                components: (0, -1),
+                float: -1.0,
+            },
+            TestCase {
+                components: (-2, 3),
+                float: 0.03,
+            },
+            TestCase {
+                components: (-2, -3),
+                float: -0.03,
             },
         ]);
     }
