@@ -12,12 +12,14 @@ use crate::{Error, Result};
 
 /// A trait that provides methods for reading basic primitive types.
 pub trait Reader {
+    /// Reads a single byte.
+    /// # Errors
     /// Do not return [`Error::Eof`][crate::Error::Eof] from this method.
     /// Return [`Error::UnexpectedEof`][crate::Error::UnexpectedEof] instead.
     fn read_u8(&mut self) -> Result<u8>;
 
     /// Read the presence map. Return the bitmap and the number of bits in the bitmap.
-    ///
+    /// # Errors
     /// In case of error, return [`Error::Eof`][crate::Error::Eof] if the end of the stream is reached at the first byte
     /// of the presence map. Otherwise, return any other error, e.g.: [`Error::UnexpectedEof`][crate::Error::UnexpectedEof].
     fn read_presence_map(&mut self) -> Result<(u64, u8)> {
@@ -30,28 +32,34 @@ pub trait Reader {
         };
         loop {
             bitmap <<= 7;
-            bitmap |= (byte & 0x7f) as u64;
+            bitmap |= u64::from(byte & 0x7f);
             size += 7;
 
             if byte & 0x80 == 0x80 {
                 return Ok((bitmap, size));
             }
-            byte = self.read_u8()?
+            byte = self.read_u8()?;
         }
     }
 
+    /// Returns decoded non-nullable 64 bit unsigned integer.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_uint(&mut self) -> Result<u64> {
         let mut value: u64 = 0;
         loop {
             let byte = self.read_u8()?;
             value <<= 7;
-            value |= (byte & 0x7f) as u64;
+            value |= u64::from(byte & 0x7f);
             if byte & 0x80 == 0x80 {
                 return Ok(value);
             }
         }
     }
 
+    /// Returns decoded nullable 64 bit unsigned integer.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
         let value = self.read_uint()?;
         if value == 0 {
@@ -61,6 +69,9 @@ pub trait Reader {
         }
     }
 
+    /// Returns decoded non-nullable 64 bit signed integer.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_int(&mut self) -> Result<i64> {
         let mut value: i64 = 0;
 
@@ -71,7 +82,7 @@ pub trait Reader {
         }
         loop {
             value <<= 7;
-            value |= (byte & 0x7f) as i64;
+            value |= i64::from(byte & 0x7f);
 
             if byte & 0x80 == 0x80 {
                 return Ok(value);
@@ -80,17 +91,21 @@ pub trait Reader {
         }
     }
 
+    /// Returns decoded nullable 64 bit signed integer.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_int_nullable(&mut self) -> Result<Option<i64>> {
         let value = self.read_int()?;
-        if value > 0 {
-            Ok(Some(value - 1))
-        } else if value < 0 {
-            Ok(Some(value))
-        } else {
-            Ok(None)
+        match value {
+            0 => Ok(None),
+            value if value < 0 => Ok(Some(value)),
+            value => Ok(Some(value - 1)),
         }
     }
 
+    /// Returns decoded non-nullable ASCII encoded string.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_ascii_string(&mut self) -> Result<String> {
         let mut byte = self.read_u8()?;
         if byte == 0x80 {
@@ -109,6 +124,9 @@ pub trait Reader {
         unsafe { Ok(String::from_utf8_unchecked(buf)) }
     }
 
+    /// Returns decoded nullable ASCII encoded string.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
         let mut byte = self.read_u8()?;
 
@@ -133,10 +151,16 @@ pub trait Reader {
         unsafe { Ok(Some(String::from_utf8_unchecked(buf))) }
     }
 
+    /// Returns decoded non-nullable unicode encoded string.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_unicode_string(&mut self) -> Result<String> {
         Ok(String::from_utf8(self.read_bytes()?)?)
     }
 
+    /// Returns decoded nullable unicode encoded string.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_unicode_string_nullable(&mut self) -> Result<Option<String>> {
         match self.read_bytes_nullable()? {
             None => Ok(None),
@@ -144,6 +168,9 @@ pub trait Reader {
         }
     }
 
+    /// Returns decoded non-nullable bytes.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_bytes(&mut self) -> Result<Vec<u8>> {
         let length = self.read_uint()?;
         let mut buf = Vec::with_capacity(length as usize);
@@ -153,6 +180,9 @@ pub trait Reader {
         Ok(buf)
     }
 
+    /// Returns decoded nullable bytes.
+    /// # Errors
+    /// Returns error if can not read bytes len or bytes len mismatch.
     fn read_bytes_nullable(&mut self) -> Result<Option<Vec<u8>>> {
         match self.read_uint_nullable()? {
             None => Ok(None),
@@ -192,15 +222,14 @@ impl Reader for StreamReader<'_> {
     fn read_u8(&mut self) -> Result<u8> {
         let mut buf = [0; 1];
         match self.stream.read_exact(&mut buf) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(err) => {
                 if err.kind() == ErrorKind::UnexpectedEof {
                     return Err(Error::UnexpectedEof);
-                } else {
-                    return Err(Error::Dynamic(format!("Stream read error: {}", err)));
                 }
+                return Err(Error::Dynamic(format!("Stream read error: {err}")));
             }
-        };
+        }
         Ok(buf[0])
     }
 }

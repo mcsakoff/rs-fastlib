@@ -128,28 +128,21 @@ impl Definitions {
                 })?);
             }
             ValueType::TemplateReference => {
-                if !instr.name.is_empty() {
-                    // Static template ref checks corresponding template it is needs any presence bit.
-                    let template = match self.templates_by_name.get(&instr.name) {
-                        None => {
-                            return Err(Error::Static(format!(
-                                "template '{}' not found",
-                                instr.name
-                            )));
-                        }
-                        Some(t) => t,
-                    };
-                    return match template.require_pmap.get() {
-                        None => Err(Error::Static(format!(
-                            "template '{}' not initialized yet; consider reordering templates",
-                            instr.name
-                        ))),
-                        Some(b) => Ok(b),
-                    };
-                } else {
+                if instr.name.is_empty() {
                     // Dynamic template ref doesn't need a presence map bit.
                     return Ok(false);
                 }
+                // Static template ref checks corresponding template it is needs any presence bit.
+                let template = self
+                    .templates_by_name
+                    .get(&instr.name)
+                    .ok_or_else(|| Error::Static(format!("template '{}' not found", instr.name)))?;
+                return template.require_pmap.get().ok_or_else(|| {
+                    Error::Static(format!(
+                        "template '{}' not initialized yet; consider reordering templates",
+                        instr.name
+                    ))
+                });
             }
             ValueType::Decimal => {
                 if instr.has_pmap.get() {
@@ -163,9 +156,8 @@ impl Definitions {
         match instr.operator {
             // If a field (is mandatory and) has no field operator, it will not occupy any bit in the presence map
             // and its value must always appear in the stream.
-            Operator::None => Ok(false),
             // Delta is always present in the stream, so doesn't need a presence bit.
-            Operator::Delta => Ok(false),
+            Operator::None | Operator::Delta => Ok(false),
             // Always require a presence bit.
             Operator::Default | Operator::Copy | Operator::Increment | Operator::Tail => Ok(true),
             // An optional field with the constant operator will occupy a single bit.

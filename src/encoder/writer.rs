@@ -9,9 +9,14 @@ use crate::{Error, Result};
 
 /// A trait that provides methods for writing basic primitive types.
 pub trait Writer {
+    /// Writes a single byte.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_u8(&mut self, value: u8) -> Result<()>;
 
     /// Implement this method for more efficient writing of multiple bytes.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_buf(&mut self, buf: &[u8]) -> Result<()> {
         for b in buf {
             self.write_u8(*b)?;
@@ -19,7 +24,9 @@ pub trait Writer {
         Ok(())
     }
 
-    /// Write the presence map.
+    /// Writes presence map.
+    /// # Errors
+    /// Returns error if bitmap is ill-formed or writer can't handle more bytes.
     fn write_presence_map(&mut self, bitmap: u64, size: u8) -> Result<()> {
         if size == 0 {
             self.write_u8(0x80)?;
@@ -48,6 +55,9 @@ pub trait Writer {
         self.write_buf(&buf[..len])
     }
 
+    /// Writes non-nullable 64bit unsigned integer.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_uint(&mut self, value: u64) -> Result<()> {
         // If number is zero we only have to add last byte marker.
         if value == 0 {
@@ -66,13 +76,18 @@ pub trait Writer {
         self.write_buf(&buf[..bytes_to_write])
     }
 
+    /// Writes nullable 64bit unsigned integer.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_uint_nullable(&mut self, value: Option<u64>) -> Result<()> {
         match value {
             None => self.write_uint(0),
             Some(v) => self.write_uint(v + 1),
         }
     }
-
+    /// Writes non-nullable 64bit signed integer.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_int(&mut self, value: i64) -> Result<()> {
         // If number contains only meaningless_bits, just write it with last byte marker.
         if value == 0 || value == -1 {
@@ -107,6 +122,9 @@ pub trait Writer {
         self.write_buf(&buf[..bytes_to_write])
     }
 
+    /// Writes nullable 64bit signed integer.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_int_nullable(&mut self, value: Option<i64>) -> Result<()> {
         match value {
             None => self.write_int(0),
@@ -115,10 +133,16 @@ pub trait Writer {
         }
     }
 
+    /// Writes non-nullable ASCII encoded bytes.
+    /// # Errors
+    /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
     fn write_ascii_string(&mut self, value: &str) -> Result<()> {
         self.write_ascii_str(value, &[0x80])
     }
 
+    /// Writes nullable ASCII encoded bytes.
+    /// # Errors
+    /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
     fn write_ascii_string_nullable(&mut self, value: Option<&str>) -> Result<()> {
         match value {
             None => self.write_u8(0x80),
@@ -126,6 +150,9 @@ pub trait Writer {
         }
     }
 
+    /// Writes non-nullable ASCII encoded bytes.
+    /// # Errors
+    /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
     fn write_ascii_str(&mut self, value: &str, empty: &[u8]) -> Result<()> {
         // Checking is string contains only ASCII chars.
         // If so we can just use them as slice of bytes with only last byte changed.
@@ -145,10 +172,16 @@ pub trait Writer {
         self.write_u8(*last_byte | 0x80)
     }
 
+    /// Writes non-nullable Unicode encoded string.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_unicode_string(&mut self, value: &str) -> Result<()> {
         self.write_bytes(value.as_bytes())
     }
 
+    /// Writes nullable Unicode encoded string.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_unicode_string_nullable(&mut self, value: Option<&str>) -> Result<()> {
         match value {
             None => self.write_bytes_nullable(None),
@@ -156,11 +189,17 @@ pub trait Writer {
         }
     }
 
+    /// Writes non-nullable bytes.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_bytes(&mut self, value: &[u8]) -> Result<()> {
         self.write_uint(value.len() as u64)?;
         self.write_buf(value)
     }
 
+    /// Writes nullable bytes.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
     fn write_bytes_nullable(&mut self, value: Option<&[u8]>) -> Result<()> {
         match value {
             None => self.write_uint_nullable(None),

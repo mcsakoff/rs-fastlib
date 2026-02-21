@@ -24,34 +24,26 @@ impl<'de> Deserialize<'de> for Decimal {
             where
                 E: de::Error,
             {
-                match Decimal::from_string(v) {
-                    Ok(d) => Ok(d),
-                    Err(e) => Err(E::custom(e)),
-                }
+                Decimal::from_string(v).map_err(|e| E::custom(e))
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                match Decimal::from_string(&v) {
-                    Ok(d) => Ok(d),
-                    Err(e) => Err(E::custom(e)),
-                }
+                Decimal::from_string(&v).map_err(|e| E::custom(e))
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: de::SeqAccess<'de>,
             {
-                let e = match seq.next_element()? {
-                    Some(e) => e,
-                    None => return Err(de::Error::invalid_length(0, &self)),
-                };
-                let m = match seq.next_element()? {
-                    Some(m) => m,
-                    None => return Err(de::Error::invalid_length(1, &self)),
-                };
+                let e = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let m = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
                 Ok(Decimal::new(e, m))
             }
         }

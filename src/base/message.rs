@@ -56,6 +56,7 @@ pub trait MessageFactory {
 ///
 /// The callback functions are called when the specific information required during message processing.
 ///
+#[allow(clippy::missing_errors_doc)]
 pub trait MessageVisitor {
     fn get_template_name(&mut self) -> Result<String>;
 

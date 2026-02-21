@@ -35,12 +35,10 @@ impl Template {
             .to_string();
         let type_ref = node
             .attribute("typeRef")
-            .map(TypeRef::from_str)
-            .unwrap_or(TypeRef::Any);
+            .map_or(TypeRef::Any, TypeRef::from_str);
         let dictionary = node
             .attribute("dictionary")
-            .map(Dictionary::from_str)
-            .unwrap_or(Dictionary::Global);
+            .map_or(Dictionary::Global, Dictionary::from_str);
         let mut instructions = Vec::new();
         for child in node.children() {
             if child.is_element() {
@@ -79,7 +77,7 @@ impl Operator {
             "increment" => Ok(Self::Increment),
             "delta" => Ok(Self::Delta),
             "tail" => Ok(Self::Tail),
-            _ => Err(Error::Static(format!("Unknown operator: {}", t))),
+            _ => Err(Error::Static(format!("Unknown operator: {t}"))),
         }
     }
 }
