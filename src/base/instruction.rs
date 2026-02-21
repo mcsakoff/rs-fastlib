@@ -3,12 +3,12 @@ use std::rc::Rc;
 
 use roxmltree::Node;
 
-use crate::{Decimal, Error, Result};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
+use crate::{Decimal, Error, Result};
 
 const MAX_INT32: i64 = 2147483647;
 const MIN_INT32: i64 = -2147483648;
@@ -92,34 +92,40 @@ impl Instruction {
     }
 
     pub fn from_node(node: Node) -> Result<Self> {
-        let id = node
-            .attribute("id")
-            .unwrap_or("0")
-            .parse::<u32>()?;
-        let name = node
-            .attribute("name")
-            .unwrap_or("");
+        let id = node.attribute("id").unwrap_or("0").parse::<u32>()?;
+        let name = node.attribute("name").unwrap_or("");
         let unicode = match node.attribute("charset") {
             Some("unicode") => true,
             Some(charset) => {
                 return Err(Error::Static(format!("unknown charset: {charset}")));
             }
-            _ => false
+            _ => false,
         };
         let type_ = ValueType::new_from_tag(node.tag_name().name(), unicode)?;
         match type_ {
-            ValueType::Mantissa | ValueType::Exponent | ValueType::Sequence | ValueType::Group | ValueType::TemplateReference => {}
+            ValueType::Mantissa
+            | ValueType::Exponent
+            | ValueType::Sequence
+            | ValueType::Group
+            | ValueType::TemplateReference => {}
             _ => {
                 if id == 0 {
-                    return Err(Error::Runtime("instruction must have non-zero 'id' attribute".to_string()));
+                    return Err(Error::Runtime(
+                        "instruction must have non-zero 'id' attribute".to_string(),
+                    ));
                 }
             }
         }
         match type_ {
-            ValueType::Mantissa | ValueType::Exponent | ValueType::Length | ValueType::TemplateReference => {}
+            ValueType::Mantissa
+            | ValueType::Exponent
+            | ValueType::Length
+            | ValueType::TemplateReference => {}
             _ => {
                 if name.is_empty() {
-                    return Err(Error::Runtime("instruction must have 'name' attribute".to_string()));
+                    return Err(Error::Runtime(
+                        "instruction must have 'name' attribute".to_string(),
+                    ));
                 }
             }
         }
@@ -299,23 +305,35 @@ impl Instruction {
                 // The constant operator is applicable to all field types.
                 // It is a static error [ERR S4] if the instruction context has no initial value.
                 if self.initial_value.is_none() {
-                    return Err(Error::Static("constant operator has no initial value".to_string())); // [ERR S4]
+                    return Err(Error::Static(
+                        "constant operator has no initial value".to_string(),
+                    )); // [ERR S4]
                 }
             }
             Operator::Default => {
                 // The default operator is applicable to all field types.
                 // Unless the field has optional presence, it is a static error [ERR S5] if the instruction context has no initial value.
                 if !self.is_optional() && self.initial_value.is_none() {
-                    return Err(Error::Static("default operator has no initial value".to_string())); // [ERR S5]
+                    return Err(Error::Static(
+                        "default operator has no initial value".to_string(),
+                    )); // [ERR S5]
                 }
             }
             Operator::Increment => {
                 // The increment operator is applicable to integer field types.
                 match self.value_type {
-                    ValueType::UInt32 | ValueType::Int32 | ValueType::UInt64 | ValueType::Int64 |
-                    ValueType::Length | ValueType::Exponent | ValueType::Mantissa => {}
+                    ValueType::UInt32
+                    | ValueType::Int32
+                    | ValueType::UInt64
+                    | ValueType::Int64
+                    | ValueType::Length
+                    | ValueType::Exponent
+                    | ValueType::Mantissa => {}
                     _ => {
-                        return Err(Error::Static(format!("increment operator is not applicable to {} field type", self.value_type.type_str()))); // [ERR S2]
+                        return Err(Error::Static(format!(
+                            "increment operator is not applicable to {} field type",
+                            self.value_type.type_str()
+                        ))); // [ERR S2]
                     }
                 }
             }
@@ -324,7 +342,10 @@ impl Instruction {
                 match self.value_type {
                     ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {}
                     _ => {
-                        return Err(Error::Static(format!("tail operator is not applicable to {} field type", self.value_type.type_str()))); // [ERR S2]
+                        return Err(Error::Static(format!(
+                            "tail operator is not applicable to {} field type",
+                            self.value_type.type_str()
+                        ))); // [ERR S2]
                     }
                 }
             }
@@ -358,25 +379,31 @@ impl Instruction {
     // conversion are treated as static errors [ERR S3] when interpreting the initial value.
     fn set_initial_value(&mut self, value: &str) -> Result<()> {
         match self.value_type {
-            ValueType::UInt32 | ValueType::Int32 | ValueType::UInt64 | ValueType::Int64 |
-            ValueType::Length | ValueType::Exponent | ValueType::Mantissa |
-            ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
+            ValueType::UInt32
+            | ValueType::Int32
+            | ValueType::UInt64
+            | ValueType::Int64
+            | ValueType::Length
+            | ValueType::Exponent
+            | ValueType::Mantissa
+            | ValueType::ASCIIString
+            | ValueType::UnicodeString
+            | ValueType::Bytes => {
                 self.initial_value = Some(self.value_type.str_to_value(value)?);
                 Ok(())
             }
             // If the field is of type decimal, the value resulting from the conversion is normalized.
             ValueType::Decimal => unreachable!(),
-            _ => {
-                Err(Error::Static(format!("cannot set initial value to {}", self.value_type.type_str())))
-            }
+            _ => Err(Error::Static(format!(
+                "cannot set initial value to {}",
+                self.value_type.type_str()
+            ))),
         }
     }
 
     pub(crate) fn extract(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.operator {
-            Operator::None => {
-                Ok(self.read(s)?)
-            }
+            Operator::None => Ok(self.read(s)?),
 
             // The constant operator specifies that the value of a field will always be the same.
             // The value of the field is the initial value. It is a static error [ERR S4] if the instruction context
@@ -435,10 +462,12 @@ impl Instruction {
                                 if self.is_optional() {
                                     None
                                 } else {
-                                    return Err(Error::Runtime("copy operator has no previous value".to_string())); // [ERR D6]
+                                    return Err(Error::Runtime(
+                                        "copy operator has no previous value".to_string(),
+                                    )); // [ERR D6]
                                 }
                             }
-                        }
+                        },
                         // Undefined: The value of the field is the initial value that also becomes the new previous value.
                         // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context has no initial value.
                         // If the field has optional presence and no initial value, the field is considered absent and the state of the previous
@@ -450,7 +479,9 @@ impl Instruction {
                                     if self.is_optional() {
                                         None
                                     } else {
-                                        return Err(Error::Runtime("copy operator has no initial value".to_string())); // [ERR D5]
+                                        return Err(Error::Runtime(
+                                            "copy operator has no initial value".to_string(),
+                                        )); // [ERR D5]
                                     }
                                 }
                             };
@@ -487,10 +518,12 @@ impl Instruction {
                                 if self.is_optional() {
                                     None
                                 } else {
-                                    return Err(Error::Runtime("increment operator has no previous value".to_string())); // [ERR D6]
+                                    return Err(Error::Runtime(
+                                        "increment operator has no previous value".to_string(),
+                                    )); // [ERR D6]
                                 }
                             }
-                        }
+                        },
                         // Undefined: the value of the field is the initial value that also becomes the new previous value.
                         // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
                         // has no initial value. If the field has optional presence and no initial value, the field is considered
@@ -502,7 +535,9 @@ impl Instruction {
                                     if self.is_optional() {
                                         None
                                     } else {
-                                        return Err(Error::Runtime("increment operator has no initial value".to_string())); // [ERR D5]
+                                        return Err(Error::Runtime(
+                                            "increment operator has no initial value".to_string(),
+                                        )); // [ERR D5]
                                     }
                                 }
                             };
@@ -520,9 +555,7 @@ impl Instruction {
                 // In that case the value of the field is considered absent.
                 let (delta, aux) = match self.read_delta(s)? {
                     Some(d) => d,
-                    None => {
-                        return Ok(None)
-                    }
+                    None => return Ok(None),
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
@@ -532,17 +565,17 @@ impl Instruction {
                         Some(prev) => prev.clone(),
                         // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
                         None => {
-                            return Err(Error::Runtime("delta operator has no previous value".to_string())); // [ERR D6]
+                            return Err(Error::Runtime(
+                                "delta operator has no previous value".to_string(),
+                            )); // [ERR D6]
                         }
-                    }
+                    },
                     // Undefined: The base value is the initial value if present in the instruction context.
                     // Otherwise, a type dependant default base value is used.
-                    None => {
-                        match &self.initial_value {
-                            Some(v) => v.clone(),
-                            None => self.value_type.to_default_value()?,
-                        }
-                    }
+                    None => match &self.initial_value {
+                        Some(v) => v.clone(),
+                        None => self.value_type.to_default_value()?,
+                    },
                 };
                 let value = Some(base.apply_delta(delta, aux)?);
                 s.ctx_set(self, &value);
@@ -560,8 +593,10 @@ impl Instruction {
                             return if self.is_optional() {
                                 Ok(None)
                             } else {
-                                Err(Error::Runtime("tail operator has no previous value".to_string())) // [ERR D7]
-                            }
+                                Err(Error::Runtime(
+                                    "tail operator has no previous value".to_string(),
+                                )) // [ERR D7]
+                            };
                         }
                         Some(t) => t,
                     };
@@ -574,21 +609,17 @@ impl Instruction {
                             Some(prev) => prev.clone(),
                             // Empty: the base value is the initial value if present in the instruction context.
                             // Otherwise, a type dependant default base value is used.
-                            None => {
-                                match &self.initial_value {
-                                    Some(v) => v.clone(),
-                                    None => self.value_type.to_default_value()?,
-                                }
-                            }
-                        }
-                        // Undefined: the base value is the initial value if present in the instruction context.
-                        // Otherwise, a type dependant default base value is used.
-                        None => {
-                            match &self.initial_value {
+                            None => match &self.initial_value {
                                 Some(v) => v.clone(),
                                 None => self.value_type.to_default_value()?,
-                            }
-                        }
+                            },
+                        },
+                        // Undefined: the base value is the initial value if present in the instruction context.
+                        // Otherwise, a type dependant default base value is used.
+                        None => match &self.initial_value {
+                            Some(v) => v.clone(),
+                            None => self.value_type.to_default_value()?,
+                        },
                     };
                     value = Some(base.apply_tail(tail)?);
                     // The combined value becomes the new previous value.
@@ -606,10 +637,12 @@ impl Instruction {
                                 if self.is_optional() {
                                     None
                                 } else {
-                                    return Err(Error::Runtime("tail operator has no previous value".to_string())); // [ERR D7]
+                                    return Err(Error::Runtime(
+                                        "tail operator has no previous value".to_string(),
+                                    )); // [ERR D7]
                                 }
                             }
-                        }
+                        },
                         // Undefined: the value of the field is the initial value that also becomes the new previous value.
                         // Unless the field has optional presence, it is a dynamic error [ERR D6] if the instruction context
                         // has no initial value. If the field has optional presence and no initial value, the field is considered
@@ -621,7 +654,9 @@ impl Instruction {
                                     if self.is_optional() {
                                         None
                                     } else {
-                                        return Err(Error::Runtime("tail operator has no initial value".to_string())); // [ERR D6]
+                                        return Err(Error::Runtime(
+                                            "tail operator has no initial value".to_string(),
+                                        )); // [ERR D6]
                                     }
                                 }
                             };
@@ -637,65 +672,47 @@ impl Instruction {
 
     fn read(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.value_type {
-            ValueType::UInt32 | ValueType::Length => {
-                match self.read_uint32(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::UInt32(v))),
-                }
-            }
-            ValueType::UInt64 => {
-                match self.read_uint64(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::UInt64(v))),
-                }
-            }
-            ValueType::Int32 => {
-                match self.read_int32(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::Int32(v))),
-                }
-            }
-            ValueType::Int64 | ValueType::Mantissa => {
-                match self.read_int64(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::Int64(v))),
-                }
-            }
-            ValueType::ASCIIString => {
-                match self.read_ascii_string(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::ASCIIString(v))),
-                }
-            }
-            ValueType::UnicodeString => {
-                match self.read_unicode_string(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::UnicodeString(v))),
-                }
-            }
-            ValueType::Bytes => {
-                match self.read_bytes(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::Bytes(v))),
-                }
-            }
+            ValueType::UInt32 | ValueType::Length => match self.read_uint32(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::UInt32(v))),
+            },
+            ValueType::UInt64 => match self.read_uint64(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::UInt64(v))),
+            },
+            ValueType::Int32 => match self.read_int32(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::Int32(v))),
+            },
+            ValueType::Int64 | ValueType::Mantissa => match self.read_int64(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::Int64(v))),
+            },
+            ValueType::ASCIIString => match self.read_ascii_string(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::ASCIIString(v))),
+            },
+            ValueType::UnicodeString => match self.read_unicode_string(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::UnicodeString(v))),
+            },
+            ValueType::Bytes => match self.read_bytes(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::Bytes(v))),
+            },
             // A scaled number is represented as a Signed Integer exponent followed by a Signed Integer mantissa.
             ValueType::Decimal => {
                 let (exponent, mantissa) = match self.read_decimal_components(s)? {
                     Some((e, m)) => (e, m),
-                    None => {
-                        return Ok(None)
-                    }
+                    None => return Ok(None),
                 };
                 Ok(Some(Value::Decimal(Decimal::new(exponent, mantissa))))
             }
-            ValueType::Exponent => {
-                match self.read_exponent(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some(Value::Int32(v))),
-                }
-            }
-            _ => unreachable!()
+            ValueType::Exponent => match self.read_exponent(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some(Value::Int32(v))),
+            },
+            _ => unreachable!(),
         }
     }
 
@@ -705,7 +722,10 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => {
                     if v > MAX_UINT32 {
-                        return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v)));
+                        return Err(Error::Runtime(format!(
+                            "uInt32 value is out of range: {}",
+                            v
+                        )));
                     }
                     Ok(Some(v as u32))
                 }
@@ -713,7 +733,10 @@ impl Instruction {
         } else {
             let v = s.rdr.read_uint()?;
             if v > MAX_UINT32 {
-                return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v)));
+                return Err(Error::Runtime(format!(
+                    "uInt32 value is out of range: {}",
+                    v
+                )));
             }
             Ok(Some(v as u32))
         }
@@ -733,7 +756,10 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => {
                     if !(MIN_INT32..=MAX_INT32).contains(&v) {
-                        return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v))); // [ERR D2]
+                        return Err(Error::Runtime(format!(
+                            "uInt32 value is out of range: {}",
+                            v
+                        ))); // [ERR D2]
                     }
                     Ok(Some(v as i32))
                 }
@@ -741,7 +767,10 @@ impl Instruction {
         } else {
             let v = s.rdr.read_int()?;
             if !(MIN_INT32..=MAX_INT32).contains(&v) {
-                return Err(Error::Runtime(format!("uInt32 value is out of range: {}", v))); // [ERR D2]
+                return Err(Error::Runtime(format!(
+                    "uInt32 value is out of range: {}",
+                    v
+                ))); // [ERR D2]
             }
             Ok(Some(v as i32))
         }
@@ -784,29 +813,30 @@ impl Instruction {
     // is considered absent. Otherwise, the field is obtained by combining the delta value with a base value.
     fn read_delta(&self, s: &mut DecoderContext) -> Result<Option<(Value, i32)>> {
         match self.value_type {
-            ValueType::UInt32 | ValueType::Int32 | ValueType::UInt64 | ValueType::Int64 |
-            ValueType::Length | ValueType::Exponent | ValueType::Mantissa => {
-                match self.read_int64(s)? {
-                    None => Ok(None),
-                    Some(v) => Ok(Some((Value::Int64(v), 0))),
-                }
-            }
+            ValueType::UInt32
+            | ValueType::Int32
+            | ValueType::UInt64
+            | ValueType::Int64
+            | ValueType::Length
+            | ValueType::Exponent
+            | ValueType::Mantissa => match self.read_int64(s)? {
+                None => Ok(None),
+                Some(v) => Ok(Some((Value::Int64(v), 0))),
+            },
             ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
                 match self.read_int32(s)? {
                     None => Ok(None),
-                    Some(sub) => {
-                        match self.value_type {
-                            ValueType::ASCIIString => {
-                                let diff = self.read_ascii_string(s)?.unwrap();
-                                Ok(Some((Value::ASCIIString(diff), sub)))
-                            }
-                            ValueType::UnicodeString | ValueType::Bytes => {
-                                let diff = self.read_bytes(s)?.unwrap();
-                                Ok(Some((Value::Bytes(diff), sub)))
-                            }
-                            _ => unreachable!()
+                    Some(sub) => match self.value_type {
+                        ValueType::ASCIIString => {
+                            let diff = self.read_ascii_string(s)?.unwrap();
+                            Ok(Some((Value::ASCIIString(diff), sub)))
                         }
-                    }
+                        ValueType::UnicodeString | ValueType::Bytes => {
+                            let diff = self.read_bytes(s)?.unwrap();
+                            Ok(Some((Value::Bytes(diff), sub)))
+                        }
+                        _ => unreachable!(),
+                    },
                 }
             }
             _ => unreachable!(),
@@ -815,25 +845,25 @@ impl Instruction {
 
     fn read_tail(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.value_type {
-            ValueType::ASCIIString => {
-                Ok(self.read_ascii_string(s)?.map(Value::ASCIIString))
-            }
+            ValueType::ASCIIString => Ok(self.read_ascii_string(s)?.map(Value::ASCIIString)),
             ValueType::UnicodeString | ValueType::Bytes => {
                 Ok(self.read_bytes(s)?.map(Value::Bytes))
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
     fn read_decimal_components(&self, s: &mut DecoderContext) -> Result<Option<(i32, i64)>> {
-        let exponent = self.instructions
+        let exponent = self
+            .instructions
             .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
             .extract(s)?;
         if exponent.is_none() {
             return Ok(None);
         }
-        let mantissa = self.instructions
+        let mantissa = self
+            .instructions
             .get(1)
             .ok_or_else(|| Error::Runtime("mantissa field not found".to_string()))?
             .extract(s)?;
@@ -851,23 +881,35 @@ impl Instruction {
             Some(e) => e,
         };
         if !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
-            return Err(Error::Dynamic(format!("exponent value is out of range: {}", e))); // [ERR R1]
+            return Err(Error::Dynamic(format!(
+                "exponent value is out of range: {}",
+                e
+            ))); // [ERR R1]
         }
         Ok(Some(e))
     }
 
-    pub(crate) fn inject(&self, s: &mut EncoderContext, buf: &mut dyn Writer, value: &Option<Value>) -> Result<()> {
+    pub(crate) fn inject(
+        &self,
+        s: &mut EncoderContext,
+        buf: &mut dyn Writer,
+        value: &Option<Value>,
+    ) -> Result<()> {
         if value.is_none() && !self.is_optional() {
-            return Err(Error::Runtime(format!("mandatory field {} has no value", self.name)));
+            return Err(Error::Runtime(format!(
+                "mandatory field {} has no value",
+                self.name
+            )));
         }
         match self.operator {
-            Operator::None => {
-                self.write(buf, s, value)
-            }
+            Operator::None => self.write(buf, s, value),
 
             Operator::Constant => {
                 if value.is_some() && self.initial_value != *value {
-                    return Err(Error::Runtime(format!("constant field {} has wrong value", self.name)));
+                    return Err(Error::Runtime(format!(
+                        "constant field {} has wrong value",
+                        self.name
+                    )));
                 }
                 if self.is_optional() {
                     s.pmap_set_next_bit(value.is_some());
@@ -904,7 +946,9 @@ impl Instruction {
             }
 
             Operator::Increment => {
-                let prev_value = s.ctx_get(self)?.unwrap_or_else(|| self.initial_value.clone());
+                let prev_value = s
+                    .ctx_get(self)?
+                    .unwrap_or_else(|| self.initial_value.clone());
                 let next_value = match prev_value {
                     None => None,
                     Some(v) => Some(v.apply_increment()?),
@@ -931,13 +975,15 @@ impl Instruction {
                     Some(v) => match v {
                         Some(v) => v,
                         None => {
-                            return Err(Error::Runtime("delta operator has empty previous value".to_string())); // [ERR D6]
+                            return Err(Error::Runtime(
+                                "delta operator has empty previous value".to_string(),
+                            )); // [ERR D6]
                         }
                     },
                     None => match &self.initial_value {
                         Some(v) => v.clone(),
-                        None => self.value_type.to_default_value()?
-                    }
+                        None => self.value_type.to_default_value()?,
+                    },
                 };
 
                 let delta = value.find_delta(&base)?;
@@ -946,7 +992,9 @@ impl Instruction {
             }
 
             Operator::Tail => {
-                let prev_value = s.ctx_get(self)?.unwrap_or_else(|| self.initial_value.clone());
+                let prev_value = s
+                    .ctx_get(self)?
+                    .unwrap_or_else(|| self.initial_value.clone());
                 if prev_value == *value {
                     s.pmap_set_next_bit(false);
                     s.ctx_set(self, value);
@@ -970,98 +1018,97 @@ impl Instruction {
         }
     }
 
-    fn write(&self, buf: &mut dyn Writer, s: &mut EncoderContext, value: &Option<Value>) -> Result<()> {
+    fn write(
+        &self,
+        buf: &mut dyn Writer,
+        s: &mut EncoderContext,
+        value: &Option<Value>,
+    ) -> Result<()> {
         match self.value_type {
-            ValueType::UInt32 | ValueType::Length => {
-                match value {
-                    None => self.write_uint::<u32>(buf, None),
-                    Some(Value::UInt32(v)) => self.write_uint(buf, Some(*v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have UInt32 value, got: {:?} instead", self.name, value)))
+            ValueType::UInt32 | ValueType::Length => match value {
+                None => self.write_uint::<u32>(buf, None),
+                Some(Value::UInt32(v)) => self.write_uint(buf, Some(*v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have UInt32 value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::Int32 => match value {
+                None => self.write_int::<i32>(buf, None),
+                Some(Value::Int32(v)) => self.write_int(buf, Some(*v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have Int32 value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::UInt64 => match value {
+                None => self.write_uint::<u64>(buf, None),
+                Some(Value::UInt64(v)) => self.write_uint(buf, Some(*v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have UInt64 value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::Int64 | ValueType::Mantissa => match value {
+                None => self.write_int::<i64>(buf, None),
+                Some(Value::Int64(v)) => self.write_int(buf, Some(*v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {}:mantissa must have Int64 value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::Exponent => match value {
+                None => self.write_exponent(buf, None),
+                Some(Value::Int32(v)) => self.write_exponent(buf, Some(*v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {}:exponent must have Int32 value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::Decimal => match value {
+                None => self.write_decimal(buf, s, None),
+                Some(Value::Decimal(d)) => self.write_decimal(buf, s, Some(d)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have Decimal value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::ASCIIString => match value {
+                None => self.write_ascii_string(buf, None),
+                Some(Value::ASCIIString(v)) => self.write_ascii_string(buf, Some(v)),
+                Some(Value::UnicodeString(v)) => {
+                    if v.is_ascii() {
+                        self.write_ascii_string(buf, Some(v))
+                    } else {
+                        Err(Error::Runtime(format!(
+                            "Field {} must be valid ASCII string",
+                            self.name
+                        )))
                     }
                 }
-            }
-            ValueType::Int32 => {
-                match value {
-                    None => self.write_int::<i32>(buf, None),
-                    Some(Value::Int32(v)) => self.write_int(buf, Some(*v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have Int32 value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::UInt64 => {
-                match value {
-                    None => self.write_uint::<u64>(buf, None),
-                    Some(Value::UInt64(v)) => self.write_uint(buf, Some(*v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have UInt64 value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::Int64 | ValueType::Mantissa => {
-                match value {
-                    None => self.write_int::<i64>(buf, None),
-                    Some(Value::Int64(v)) => self.write_int(buf, Some(*v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {}:mantissa must have Int64 value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::Exponent => {
-                match value {
-                    None => self.write_exponent(buf, None),
-                    Some(Value::Int32(v)) => self.write_exponent(buf, Some(*v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {}:exponent must have Int32 value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::Decimal => {
-                match value {
-                    None => self.write_decimal(buf, s, None),
-                    Some(Value::Decimal(d)) => self.write_decimal(buf, s, Some(d)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have Decimal value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::ASCIIString => {
-                match value {
-                    None => self.write_ascii_string(buf, None),
-                    Some(Value::ASCIIString(v)) => self.write_ascii_string(buf, Some(v)),
-                    Some(Value::UnicodeString(v)) => {
-                        if v.is_ascii() {
-                            self.write_ascii_string(buf, Some(v))
-                        } else {
-                            Err(Error::Runtime(format!("Field {} must be valid ASCII string", self.name)))
-                        }
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have ASCIIString value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::UnicodeString => {
-                match value {
-                    None => self.write_unicode_string(buf, None),
-                    Some(Value::UnicodeString(v)) => self.write_unicode_string(buf, Some(v)),
-                    Some(Value::ASCIIString(v)) => self.write_unicode_string(buf, Some(v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have UnicodeString value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            ValueType::Bytes => {
-                match value {
-                    None => self.write_bytes(buf, None),
-                    Some(Value::Bytes(v)) => self.write_bytes(buf, Some(v)),
-                    _ => {
-                        Err(Error::Runtime(format!("Field {} must have Bytes value, got: {:?} instead", self.name, value)))
-                    }
-                }
-            }
-            _ => unreachable!()
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have ASCIIString value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::UnicodeString => match value {
+                None => self.write_unicode_string(buf, None),
+                Some(Value::UnicodeString(v)) => self.write_unicode_string(buf, Some(v)),
+                Some(Value::ASCIIString(v)) => self.write_unicode_string(buf, Some(v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have UnicodeString value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            ValueType::Bytes => match value {
+                None => self.write_bytes(buf, None),
+                Some(Value::Bytes(v)) => self.write_bytes(buf, Some(v)),
+                _ => Err(Error::Runtime(format!(
+                    "Field {} must have Bytes value, got: {:?} instead",
+                    self.name, value
+                ))),
+            },
+            _ => unreachable!(),
         }
     }
 
@@ -1073,9 +1120,9 @@ impl Instruction {
         if self.is_nullable() {
             buf.write_uint_nullable(value)
         } else {
-            buf.write_uint(
-                value.ok_or_else(|| Error::Runtime(format!("mandatory field {} has no value", self.name)))?
-            )
+            buf.write_uint(value.ok_or_else(|| {
+                Error::Runtime(format!("mandatory field {} has no value", self.name))
+            })?)
         }
     }
 
@@ -1087,9 +1134,9 @@ impl Instruction {
         if self.is_nullable() {
             buf.write_int_nullable(value)
         } else {
-            buf.write_int(
-                value.ok_or_else(|| Error::Runtime(format!("mandatory field {} has no value", self.name)))?
-            )
+            buf.write_int(value.ok_or_else(|| {
+                Error::Runtime(format!("mandatory field {} has no value", self.name))
+            })?)
         }
     }
 
@@ -1097,9 +1144,9 @@ impl Instruction {
         if self.is_nullable() {
             buf.write_ascii_string_nullable(value)
         } else {
-            buf.write_ascii_string(
-                value.ok_or_else(|| Error::Runtime(format!("mandatory field {} has no value", self.name)))?
-            )
+            buf.write_ascii_string(value.ok_or_else(|| {
+                Error::Runtime(format!("mandatory field {} has no value", self.name))
+            })?)
         }
     }
 
@@ -1107,9 +1154,9 @@ impl Instruction {
         if self.is_nullable() {
             buf.write_unicode_string_nullable(value)
         } else {
-            buf.write_unicode_string(
-                value.ok_or_else(|| Error::Runtime(format!("mandatory field {} has no value", self.name)))?
-            )
+            buf.write_unicode_string(value.ok_or_else(|| {
+                Error::Runtime(format!("mandatory field {} has no value", self.name))
+            })?)
         }
     }
 
@@ -1117,67 +1164,78 @@ impl Instruction {
         if self.is_nullable() {
             buf.write_bytes_nullable(value)
         } else {
-            buf.write_bytes(
-                value.ok_or_else(|| Error::Runtime(format!("mandatory field {} has no value", self.name)))?
-            )
+            buf.write_bytes(value.ok_or_else(|| {
+                Error::Runtime(format!("mandatory field {} has no value", self.name))
+            })?)
         }
     }
 
     fn write_delta(&self, buf: &mut dyn Writer, value: Option<(Value, i32)>) -> Result<()> {
         match self.value_type {
-            ValueType::UInt32 | ValueType::Int32 | ValueType::UInt64 | ValueType::Int64 |
-            ValueType::Length | ValueType::Exponent | ValueType::Mantissa => {
-                match value {
-                    None => self.write_int::<i64>(buf, None),
-                    Some((Value::Int64(v), _)) => self.write_int(buf, Some(v)),
-                    Some((v, _)) => Err(Error::Runtime(format!("{} field's delta must be Int64, got: {:?} instead", self.name, v))),
-                }
-            }
-            ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
-                match value {
-                    None => self.write_int::<i32>(buf, None),
-                    Some((delta, sub)) => {
-                        self.write_int(buf, Some(sub))?;
-                        match (&self.value_type, delta) {
-                            (ValueType::ASCIIString, Value::ASCIIString(s)) => {
-                                self.write_ascii_string(buf, Some(&s))
-                            }
-                            (ValueType::UnicodeString | ValueType::Bytes, Value::Bytes(b)) => {
-                                self.write_bytes(buf, Some(&b))
-                            }
-                            _ => unreachable!(),
+            ValueType::UInt32
+            | ValueType::Int32
+            | ValueType::UInt64
+            | ValueType::Int64
+            | ValueType::Length
+            | ValueType::Exponent
+            | ValueType::Mantissa => match value {
+                None => self.write_int::<i64>(buf, None),
+                Some((Value::Int64(v), _)) => self.write_int(buf, Some(v)),
+                Some((v, _)) => Err(Error::Runtime(format!(
+                    "{} field's delta must be Int64, got: {:?} instead",
+                    self.name, v
+                ))),
+            },
+            ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => match value {
+                None => self.write_int::<i32>(buf, None),
+                Some((delta, sub)) => {
+                    self.write_int(buf, Some(sub))?;
+                    match (&self.value_type, delta) {
+                        (ValueType::ASCIIString, Value::ASCIIString(s)) => {
+                            self.write_ascii_string(buf, Some(&s))
                         }
+                        (ValueType::UnicodeString | ValueType::Bytes, Value::Bytes(b)) => {
+                            self.write_bytes(buf, Some(&b))
+                        }
+                        _ => unreachable!(),
                     }
                 }
-            }
+            },
             _ => unreachable!(),
         }
     }
 
     fn write_tail(&self, buf: &mut dyn Writer, tail: Option<Value>) -> Result<()> {
         match self.value_type {
-            ValueType::ASCIIString => {
-                match tail {
-                    None => self.write_ascii_string(buf, None),
-                    Some(Value::ASCIIString(s)) => self.write_ascii_string(buf, Some(&s)),
-                    Some(v) => Err(Error::Runtime(format!("{} field's tail must be ASCIIString, got: {:?} instead", self.name, v))),
-                }
-            }
-            ValueType::UnicodeString | ValueType::Bytes => {
-                match tail {
-                    None => self.write_bytes(buf, None),
-                    Some(Value::Bytes(b)) => self.write_bytes(buf, Some(&b)),
-                    Some(v) => Err(Error::Runtime(format!("{} field's tail must be Bytes, got: {:?} instead", self.name, v))),
-                }
-            }
+            ValueType::ASCIIString => match tail {
+                None => self.write_ascii_string(buf, None),
+                Some(Value::ASCIIString(s)) => self.write_ascii_string(buf, Some(&s)),
+                Some(v) => Err(Error::Runtime(format!(
+                    "{} field's tail must be ASCIIString, got: {:?} instead",
+                    self.name, v
+                ))),
+            },
+            ValueType::UnicodeString | ValueType::Bytes => match tail {
+                None => self.write_bytes(buf, None),
+                Some(Value::Bytes(b)) => self.write_bytes(buf, Some(&b)),
+                Some(v) => Err(Error::Runtime(format!(
+                    "{} field's tail must be Bytes, got: {:?} instead",
+                    self.name, v
+                ))),
+            },
             _ => unreachable!(),
         }
     }
 
-    fn write_decimal(&self, buf: &mut dyn Writer, s: &mut EncoderContext, value: Option<&Decimal>) -> Result<()> {
+    fn write_decimal(
+        &self,
+        buf: &mut dyn Writer,
+        s: &mut EncoderContext,
+        value: Option<&Decimal>,
+    ) -> Result<()> {
         let (e, m) = match value {
             None => (None, Value::Int64(0)),
-            Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa))
+            Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa)),
         };
         // write exponent
         self.instructions
@@ -1196,8 +1254,13 @@ impl Instruction {
     }
 
     fn write_exponent(&self, buf: &mut dyn Writer, value: Option<i32>) -> Result<()> {
-        if let Some(e) = value && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
-            return Err(Error::Dynamic(format!("exponent value is out of range: {}", e))); // [ERR R1]
+        if let Some(e) = value
+            && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e)
+        {
+            return Err(Error::Dynamic(format!(
+                "exponent value is out of range: {}",
+                e
+            ))); // [ERR R1]
         }
         self.write_int(buf, value)
     }

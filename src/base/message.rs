@@ -1,5 +1,5 @@
-use crate::{Result, ValueType};
 use crate::Value;
+use crate::{Result, ValueType};
 
 /// Defines the interface for message factories.
 ///

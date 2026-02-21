@@ -77,27 +77,19 @@ impl Context {
 
     pub(crate) fn get(&self, dict: DictionaryType, key: &Rc<str>) -> Option<Option<Value>> {
         match dict {
-            DictionaryType::Global => {
-                self.global.get(key).cloned()
+            DictionaryType::Global => self.global.get(key).cloned(),
+            DictionaryType::Template(id) => match self.template.get(&id) {
+                None => None,
+                Some(hm) => hm.get(key).cloned(),
             },
-            DictionaryType::Template(id) => {
-                match self.template.get(&id) {
-                    None => None,
-                    Some(hm) => hm.get(key).cloned(),
-                }
-            }
-            DictionaryType::Type(name) => {
-                match self.type_.get(&name) {
-                    None => None,
-                    Some(hm) => hm.get(key).cloned(),
-                }
-            }
-            DictionaryType::UserDefined(name) => {
-                match self.user.get(&name) {
-                    None => None,
-                    Some(hm) => hm.get(key).cloned(),
-                }
-            }
+            DictionaryType::Type(name) => match self.type_.get(&name) {
+                None => None,
+                Some(hm) => hm.get(key).cloned(),
+            },
+            DictionaryType::UserDefined(name) => match self.user.get(&name) {
+                None => None,
+                Some(hm) => hm.get(key).cloned(),
+            },
         }
     }
 }

@@ -4,8 +4,8 @@
 //!
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{Decimal, Decoder, Encoder, from_buffer};
 use crate::ser::to_vec;
+use crate::{Decimal, Decoder, Encoder, from_buffer};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 enum Message {
@@ -148,7 +148,10 @@ fn do_test(raw: Vec<u8>, data: Message) {
 #[test]
 fn decode_integers() {
     do_test(
-        vec![0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80, 0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f],
+        vec![
+            0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80,
+            0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f,
+        ],
         Message::Integer(IntegerMsg {
             mandatory_uint32: 3,
             optional_uint32: Some(4),
@@ -165,7 +168,10 @@ fn decode_integers() {
 #[test]
 fn decode_strings() {
     do_test(
-        vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d],
+        vec![
+            0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b,
+            0x6c, 0x6d,
+        ],
         Message::String(StringMsg {
             mandatory_ascii: "abc".to_string(),
             optional_ascii: Some("def".to_string()),
@@ -189,7 +195,9 @@ fn decode_bytes() {
 #[test]
 fn decode_decimals_1() {
     do_test(
-        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef],
+        vec![
+            0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef,
+        ],
         Message::Decimal(DecimalMsg {
             copy_decimal: Some(5.15),
             mandatory_decimal: Decimal::new(-1, 1546),
@@ -202,7 +210,9 @@ fn decode_decimals_1() {
 #[test]
 fn decode_decimals_2() {
     do_test(
-        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80],
+        vec![
+            0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80,
+        ],
         Message::Decimal(DecimalMsg {
             copy_decimal: Some(5.15),
             mandatory_decimal: Decimal::new(-1, 1546),
@@ -215,27 +225,21 @@ fn decode_decimals_2() {
 #[test]
 fn decode_sequence_1() {
     do_test(
-        vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82],
+        vec![
+            0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82,
+        ],
         Message::Sequence(SequenceMsg {
             test_data: 1,
-            outer_sequence: vec![
-                OuterSequenceItem {
-                    outer_test_data: 2,
-                    inner_sequence: Some(vec![
-                        InnerSequenceItem {
-                            inner_test_data: 3,
-                        },
-                        InnerSequenceItem {
-                            inner_test_data: 4,
-                        },
-                    ]),
-                }
-            ],
-            next_outer_sequence: vec![
-                NextOuterSequenceItem {
-                    next_outer_test_data: 2,
-                },
-            ],
+            outer_sequence: vec![OuterSequenceItem {
+                outer_test_data: 2,
+                inner_sequence: Some(vec![
+                    InnerSequenceItem { inner_test_data: 3 },
+                    InnerSequenceItem { inner_test_data: 4 },
+                ]),
+            }],
+            next_outer_sequence: vec![NextOuterSequenceItem {
+                next_outer_test_data: 2,
+            }],
         }),
     )
 }
@@ -246,17 +250,13 @@ fn decode_sequence_2() {
         vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82],
         Message::Sequence(SequenceMsg {
             test_data: 1,
-            outer_sequence: vec![
-                OuterSequenceItem {
-                    outer_test_data: 2,
-                    inner_sequence: None,
-                }
-            ],
-            next_outer_sequence: vec![
-                NextOuterSequenceItem {
-                    next_outer_test_data: 2,
-                },
-            ],
+            outer_sequence: vec![OuterSequenceItem {
+                outer_test_data: 2,
+                inner_sequence: None,
+            }],
+            next_outer_sequence: vec![NextOuterSequenceItem {
+                next_outer_test_data: 2,
+            }],
         }),
     )
 }
@@ -269,9 +269,7 @@ fn decode_group_1() {
             test_data: 1,
             outer_group: OuterGroup {
                 outer_test_data: 2,
-                inner_group: Some(InnerGroup {
-                    inner_test_data: 3,
-                }),
+                inner_group: Some(InnerGroup { inner_test_data: 3 }),
             },
         }),
     )
@@ -297,9 +295,7 @@ fn decode_static_reference() {
         vec![0xe0, 0x88, 0x86, 0x87],
         Message::StaticReference(StaticReferenceMsg {
             pre_ref_data: 6,
-            ref_data: RefDataMsg {
-                test_data: 7,
-            },
+            ref_data: RefDataMsg { test_data: 7 },
         }),
     )
 }
@@ -310,9 +306,7 @@ fn decode_dynamic_reference() {
         vec![0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85],
         Message::DynamicReference(DynamicReferenceMsg {
             pre_ref_data: 6,
-            ref0: Box::new(Message::RefData(RefDataMsg {
-                test_data: 5,
-            })),
+            ref0: Box::new(Message::RefData(RefDataMsg { test_data: 5 })),
         }),
     )
 }

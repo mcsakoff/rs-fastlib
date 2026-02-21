@@ -1,18 +1,21 @@
 use hashbrown::HashMap;
-use serde::de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
-use serde::ser::{SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant};
 use serde::Serialize;
+use serde::de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
+use serde::ser::{
+    SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
+    SerializeTupleStruct, SerializeTupleVariant,
+};
 
-use crate::{Decimal, Error, Value};
 use crate::model::template::TemplateData;
+use crate::{Decimal, Error, Value};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValueData {
-    None,                                        // For optional groups and sequences
+    None, // For optional groups and sequences
     Value(Option<Value>),
     Group(HashMap<String, ValueData>),
-    Sequence(Vec<ValueData>),                    // Always Vec of Value::Group
-    StaticTemplateRef(String, Box<ValueData>),   // Always Value::Group
+    Sequence(Vec<ValueData>),                  // Always Vec of Value::Group
+    StaticTemplateRef(String, Box<ValueData>), // Always Value::Group
     DynamicTemplateRef(Box<TemplateData>),
 }
 
@@ -36,11 +39,14 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                     Value::ASCIIString(s) => visitor.visit_string(s),
                     Value::UnicodeString(s) => visitor.visit_string(s),
                     Value::Bytes(b) => visitor.visit_byte_buf(b),
-                }
-            }
+                },
+            },
             ValueData::Group(_) => self.deserialize_map(visitor),
             ValueData::Sequence(_) => self.deserialize_seq(visitor),
-            _ => Err(Error::Runtime(format!("deserialize_any: data model unsupported type: {:?}", self))),
+            _ => Err(Error::Runtime(format!(
+                "deserialize_any: data model unsupported type: {:?}",
+                self
+            ))),
         }
     }
 
@@ -73,17 +79,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::Int32(n) => {
-                        visitor.visit_i32(n)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_i32: data model must be Value::Int32, got: {:?}", v)))
-                    }
-                }
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_i32: data model must be ValueData::Value, got: {:?}", self)))
-            }
+                    Value::Int32(n) => visitor.visit_i32(n),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_i32: data model must be Value::Int32, got: {:?}",
+                        v
+                    ))),
+                },
+            },
+            _ => Err(Error::Runtime(format!(
+                "deserialize_i32: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -95,17 +101,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::Int64(n) => {
-                        visitor.visit_i64(n)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_i64: data model must be Value::Int64, got: {:?}", v)))
-                    }
-                }
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_i64: data model must be ValueData::Value, got: {:?}", self)))
-            }
+                    Value::Int64(n) => visitor.visit_i64(n),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_i64: data model must be Value::Int64, got: {:?}",
+                        v
+                    ))),
+                },
+            },
+            _ => Err(Error::Runtime(format!(
+                "deserialize_i64: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -131,17 +137,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::UInt32(n) => {
-                        visitor.visit_u32(n)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_u64: data model must be Value::UInt32, got: {:?}", v)))
-                    }
-                }
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_u64: data model must be ValueData::Value, got: {:?}", self)))
-            }
+                    Value::UInt32(n) => visitor.visit_u32(n),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_u64: data model must be Value::UInt32, got: {:?}",
+                        v
+                    ))),
+                },
+            },
+            _ => Err(Error::Runtime(format!(
+                "deserialize_u64: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -153,17 +159,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::UInt64(n) => {
-                        visitor.visit_u64(n)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_u64: data model must be Value::UInt64, got: {:?}", v)))
-                    }
-                }
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_u64: data model must be ValueData::Value, got: {:?}", self)))
-            }
+                    Value::UInt64(n) => visitor.visit_u64(n),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_u64: data model must be Value::UInt64, got: {:?}",
+                        v
+                    ))),
+                },
+            },
+            _ => Err(Error::Runtime(format!(
+                "deserialize_u64: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -182,17 +188,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::Decimal(n) => {
-                        visitor.visit_f64(n.to_float())
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_f64: data model must be Value::Decimal, got: {:?}", v)))
-                    }
-                }
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_f64: data model must be ValueData::Value, got: {:?}", self)))
-            }
+                    Value::Decimal(n) => visitor.visit_f64(n.to_float()),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_f64: data model must be Value::Decimal, got: {:?}",
+                        v
+                    ))),
+                },
+            },
+            _ => Err(Error::Runtime(format!(
+                "deserialize_f64: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -212,14 +218,16 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                             Err(Error::Runtime("deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString of length 1".to_string()))
                         }
                     }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}", v)))
-                    }
-                }
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}",
+                        v
+                    ))),
+                },
             },
-            _ => {
-                Err(Error::Runtime(format!("deserialize_char: data model must be ValueData::Value, got: {:?}", self)))
-            }
+            _ => Err(Error::Runtime(format!(
+                "deserialize_char: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -238,17 +246,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::ASCIIString(s) | Value::UnicodeString(s) => {
-                        visitor.visit_string(s)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}", v)))
-                    }
-                }
+                    Value::ASCIIString(s) | Value::UnicodeString(s) => visitor.visit_string(s),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}",
+                        v
+                    ))),
+                },
             },
-            _ => {
-                Err(Error::Runtime(format!("deserialize_string: data model must be ValueData::Value, got: {:?}", self)))
-            }
+            _ => Err(Error::Runtime(format!(
+                "deserialize_string: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -267,17 +275,17 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(v) => match v {
-                    Value::Bytes(b) => {
-                        visitor.visit_byte_buf(b)
-                    }
-                    _ => {
-                        Err(Error::Runtime(format!("deserialize_byte_buf: data model must be Value::Bytes, got: {:?}", v)))
-                    }
-                }
+                    Value::Bytes(b) => visitor.visit_byte_buf(b),
+                    _ => Err(Error::Runtime(format!(
+                        "deserialize_byte_buf: data model must be Value::Bytes, got: {:?}",
+                        v
+                    ))),
+                },
             },
-            _ => {
-                Err(Error::Runtime(format!("deserialize_string: data model must be ValueData::Value, got: {:?}", self)))
-            }
+            _ => Err(Error::Runtime(format!(
+                "deserialize_string: data model must be ValueData::Value, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -290,16 +298,13 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             ValueData::Value(v) => match v {
                 None => visitor.visit_none(),
                 Some(_) => visitor.visit_some(self),
-            }
-            ValueData::Group(_) => {
-                visitor.visit_some(self)
-            }
-            ValueData::Sequence(_) => {
-                visitor.visit_some(self)
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_option: cannot be optional, got: {:?}", self)))
-            }
+            },
+            ValueData::Group(_) => visitor.visit_some(self),
+            ValueData::Sequence(_) => visitor.visit_some(self),
+            _ => Err(Error::Runtime(format!(
+                "deserialize_option: cannot be optional, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -310,14 +315,22 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         Err(Error::Static("unit is not supported".to_string()))
     }
 
-    fn deserialize_unit_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_unit_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
         Err(Error::Static("unit_struct is not supported".to_string()))
     }
 
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -329,12 +342,11 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         V: Visitor<'de>,
     {
         match self {
-            ValueData::Sequence(q) => {
-                visitor.visit_seq(SequenceDeserializer::new(q))
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_seq: data model must be ValueData::Sequence, got {:?}", self)))
-            }
+            ValueData::Sequence(q) => visitor.visit_seq(SequenceDeserializer::new(q)),
+            _ => Err(Error::Runtime(format!(
+                "deserialize_seq: data model must be ValueData::Sequence, got {:?}",
+                self
+            ))),
         }
     }
 
@@ -345,7 +357,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         Err(Error::Static("tuple is not supported".to_string()))
     }
 
-    fn deserialize_tuple_struct<V>(self, name: &'static str, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple_struct<V>(
+        self,
+        name: &'static str,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -353,10 +370,16 @@ impl<'de> serde::Deserializer<'de> for ValueData {
             return if let ValueData::Value(Some(Value::Decimal(d))) = self {
                 visitor.visit_seq(d)
             } else {
-                Err(Error::Runtime(format!("deserialize_tuple_struct: expected Value::Decimal, got {:?}", self)))
+                Err(Error::Runtime(format!(
+                    "deserialize_tuple_struct: expected Value::Decimal, got {:?}",
+                    self
+                )))
             };
         }
-        Err(Error::Runtime(format!("deserialize_seq: unsupported data model {:?}", self)))
+        Err(Error::Runtime(format!(
+            "deserialize_seq: unsupported data model {:?}",
+            self
+        )))
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -364,33 +387,41 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         V: Visitor<'de>,
     {
         match self {
-            ValueData::Group(group) => {
-                visitor.visit_map(GroupDeserializer::new(group))
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_map: data model must be ValueData::Group, got: {:?}", self)))
-            }
+            ValueData::Group(group) => visitor.visit_map(GroupDeserializer::new(group)),
+            _ => Err(Error::Runtime(format!(
+                "deserialize_map: data model must be ValueData::Group, got: {:?}",
+                self
+            ))),
         }
     }
 
-    fn deserialize_struct<V>(self, _name: &'static str, _fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
         self.deserialize_map(visitor)
     }
 
-    fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_enum<V>(
+        self,
+        name: &'static str,
+        variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
         match self {
-            ValueData::DynamicTemplateRef(t) => {
-                t.deserialize_enum(name, variants, visitor)
-            }
-            _ => {
-                Err(Error::Runtime(format!("deserialize_enum: data model must be ValueData::DynamicTemplateRef, got: {:?}", self)))
-            }
+            ValueData::DynamicTemplateRef(t) => t.deserialize_enum(name, variants, visitor),
+            _ => Err(Error::Runtime(format!(
+                "deserialize_enum: data model must be ValueData::DynamicTemplateRef, got: {:?}",
+                self
+            ))),
         }
     }
 
@@ -409,7 +440,6 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         visitor.visit_unit()
     }
 }
-
 
 struct GroupDeserializer {
     items: <HashMap<String, ValueData> as IntoIterator>::IntoIter,
@@ -446,12 +476,10 @@ impl<'de> MapAccess<'de> for GroupDeserializer {
         V: DeserializeSeed<'de>,
     {
         match self.value.take() {
-            Some(value) => {
-                seed.deserialize(value)
-            }
-            None => {
-                Err(Error::Runtime("visit_value called before visit_key".to_string()))
-            }
+            Some(value) => seed.deserialize(value),
+            None => Err(Error::Runtime(
+                "visit_value called before visit_key".to_string(),
+            )),
         }
     }
 
@@ -462,7 +490,6 @@ impl<'de> MapAccess<'de> for GroupDeserializer {
         }
     }
 }
-
 
 struct SequenceDeserializer {
     items: <Vec<ValueData> as IntoIterator>::IntoIter,
@@ -484,14 +511,11 @@ impl<'de> SeqAccess<'de> for SequenceDeserializer {
         T: DeserializeSeed<'de>,
     {
         match self.items.next() {
-            Some(value) => {
-                seed.deserialize(value).map(Some)
-            }
+            Some(value) => seed.deserialize(value).map(Some),
             None => Ok(None),
         }
     }
 }
-
 
 pub(crate) struct ValueDataSerializer;
 
@@ -507,7 +531,10 @@ impl serde::Serializer for ValueDataSerializer {
     type SerializeStructVariant = Self;
 
     fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "bool")))
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "bool"
+        )))
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
@@ -543,11 +570,15 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::Decimal(Decimal::from_float(v as f64)?))))
+        Ok(ValueData::Value(Some(Value::Decimal(Decimal::from_float(
+            v as f64,
+        )?))))
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::Decimal(Decimal::from_float(v)?))))
+        Ok(ValueData::Value(Some(Value::Decimal(Decimal::from_float(
+            v,
+        )?))))
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -579,25 +610,52 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "unit")))
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "unit"
+        )))
     }
 
     fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "unit struct")))
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "unit struct"
+        )))
     }
 
-    fn serialize_unit_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "unit variant")))
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+    ) -> Result<Self::Ok, Self::Error> {
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "unit variant"
+        )))
     }
 
-    fn serialize_newtype_struct<T>(self, _name: &'static str, _value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_newtype_struct<T>(
+        self,
+        _name: &'static str,
+        _value: &T,
+    ) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + Serialize,
     {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "newtype struct")))
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "newtype struct"
+        )))
     }
 
-    fn serialize_newtype_variant<T>(self, _name: &'static str, _variant_index: u32, variant: &'static str, value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_newtype_variant<T>(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        value: &T,
+    ) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + Serialize,
     {
@@ -612,31 +670,63 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "tuple")))
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "tuple"
+        )))
     }
 
-    fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeTupleStruct, Self::Error> {
+    fn serialize_tuple_struct(
+        self,
+        name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         if name == "Decimal" && len == 2 {
             Ok(ValueDataDecimalSerializer::new())
         } else {
-            Err(Error::Runtime(format!("Serialization to {} is not supported", "tuple struct")))
+            Err(Error::Runtime(format!(
+                "Serialization to {} is not supported",
+                "tuple struct"
+            )))
         }
     }
 
-    fn serialize_tuple_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str, _len: usize) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "tuple variant")))
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "tuple variant"
+        )))
     }
 
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(ValueDataMapSerializer::new(len))
     }
 
-    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct, Self::Error> {
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(ValueDataGroupSerializer::new(len))
     }
 
-    fn serialize_struct_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str, _len: usize) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(Error::Runtime(format!("Serialization to {} is not supported", "struct variant")))
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        Err(Error::Runtime(format!(
+            "Serialization to {} is not supported",
+            "struct variant"
+        )))
     }
 }
 
@@ -672,7 +762,6 @@ impl SerializeTupleVariant for ValueDataSerializer {
     }
 }
 
-
 impl SerializeStructVariant for ValueDataSerializer {
     type Ok = ValueData;
     type Error = Error;
@@ -689,7 +778,6 @@ impl SerializeStructVariant for ValueDataSerializer {
     }
 }
 
-
 pub(crate) struct ValueDataMapSerializer {
     data: HashMap<String, ValueData>,
 }
@@ -699,7 +787,7 @@ impl ValueDataMapSerializer {
         Self {
             data: match len {
                 Some(len) => HashMap::with_capacity(len),
-                None => HashMap::new()
+                None => HashMap::new(),
             },
         }
     }
@@ -731,7 +819,11 @@ impl SerializeMap for ValueDataMapSerializer {
         let key = match key.serialize(ValueDataSerializer)? {
             ValueData::Value(Some(Value::ASCIIString(s))) => s,
             ValueData::Value(Some(Value::UnicodeString(s))) => s,
-            _ => return Err(Error::Runtime("serialize_entry: key must be a string".to_string()))
+            _ => {
+                return Err(Error::Runtime(
+                    "serialize_entry: key must be a string".to_string(),
+                ));
+            }
         };
         let value = value.serialize(ValueDataSerializer)?;
         self.data.insert(key, value);
@@ -743,7 +835,6 @@ impl SerializeMap for ValueDataMapSerializer {
     }
 }
 
-
 pub(crate) struct ValueDataGroupSerializer {
     data: HashMap<String, ValueData>,
 }
@@ -751,7 +842,7 @@ pub(crate) struct ValueDataGroupSerializer {
 impl ValueDataGroupSerializer {
     fn new(len: usize) -> Self {
         Self {
-            data: HashMap::with_capacity(len)
+            data: HashMap::with_capacity(len),
         }
     }
 }
@@ -764,7 +855,8 @@ impl SerializeStruct for ValueDataGroupSerializer {
     where
         T: ?Sized + Serialize,
     {
-        self.data.insert(key.to_string(), value.serialize(ValueDataSerializer)?);
+        self.data
+            .insert(key.to_string(), value.serialize(ValueDataSerializer)?);
         Ok(())
     }
 
@@ -772,7 +864,6 @@ impl SerializeStruct for ValueDataGroupSerializer {
         Ok(ValueData::Group(self.data))
     }
 }
-
 
 pub(crate) struct ValueDataSequenceSerializer {
     data: Vec<ValueData>,
@@ -783,7 +874,7 @@ impl ValueDataSequenceSerializer {
         Self {
             data: match len {
                 Some(len) => Vec::with_capacity(len),
-                None => Vec::new()
+                None => Vec::new(),
             },
         }
     }
@@ -806,7 +897,6 @@ impl SerializeSeq for ValueDataSequenceSerializer {
     }
 }
 
-
 pub(crate) struct ValueDataDecimalSerializer {
     data: Decimal,
 }
@@ -814,7 +904,7 @@ pub(crate) struct ValueDataDecimalSerializer {
 impl ValueDataDecimalSerializer {
     pub(crate) fn new() -> Self {
         Self {
-            data: Decimal::new(0, 0)
+            data: Decimal::new(0, 0),
         }
     }
 }

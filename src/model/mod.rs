@@ -1,16 +1,16 @@
 use hashbrown::HashMap;
 
-use crate::{Error, MessageFactory, Value, ValueType};
-use crate::base::message::MessageVisitor;
 use crate::Result;
+use crate::base::message::MessageVisitor;
 use crate::utils::stacked::Stacked;
+use crate::{Error, MessageFactory, Value, ValueType};
 
 use self::template::TemplateData;
 use self::value::ValueData;
 
+mod decimal;
 pub(crate) mod template;
 pub(crate) mod value;
-mod decimal;
 
 /// # Model Factory
 /// Creates a template model that later can be deserialized using Serde.
@@ -39,10 +39,8 @@ impl ModelFactory {
 
 impl MessageFactory for ModelFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
-        self.context.push((
-            name.to_string(),
-            ValueData::Group(HashMap::new())
-        ));
+        self.context
+            .push((name.to_string(), ValueData::Group(HashMap::new())));
     }
 
     fn stop_template(&mut self) {
@@ -63,15 +61,13 @@ impl MessageFactory for ModelFactory {
     fn start_sequence(&mut self, _id: u32, name: &str, length: u32) {
         self.context.push((
             name.to_string(),
-            ValueData::Sequence(Vec::with_capacity(length as usize))
+            ValueData::Sequence(Vec::with_capacity(length as usize)),
         ));
     }
 
     fn start_sequence_item(&mut self, _index: u32) {
-        self.context.push((
-            String::new(),
-            ValueData::Group(HashMap::new())
-        ));
+        self.context
+            .push((String::new(), ValueData::Group(HashMap::new())));
         self.ref_num.push(0);
     }
 
@@ -99,10 +95,8 @@ impl MessageFactory for ModelFactory {
     }
 
     fn start_group(&mut self, name: &str) {
-        self.context.push((
-            name.to_string(),
-            ValueData::Group(HashMap::new())
-        ));
+        self.context
+            .push((name.to_string(), ValueData::Group(HashMap::new())));
         self.ref_num.push(0);
     }
 
@@ -131,7 +125,8 @@ impl MessageFactory for ModelFactory {
             let tpl_ref = ValueData::StaticTemplateRef(name.to_string(), Box::new(ValueData::None));
             self.context.push((name.to_string(), tpl_ref));
         };
-        self.context.push((String::new(), ValueData::Group(HashMap::new())));
+        self.context
+            .push((String::new(), ValueData::Group(HashMap::new())));
         self.ref_num.push(0);
     }
 
@@ -199,9 +194,10 @@ impl MessageVisitor for ModelVisitor {
                 self.context.push(&self.data.value);
                 Ok(self.data.name.clone())
             }
-            _ => {
-                Err(Error::Runtime(format!("Template {} data expected to be ValueData::Group, got {:?}", self.data.name, self.data.value)))
-            }
+            _ => Err(Error::Runtime(format!(
+                "Template {} data expected to be ValueData::Group, got {:?}",
+                self.data.name, self.data.value
+            ))),
         }
     }
 
@@ -212,12 +208,11 @@ impl MessageVisitor for ModelVisitor {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
-                        ValueData::Value(v) => {
-                            Ok(v.clone())
-                        }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Value, got {:?}", v)))
-                        }
+                        ValueData::Value(v) => Ok(v.clone()),
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be ValueData::Value, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(None)
@@ -235,16 +230,15 @@ impl MessageVisitor for ModelVisitor {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
-                        ValueData::None | ValueData::Value(None) => {
-                            Ok(false)
-                        }
+                        ValueData::None | ValueData::Value(None) => Ok(false),
                         ValueData::Group(_) => {
                             self.context.push(v);
                             Ok(true)
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Group, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be ValueData::Group, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(false)
@@ -267,17 +261,16 @@ impl MessageVisitor for ModelVisitor {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
-                        ValueData::None | ValueData::Value(None) => {
-                            Ok(None)
-                        }
+                        ValueData::None | ValueData::Value(None) => Ok(None),
                         ValueData::Sequence(s) => {
                             let len = s.len();
                             self.context.push(v);
                             Ok(Some(len))
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be ValueData::Sequence, got: {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be ValueData::Sequence, got: {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(None)
@@ -299,9 +292,10 @@ impl MessageVisitor for ModelVisitor {
                             self.context.push(v);
                             Ok(())
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Sequence item #{index} expected to be ValueData::Group, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Sequence item #{index} expected to be ValueData::Group, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Err(Error::Runtime(format!("Sequence item #{index} not found")))
@@ -336,24 +330,22 @@ impl MessageVisitor for ModelVisitor {
                 ValueData::Group(context) => {
                     if let Some(v) = context.get(&name) {
                         match v {
-                            ValueData::None => {
-                                Ok(None)
-                            }
-                            ValueData::DynamicTemplateRef(t) => {
-                                match t.value {
-                                    ValueData::Group(_) => {
-                                        let template_name = t.name.clone();
-                                        self.context.push(&t.value);
-                                        Ok(Some(template_name))
-                                    }
-                                    _ => {
-                                        Err(Error::Runtime(format!("Field {name} value expected to be ValueData::Group, got {:?}", t.value)))
-                                    }
+                            ValueData::None => Ok(None),
+                            ValueData::DynamicTemplateRef(t) => match t.value {
+                                ValueData::Group(_) => {
+                                    let template_name = t.name.clone();
+                                    self.context.push(&t.value);
+                                    Ok(Some(template_name))
                                 }
-                            }
-                            _ => {
-                                Err(Error::Runtime(format!("Field {name} expected to be ValueData::DynamicTemplateRef, got {:?}", v)))
-                            }
+                                _ => Err(Error::Runtime(format!(
+                                    "Field {name} value expected to be ValueData::Group, got {:?}",
+                                    t.value
+                                ))),
+                            },
+                            _ => Err(Error::Runtime(format!(
+                                "Field {name} expected to be ValueData::DynamicTemplateRef, got {:?}",
+                                v
+                            ))),
                         }
                     } else {
                         Ok(None)

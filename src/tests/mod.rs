@@ -1,15 +1,15 @@
 use hashbrown::HashMap;
 
+use crate::Value;
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
 use crate::base::types::{Dictionary, Operator, Presence};
 use crate::base::value::ValueType;
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
-use crate::model::{ModelFactory, ModelVisitor};
 use crate::model::template::TemplateData;
 use crate::model::value::ValueData;
-use crate::Value;
+use crate::model::{ModelFactory, ModelVisitor};
 
 mod base;
 mod base_serde;
@@ -35,11 +35,19 @@ pub struct TestTemplate {
 }
 
 pub fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
-    assert_eq!(d.definitions.templates.len(), tts.len(), "templates count mismatch");
+    assert_eq!(
+        d.definitions.templates.len(),
+        tts.len(),
+        "templates count mismatch"
+    );
     for (t, tt) in d.definitions.templates.iter().zip(tts) {
         assert_eq!(t.id, tt.id, "{} id mismatch", t.name);
         assert_eq!(t.name, t.name, "{} name mismatch", t.name);
-        assert_eq!(t.dictionary, tt.dictionary, "{} dictionary mismatch", t.name);
+        assert_eq!(
+            t.dictionary, tt.dictionary,
+            "{} dictionary mismatch",
+            t.name
+        );
         test_instructions(&t.instructions, &tt.instructions, &tt.name);
     }
 }
@@ -52,7 +60,12 @@ pub fn test_instructions(iss: &Vec<Instruction>, tis: &Vec<TestField>, name: &st
         assert_eq!(t.presence, tt.presence, "{} presence mismatch", tt.name);
         assert_eq!(t.operator, tt.operator, "{} operator mismatch", tt.name);
         assert_eq!(t.value_type, tt.value, "{} value mismatch", tt.name);
-        assert_eq!(t.has_pmap.get(), tt.has_pmap, "{} has_pmap mismatch", tt.name);
+        assert_eq!(
+            t.has_pmap.get(),
+            tt.has_pmap,
+            "{} has_pmap mismatch",
+            tt.name
+        );
         test_instructions(&t.instructions, &tt.instructions, &tt.name);
     }
 }
@@ -63,9 +76,7 @@ pub struct LoggingMessageFactory {
 
 impl LoggingMessageFactory {
     pub fn new() -> Self {
-        Self {
-            calls: Vec::new(),
-        }
+        Self { calls: Vec::new() }
     }
 }
 
@@ -79,11 +90,13 @@ impl MessageFactory for LoggingMessageFactory {
     }
 
     fn set_value(&mut self, id: u32, name: &str, value: Option<Value>) {
-        self.calls.push(format!("set_value: {id}:{name} {:?}", value));
+        self.calls
+            .push(format!("set_value: {id}:{name} {:?}", value));
     }
 
     fn start_sequence(&mut self, id: u32, name: &str, length: u32) {
-        self.calls.push(format!("start_sequence: {id}:{name} {length}"));
+        self.calls
+            .push(format!("start_sequence: {id}:{name} {length}"));
     }
 
     fn start_sequence_item(&mut self, index: u32) {
@@ -107,7 +120,8 @@ impl MessageFactory for LoggingMessageFactory {
     }
 
     fn start_template_ref(&mut self, name: &str, dynamic: bool) {
-        self.calls.push(format!("start_template_ref: {name}:{dynamic}"));
+        self.calls
+            .push(format!("start_template_ref: {name}:{dynamic}"));
     }
 
     fn stop_template_ref(&mut self) {
@@ -134,12 +148,10 @@ pub struct TestCaseSeq<'a> {
 
 fn extract_value(msg: ModelFactory, name: &str, test_name: &str) -> Option<Value> {
     match msg.data.unwrap().value {
-        ValueData::Group(g) => {
-            match g.get(name).unwrap() {
-                ValueData::Value(v) => v.clone(),
-                _ => panic!("{} failed (Value expected)", test_name),
-            }
-        }
+        ValueData::Group(g) => match g.get(name).unwrap() {
+            ValueData::Value(v) => v.clone(),
+            _ => panic!("{} failed (Value expected)", test_name),
+        },
         _ => panic!("{} failed (Group expected)", test_name),
     }
 }
@@ -147,14 +159,11 @@ fn extract_value(msg: ModelFactory, name: &str, test_name: &str) -> Option<Value
 fn pack_value(templaet_name: &str, name: &str, value: Option<Value>) -> TemplateData {
     TemplateData {
         name: templaet_name.to_string(),
-        value: ValueData::Group(HashMap::from([
-            (name.to_string(), ValueData::Value(value)),
-        ])),
+        value: ValueData::Group(HashMap::from([(name.to_string(), ValueData::Value(value))])),
     }
 }
 
-fn do_test(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCase)
-{
+fn do_test(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCase) {
     let mut d = Decoder::new_from_xml(definitions).unwrap();
     let mut e = Encoder::new_from_xml(definitions).unwrap();
     if decode {
@@ -168,13 +177,16 @@ fn do_test(decode: bool, encode: bool, context: bool, definitions: &str, tt: Tes
     }
 }
 
-fn do_test_seq(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCaseSeq)
-{
+fn do_test_seq(decode: bool, encode: bool, context: bool, definitions: &str, tt: TestCaseSeq) {
     let mut d = Decoder::new_from_xml(definitions).unwrap();
     let mut e = Encoder::new_from_xml(definitions).unwrap();
     for (i, (raw, data)) in tt.raw.into_iter().zip(tt.data).enumerate() {
         let name = format!("{} #{}", tt.name, i + 1);
-        let tt = TestCase { name: &name, raw, data };
+        let tt = TestCase {
+            name: &name,
+            raw,
+            data,
+        };
         if decode {
             test_decode(&mut d, &tt);
         }

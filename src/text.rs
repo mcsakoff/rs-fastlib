@@ -1,9 +1,9 @@
 use hashbrown::HashMap;
 
-use crate::{Error, MessageFactory, MessageVisitor, Value, ValueType};
 use crate::Result;
 use crate::utils::bytes::bytes_to_string;
 use crate::utils::stacked::Stacked;
+use crate::{Error, MessageFactory, MessageVisitor, Value, ValueType};
 
 /// Message factory implementation that formats decoded messages as a human-readable text.
 pub struct TextMessageFactory {
@@ -118,7 +118,6 @@ impl MessageFactory for TextMessageFactory {
         }
     }
 }
-
 
 /// Message factory implementation that formats decoded messages as JSON encoded `String`.
 pub struct JsonMessageFactory {
@@ -237,7 +236,6 @@ impl MessageFactory for JsonMessageFactory {
     }
 }
 
-
 pub struct TextMessageVisitor {
     pub data: TextMessageValue,
     context: Stacked<*const TextMessageValue>,
@@ -257,18 +255,17 @@ impl TextMessageVisitor {
 impl MessageVisitor for TextMessageVisitor {
     fn get_template_name(&mut self) -> Result<String> {
         match &self.data {
-            TextMessageValue::Group(h) => {
-                match h.iter().next() {
-                    None => Err(Error::Runtime("Template name not fount".to_string())),
-                    Some((name, value)) => {
-                        self.context.push(value);
-                        Ok(name.clone())
-                    }
+            TextMessageValue::Group(h) => match h.iter().next() {
+                None => Err(Error::Runtime("Template name not fount".to_string())),
+                Some((name, value)) => {
+                    self.context.push(value);
+                    Ok(name.clone())
                 }
-            }
-            _ => {
-                Err(Error::Runtime(format!("Template value expected to be TextMessageValue::Group, got {:?}", self.data)))
-            }
+            },
+            _ => Err(Error::Runtime(format!(
+                "Template value expected to be TextMessageValue::Group, got {:?}",
+                self.data
+            ))),
         }
     }
 
@@ -284,15 +281,16 @@ impl MessageVisitor for TextMessageVisitor {
                             value.set_from_string(s)?;
                             Ok(Some(value))
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be TextMessageValue::Value, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be TextMessageValue::Value, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(None)
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -307,15 +305,16 @@ impl MessageVisitor for TextMessageVisitor {
                             self.context.push(v);
                             Ok(true)
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be TextMessageValue::Group, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be TextMessageValue::Group, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(false)
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -342,15 +341,16 @@ impl MessageVisitor for TextMessageVisitor {
                             self.context.push(v);
                             Ok(Some(len))
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Field {name} expected to be TextMessageValue::Sequence, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Field {name} expected to be TextMessageValue::Sequence, got {:?}",
+                            v
+                        ))),
                     }
                 } else {
                     Ok(None)
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -361,7 +361,7 @@ impl MessageVisitor for TextMessageVisitor {
                 Ok(())
             } else {
                 Err(Error::Runtime("Index is out of range".to_string()))
-            }
+            };
         }
         // SAFETY: the reference to context is always valid because we never modify `self.data`
         let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
@@ -373,16 +373,16 @@ impl MessageVisitor for TextMessageVisitor {
                             self.context.push(v);
                             Ok(())
                         }
-                        _ => {
-                            Err(Error::Runtime(format!("Sequence item #{index} expected to be TextMessageValue::Group, got {:?}", v)))
-                        }
+                        _ => Err(Error::Runtime(format!(
+                            "Sequence item #{index} expected to be TextMessageValue::Group, got {:?}",
+                            v
+                        ))),
                     }
-
                 } else {
                     Err(Error::Runtime(format!("Index {} is out of range", index)))
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -424,13 +424,14 @@ impl TextMessageValue {
         match TextMessageValue::parse_next(text)? {
             (name, TextMessageValue::Group(value), size) => {
                 if size != text.len() {
-                    Err(Error::Dynamic("Symbols left in buffer after parsing text message".to_string()))
-                } else {
-                    Ok(TextMessageValue::Group(
-                        HashMap::from([
-                            (name, TextMessageValue::Group(value))
-                        ])
+                    Err(Error::Dynamic(
+                        "Symbols left in buffer after parsing text message".to_string(),
                     ))
+                } else {
+                    Ok(TextMessageValue::Group(HashMap::from([(
+                        name,
+                        TextMessageValue::Group(value),
+                    )])))
                 }
             }
             _ => Err(Error::Dynamic("Failed to parse message body".to_string())),
@@ -438,7 +439,8 @@ impl TextMessageValue {
     }
 
     fn parse_next(text: &str) -> Result<(String, Self, usize)> {
-        let (name, rest) = text.split_once('=')
+        let (name, rest) = text
+            .split_once('=')
             .ok_or_else(|| Error::Dynamic("Failed to parse next field".to_string()))?;
         let (value, sz) = TextMessageValue::parse_value(rest)?;
         let size = name.len() + sz + 1;
@@ -468,14 +470,15 @@ impl TextMessageValue {
                     _ => unreachable!(),
                 }
                 if text.starts_with('<') {
-                    continue
+                    continue;
                 }
-                break
+                break;
             }
             Ok((value.unwrap(), size))
         } else {
-            let i = text.find(['|', '>'])
-                .ok_or_else(|| Error::Dynamic("Failed to parse next value (no delimiter)".to_string()))?;
+            let i = text.find(['|', '>']).ok_or_else(|| {
+                Error::Dynamic("Failed to parse next value (no delimiter)".to_string())
+            })?;
             Ok((TextMessageValue::Value(text[..i].to_string()), i))
         }
     }
@@ -492,11 +495,11 @@ impl TextMessageValue {
             if text.starts_with('|') {
                 size += 1;
                 text = &text[1..];
-                continue
+                continue;
             }
             if text.starts_with('>') {
                 size += 1;
-                break
+                break;
             }
             return Err(Error::Dynamic("Failed to parse group".to_string()));
         }
@@ -511,10 +514,19 @@ mod tests {
     #[test]
     fn test_parse_text_group() {
         let (value, size) = TextMessageValue::parse_group("MessageType=0|ApplVerID=8>|").unwrap();
-        assert_eq!(value, TextMessageValue::Group(HashMap::from([
-            ("MessageType".to_string(), TextMessageValue::Value("0".to_string())),
-            ("ApplVerID".to_string(), TextMessageValue::Value("8".to_string())),
-        ])));
+        assert_eq!(
+            value,
+            TextMessageValue::Group(HashMap::from([
+                (
+                    "MessageType".to_string(),
+                    TextMessageValue::Value("0".to_string())
+                ),
+                (
+                    "ApplVerID".to_string(),
+                    TextMessageValue::Value("8".to_string())
+                ),
+            ]))
+        );
         assert_eq!(size, 26);
     }
 
@@ -525,20 +537,30 @@ mod tests {
         assert_eq!(size, 3);
 
         let (value, size) = TextMessageValue::parse_value("<MessageType=0>|").unwrap();
-        assert_eq!(value, TextMessageValue::Group(HashMap::from([
-            ("MessageType".to_string(), TextMessageValue::Value("0".to_string()))
-        ])));
+        assert_eq!(
+            value,
+            TextMessageValue::Group(HashMap::from([(
+                "MessageType".to_string(),
+                TextMessageValue::Value("0".to_string())
+            )]))
+        );
         assert_eq!(size, 15);
 
-        let (value, size) = TextMessageValue::parse_value("<MessageType=0><MessageType=1>|").unwrap();
-        assert_eq!(value, TextMessageValue::Sequence(vec![
-            TextMessageValue::Group(HashMap::from([
-                ("MessageType".to_string(), TextMessageValue::Value("0".to_string()))
-            ])),
-            TextMessageValue::Group(HashMap::from([
-                ("MessageType".to_string(), TextMessageValue::Value("1".to_string()))
-            ])),
-        ]));
+        let (value, size) =
+            TextMessageValue::parse_value("<MessageType=0><MessageType=1>|").unwrap();
+        assert_eq!(
+            value,
+            TextMessageValue::Sequence(vec![
+                TextMessageValue::Group(HashMap::from([(
+                    "MessageType".to_string(),
+                    TextMessageValue::Value("0".to_string())
+                )])),
+                TextMessageValue::Group(HashMap::from([(
+                    "MessageType".to_string(),
+                    TextMessageValue::Value("1".to_string())
+                )])),
+            ])
+        );
         assert_eq!(size, 30);
     }
 
@@ -547,29 +569,31 @@ mod tests {
         let m = TextMessageValue::from_text(
             "MDHeartbeat=<MessageType=0|ApplVerID=8|SenderCompID=CQG|MsgSeqNum=2286|SendingTime=20240712171046052>"
         ).unwrap();
-        let r = TextMessageValue::Group(HashMap::from([
-            (
-                "MDHeartbeat".to_string(),
-                TextMessageValue::Group(HashMap::from([
-                    (
-                        "MessageType".to_string(),
-                        TextMessageValue::Value("0".to_string())
-                    ), (
-                        "ApplVerID".to_string(),
-                        TextMessageValue::Value("8".to_string())
-                    ), (
-                        "SenderCompID".to_string(),
-                        TextMessageValue::Value("CQG".to_string())
-                    ), (
-                        "MsgSeqNum".to_string(),
-                        TextMessageValue::Value("2286".to_string())
-                    ), (
-                        "SendingTime".to_string(),
-                        TextMessageValue::Value("20240712171046052".to_string())
-                    ),
-                ]))
-            )
-        ]));
+        let r = TextMessageValue::Group(HashMap::from([(
+            "MDHeartbeat".to_string(),
+            TextMessageValue::Group(HashMap::from([
+                (
+                    "MessageType".to_string(),
+                    TextMessageValue::Value("0".to_string()),
+                ),
+                (
+                    "ApplVerID".to_string(),
+                    TextMessageValue::Value("8".to_string()),
+                ),
+                (
+                    "SenderCompID".to_string(),
+                    TextMessageValue::Value("CQG".to_string()),
+                ),
+                (
+                    "MsgSeqNum".to_string(),
+                    TextMessageValue::Value("2286".to_string()),
+                ),
+                (
+                    "SendingTime".to_string(),
+                    TextMessageValue::Value("20240712171046052".to_string()),
+                ),
+            ])),
+        )]));
         assert_eq!(m, r);
     }
 }

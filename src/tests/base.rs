@@ -6,422 +6,423 @@ use std::io::Cursor;
 
 use hashbrown::HashMap;
 
-use crate::{Decimal, Error};
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
-use crate::model::{ModelFactory, ModelVisitor};
 use crate::model::value::ValueData;
+use crate::model::{ModelFactory, ModelVisitor};
+use crate::{Decimal, Error};
 
 use super::*;
 
 #[test]
 fn parse_xml_template() {
     let d = Decoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
-    test_templates(&d, &vec![
-        TestTemplate {
-            id: 1,
-            name: "Integer",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "MandatoryUint32",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 2,
-                    name: "OptionalUint32",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 3,
-                    name: "MandatoryUint64",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt64,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 4,
-                    name: "OptionalUint64",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::UInt64,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 5,
-                    name: "MandatoryInt32",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Int32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 6,
-                    name: "OptionalInt32",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::Int32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 7,
-                    name: "MandatoryInt64",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Int64,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 8,
-                    name: "OptionalInt64",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::Int64,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 2,
-            name: "String",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "MandatoryAscii",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::ASCIIString,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 2,
-                    name: "OptionalAscii",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::ASCIIString,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 3,
-                    name: "MandatoryUnicode",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UnicodeString,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 4,
-                    name: "OptionalUnicode",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::UnicodeString,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 3,
-            name: "ByteVector",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "MandatoryVector",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Bytes,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 2,
-                    name: "OptionalVector",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::Bytes,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 4,
-            name: "Decimal",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "CopyDecimal",
-                    presence: Presence::Optional,
-                    operator: Operator::Copy,
-                    value: ValueType::Decimal,
-                    instructions: vec![
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Optional,
-                            operator: Operator::None,
-                            value: ValueType::Exponent,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::Mantissa,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: false, // for Decimal has_pmap shows if subcomponents need pmap
-                },
-                TestField {
-                    id: 2,
-                    name: "MandatoryDecimal",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Decimal,
-                    instructions: vec![
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::Exponent,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::Mantissa,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 3,
-                    name: "IndividualDecimal",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Decimal,
-                    instructions: vec![
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::Default,
-                            value: ValueType::Exponent,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::Delta,
-                            value: ValueType::Mantissa,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: true,
-                },
-                TestField {
-                    id: 4,
-                    name: "IndividualDecimalOpt",
-                    presence: Presence::Optional,
-                    operator: Operator::None,
-                    value: ValueType::Decimal,
-                    instructions: vec![
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Optional,
-                            operator: Operator::Default,
-                            value: ValueType::Exponent,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "",
-                            presence: Presence::Mandatory,
-                            operator: Operator::Delta,
-                            value: ValueType::Mantissa,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: true,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 5,
-            name: "Sequence",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "TestData",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 0,
-                    name: "OuterSequence",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Sequence,
-                    instructions: vec![
-                        TestField {
-                            id: 2,
-                            name: "NoOuterSequence",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::Length,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 3,
-                            name: "OuterTestData",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::UInt32,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "InnerSequence",
-                            presence: Presence::Optional,
-                            operator: Operator::None,
-                            value: ValueType::Sequence,
-                            instructions: vec![
-                                TestField {
-                                    id: 4,
-                                    name: "NoInnerSequence",
-                                    presence: Presence::Optional,
-                                    operator: Operator::None,
-                                    value: ValueType::Length,
-                                    instructions: vec![],
-                                    has_pmap: false,
-                                },
-                                TestField {
-                                    id: 5,
-                                    name: "InnerTestData",
-                                    presence: Presence::Mandatory,
-                                    operator: Operator::None,
-                                    value: ValueType::UInt32,
-                                    instructions: vec![],
-                                    has_pmap: false,
-                                },
-                            ],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 0,
-                    name: "NextOuterSequence",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Sequence,
-                    instructions: vec![
-                        TestField {
-                            id: 6,
-                            name: "NoNextOuterSequence",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::Length,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 7,
-                            name: "NextOuterTestData",
-                            presence: Presence::Mandatory,
-                            operator: Operator::Copy,
-                            value: ValueType::UInt32,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: true,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 6,
-            name: "Group",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "TestData",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 0,
-                    name: "OuterGroup",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::Group,
-                    instructions: vec![
-                        TestField {
-                            id: 2,
-                            name: "OuterTestData",
-                            presence: Presence::Mandatory,
-                            operator: Operator::None,
-                            value: ValueType::UInt32,
-                            instructions: vec![],
-                            has_pmap: false,
-                        },
-                        TestField {
-                            id: 0,
-                            name: "InnerGroup",
-                            presence: Presence::Optional,
-                            operator: Operator::None,
-                            value: ValueType::Group,
-                            instructions: vec![
-                                TestField {
+    test_templates(
+        &d,
+        &vec![
+            TestTemplate {
+                id: 1,
+                name: "Integer",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "MandatoryUint32",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 2,
+                        name: "OptionalUint32",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 3,
+                        name: "MandatoryUint64",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt64,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 4,
+                        name: "OptionalUint64",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::UInt64,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 5,
+                        name: "MandatoryInt32",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Int32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 6,
+                        name: "OptionalInt32",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::Int32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 7,
+                        name: "MandatoryInt64",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Int64,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 8,
+                        name: "OptionalInt64",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::Int64,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 2,
+                name: "String",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "MandatoryAscii",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::ASCIIString,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 2,
+                        name: "OptionalAscii",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::ASCIIString,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 3,
+                        name: "MandatoryUnicode",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UnicodeString,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 4,
+                        name: "OptionalUnicode",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::UnicodeString,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 3,
+                name: "ByteVector",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "MandatoryVector",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Bytes,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 2,
+                        name: "OptionalVector",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::Bytes,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 4,
+                name: "Decimal",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "CopyDecimal",
+                        presence: Presence::Optional,
+                        operator: Operator::Copy,
+                        value: ValueType::Decimal,
+                        instructions: vec![
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Optional,
+                                operator: Operator::None,
+                                value: ValueType::Exponent,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::Mantissa,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: false, // for Decimal has_pmap shows if subcomponents need pmap
+                    },
+                    TestField {
+                        id: 2,
+                        name: "MandatoryDecimal",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Decimal,
+                        instructions: vec![
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::Exponent,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::Mantissa,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 3,
+                        name: "IndividualDecimal",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Decimal,
+                        instructions: vec![
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::Default,
+                                value: ValueType::Exponent,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::Delta,
+                                value: ValueType::Mantissa,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: true,
+                    },
+                    TestField {
+                        id: 4,
+                        name: "IndividualDecimalOpt",
+                        presence: Presence::Optional,
+                        operator: Operator::None,
+                        value: ValueType::Decimal,
+                        instructions: vec![
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Optional,
+                                operator: Operator::Default,
+                                value: ValueType::Exponent,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "",
+                                presence: Presence::Mandatory,
+                                operator: Operator::Delta,
+                                value: ValueType::Mantissa,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: true,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 5,
+                name: "Sequence",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "TestData",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 0,
+                        name: "OuterSequence",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Sequence,
+                        instructions: vec![
+                            TestField {
+                                id: 2,
+                                name: "NoOuterSequence",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::Length,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 3,
+                                name: "OuterTestData",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::UInt32,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "InnerSequence",
+                                presence: Presence::Optional,
+                                operator: Operator::None,
+                                value: ValueType::Sequence,
+                                instructions: vec![
+                                    TestField {
+                                        id: 4,
+                                        name: "NoInnerSequence",
+                                        presence: Presence::Optional,
+                                        operator: Operator::None,
+                                        value: ValueType::Length,
+                                        instructions: vec![],
+                                        has_pmap: false,
+                                    },
+                                    TestField {
+                                        id: 5,
+                                        name: "InnerTestData",
+                                        presence: Presence::Mandatory,
+                                        operator: Operator::None,
+                                        value: ValueType::UInt32,
+                                        instructions: vec![],
+                                        has_pmap: false,
+                                    },
+                                ],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 0,
+                        name: "NextOuterSequence",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Sequence,
+                        instructions: vec![
+                            TestField {
+                                id: 6,
+                                name: "NoNextOuterSequence",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::Length,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 7,
+                                name: "NextOuterTestData",
+                                presence: Presence::Mandatory,
+                                operator: Operator::Copy,
+                                value: ValueType::UInt32,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: true,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 6,
+                name: "Group",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "TestData",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 0,
+                        name: "OuterGroup",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::Group,
+                        instructions: vec![
+                            TestField {
+                                id: 2,
+                                name: "OuterTestData",
+                                presence: Presence::Mandatory,
+                                operator: Operator::None,
+                                value: ValueType::UInt32,
+                                instructions: vec![],
+                                has_pmap: false,
+                            },
+                            TestField {
+                                id: 0,
+                                name: "InnerGroup",
+                                presence: Presence::Optional,
+                                operator: Operator::None,
+                                value: ValueType::Group,
+                                instructions: vec![TestField {
                                     id: 3,
                                     name: "InnerTestData",
                                     presence: Presence::Mandatory,
@@ -429,21 +430,19 @@ fn parse_xml_template() {
                                     value: ValueType::UInt32,
                                     instructions: vec![],
                                     has_pmap: false,
-                                },
-                            ],
-                            has_pmap: false,
-                        },
-                    ],
-                    has_pmap: true,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 7,
-            name: "RefData",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
+                                }],
+                                has_pmap: false,
+                            },
+                        ],
+                        has_pmap: true,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 7,
+                name: "RefData",
+                dictionary: Dictionary::Global,
+                instructions: vec![TestField {
                     id: 1,
                     name: "TestData",
                     presence: Presence::Mandatory,
@@ -451,60 +450,60 @@ fn parse_xml_template() {
                     value: ValueType::UInt32,
                     instructions: vec![],
                     has_pmap: false,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 8,
-            name: "StaticReference",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "PreRefData",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 0,
-                    name: "RefData",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::TemplateReference,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-            ],
-        },
-        TestTemplate {
-            id: 9,
-            name: "DynamicReference",
-            dictionary: Dictionary::Global,
-            instructions: vec![
-                TestField {
-                    id: 1,
-                    name: "PreRefData",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::UInt32,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-                TestField {
-                    id: 0,
-                    name: "",
-                    presence: Presence::Mandatory,
-                    operator: Operator::None,
-                    value: ValueType::TemplateReference,
-                    instructions: vec![],
-                    has_pmap: false,
-                },
-            ],
-        },
-    ]);
+                }],
+            },
+            TestTemplate {
+                id: 8,
+                name: "StaticReference",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "PreRefData",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 0,
+                        name: "RefData",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::TemplateReference,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                ],
+            },
+            TestTemplate {
+                id: 9,
+                name: "DynamicReference",
+                dictionary: Dictionary::Global,
+                instructions: vec![
+                    TestField {
+                        id: 1,
+                        name: "PreRefData",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::UInt32,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                    TestField {
+                        id: 0,
+                        name: "",
+                        presence: Presence::Mandatory,
+                        operator: Operator::None,
+                        value: ValueType::TemplateReference,
+                        instructions: vec![],
+                        has_pmap: false,
+                    },
+                ],
+            },
+        ],
+    );
 }
 
 fn do_test(raw: Vec<u8>, data: TemplateData) {
@@ -524,18 +523,45 @@ fn do_test(raw: Vec<u8>, data: TemplateData) {
 #[test]
 fn decode_encode_integers() {
     do_test(
-        vec![0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80, 0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f],
+        vec![
+            0xc0, 0x81, 0x83, 0x85, 0x25, 0x20, 0x2f, 0x47, 0xfe, 0x25, 0x20, 0x2f, 0x48, 0x80,
+            0x85, 0x87, 0x8, 0x23, 0x51, 0x57, 0x8d, 0x8, 0x23, 0x51, 0x57, 0x8f,
+        ],
         TemplateData {
             name: "Integer".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("MandatoryUint32".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
-                ("OptionalUint32".to_string(), ValueData::Value(Some(Value::UInt32(4)))),
-                ("MandatoryUint64".to_string(), ValueData::Value(Some(Value::UInt64(9999999998)))),
-                ("OptionalUint64".to_string(), ValueData::Value(Some(Value::UInt64(9999999999)))),
-                ("MandatoryInt32".to_string(), ValueData::Value(Some(Value::Int32(5)))),
-                ("OptionalInt32".to_string(), ValueData::Value(Some(Value::Int32(6)))),
-                ("MandatoryInt64".to_string(), ValueData::Value(Some(Value::Int64(2222222221)))),
-                ("OptionalInt64".to_string(), ValueData::Value(Some(Value::Int64(2222222222)))),
+                (
+                    "MandatoryUint32".to_string(),
+                    ValueData::Value(Some(Value::UInt32(3))),
+                ),
+                (
+                    "OptionalUint32".to_string(),
+                    ValueData::Value(Some(Value::UInt32(4))),
+                ),
+                (
+                    "MandatoryUint64".to_string(),
+                    ValueData::Value(Some(Value::UInt64(9999999998))),
+                ),
+                (
+                    "OptionalUint64".to_string(),
+                    ValueData::Value(Some(Value::UInt64(9999999999))),
+                ),
+                (
+                    "MandatoryInt32".to_string(),
+                    ValueData::Value(Some(Value::Int32(5))),
+                ),
+                (
+                    "OptionalInt32".to_string(),
+                    ValueData::Value(Some(Value::Int32(6))),
+                ),
+                (
+                    "MandatoryInt64".to_string(),
+                    ValueData::Value(Some(Value::Int64(2222222221))),
+                ),
+                (
+                    "OptionalInt64".to_string(),
+                    ValueData::Value(Some(Value::Int64(2222222222))),
+                ),
             ])),
         },
     );
@@ -544,16 +570,32 @@ fn decode_encode_integers() {
 #[test]
 fn decode_encode_strings() {
     do_test(
-        vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d],
+        vec![
+            0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b,
+            0x6c, 0x6d,
+        ],
         TemplateData {
             name: "String".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("MandatoryAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("abc".to_string())))),
-                ("OptionalAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("def".to_string())))),
-                ("MandatoryUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("ghi".to_string())))),
-                ("OptionalUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("klm".to_string())))),
+                (
+                    "MandatoryAscii".to_string(),
+                    ValueData::Value(Some(Value::ASCIIString("abc".to_string()))),
+                ),
+                (
+                    "OptionalAscii".to_string(),
+                    ValueData::Value(Some(Value::ASCIIString("def".to_string()))),
+                ),
+                (
+                    "MandatoryUnicode".to_string(),
+                    ValueData::Value(Some(Value::UnicodeString("ghi".to_string()))),
+                ),
+                (
+                    "OptionalUnicode".to_string(),
+                    ValueData::Value(Some(Value::UnicodeString("klm".to_string()))),
+                ),
             ])),
-        });
+        },
+    );
 }
 
 #[test]
@@ -563,8 +605,14 @@ fn decode_encode_bytes() {
         TemplateData {
             name: "ByteVector".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("MandatoryVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![193])))),
-                ("OptionalVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![179])))),
+                (
+                    "MandatoryVector".to_string(),
+                    ValueData::Value(Some(Value::Bytes(vec![193]))),
+                ),
+                (
+                    "OptionalVector".to_string(),
+                    ValueData::Value(Some(Value::Bytes(vec![179]))),
+                ),
             ])),
         },
     );
@@ -573,14 +621,28 @@ fn decode_encode_bytes() {
 #[test]
 fn decode_encode_decimals_1() {
     do_test(
-        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef],
+        vec![
+            0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0xff, 0x0, 0xef,
+        ],
         TemplateData {
             name: "Decimal".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("CopyDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515))))),
-                ("MandatoryDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546))))),
-                ("IndividualDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32))))),
-                ("IndividualDecimalOpt".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 111))))),
+                (
+                    "CopyDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515)))),
+                ),
+                (
+                    "MandatoryDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546)))),
+                ),
+                (
+                    "IndividualDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32)))),
+                ),
+                (
+                    "IndividualDecimalOpt".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 111)))),
+                ),
             ])),
         },
     );
@@ -589,13 +651,24 @@ fn decode_encode_decimals_1() {
 #[test]
 fn decode_encode_decimals_2() {
     do_test(
-        vec![0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80],
+        vec![
+            0xf8, 0x84, 0xfe, 0x4, 0x83, 0xff, 0xc, 0x8a, 0xfc, 0xa0, 0x80,
+        ],
         TemplateData {
             name: "Decimal".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("CopyDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515))))),
-                ("MandatoryDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546))))),
-                ("IndividualDecimal".to_string(), ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32))))),
+                (
+                    "CopyDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515)))),
+                ),
+                (
+                    "MandatoryDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-1, 1546)))),
+                ),
+                (
+                    "IndividualDecimal".to_string(),
+                    ValueData::Value(Some(Value::Decimal(Decimal::new(-4, 32)))),
+                ),
                 ("IndividualDecimalOpt".to_string(), ValueData::Value(None)),
             ])),
         },
@@ -605,29 +678,45 @@ fn decode_encode_decimals_2() {
 #[test]
 fn decode_encode_sequence_1() {
     do_test(
-        vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82],
+        vec![
+            0xc0, 0x85, 0x81, 0x81, 0x82, 0x83, 0x83, 0x84, 0x81, 0xc0, 0x82,
+        ],
         TemplateData {
             name: "Sequence".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
-                ("OuterSequence".to_string(), ValueData::Sequence(vec![
-                    ValueData::Group(HashMap::from([
-                        ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                        ("InnerSequence".to_string(), ValueData::Sequence(vec![
-                            ValueData::Group(HashMap::from([
-                                ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
-                            ])),
-                            ValueData::Group(HashMap::from([
-                                ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(4)))),
-                            ])),
-                        ])),
-                    ])),
-                ])),
-                ("NextOuterSequence".to_string(), ValueData::Sequence(vec![
-                    ValueData::Group(HashMap::from([
-                        ("NextOuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                    ])),
-                ])),
+                (
+                    "TestData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(1))),
+                ),
+                (
+                    "OuterSequence".to_string(),
+                    ValueData::Sequence(vec![ValueData::Group(HashMap::from([
+                        (
+                            "OuterTestData".to_string(),
+                            ValueData::Value(Some(Value::UInt32(2))),
+                        ),
+                        (
+                            "InnerSequence".to_string(),
+                            ValueData::Sequence(vec![
+                                ValueData::Group(HashMap::from([(
+                                    "InnerTestData".to_string(),
+                                    ValueData::Value(Some(Value::UInt32(3))),
+                                )])),
+                                ValueData::Group(HashMap::from([(
+                                    "InnerTestData".to_string(),
+                                    ValueData::Value(Some(Value::UInt32(4))),
+                                )])),
+                            ]),
+                        ),
+                    ]))]),
+                ),
+                (
+                    "NextOuterSequence".to_string(),
+                    ValueData::Sequence(vec![ValueData::Group(HashMap::from([(
+                        "NextOuterTestData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(2))),
+                    )]))]),
+                ),
             ])),
         },
     );
@@ -640,17 +729,24 @@ fn decode_encode_sequence_2() {
         TemplateData {
             name: "Sequence".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
-                ("OuterSequence".to_string(), ValueData::Sequence(vec![
-                    ValueData::Group(HashMap::from([
-                        ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                    ])),
-                ])),
-                ("NextOuterSequence".to_string(), ValueData::Sequence(vec![
-                    ValueData::Group(HashMap::from([
-                        ("NextOuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                    ])),
-                ])),
+                (
+                    "TestData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(1))),
+                ),
+                (
+                    "OuterSequence".to_string(),
+                    ValueData::Sequence(vec![ValueData::Group(HashMap::from([(
+                        "OuterTestData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(2))),
+                    )]))]),
+                ),
+                (
+                    "NextOuterSequence".to_string(),
+                    ValueData::Sequence(vec![ValueData::Group(HashMap::from([(
+                        "NextOuterTestData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(2))),
+                    )]))]),
+                ),
             ])),
         },
     );
@@ -663,13 +759,26 @@ fn decode_encode_group_1() {
         TemplateData {
             name: "Group".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
-                ("OuterGroup".to_string(), ValueData::Group(HashMap::from([
-                    ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                    ("InnerGroup".to_string(), ValueData::Group(HashMap::from([
-                        ("InnerTestData".to_string(), ValueData::Value(Some(Value::UInt32(3)))),
-                    ]))),
-                ]))),
+                (
+                    "TestData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(1))),
+                ),
+                (
+                    "OuterGroup".to_string(),
+                    ValueData::Group(HashMap::from([
+                        (
+                            "OuterTestData".to_string(),
+                            ValueData::Value(Some(Value::UInt32(2))),
+                        ),
+                        (
+                            "InnerGroup".to_string(),
+                            ValueData::Group(HashMap::from([(
+                                "InnerTestData".to_string(),
+                                ValueData::Value(Some(Value::UInt32(3))),
+                            )])),
+                        ),
+                    ])),
+                ),
             ])),
         },
     );
@@ -682,10 +791,17 @@ fn decode_encode_group_2() {
         TemplateData {
             name: "Group".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(1)))),
-                ("OuterGroup".to_string(), ValueData::Group(HashMap::from([
-                    ("OuterTestData".to_string(), ValueData::Value(Some(Value::UInt32(2)))),
-                ]))),
+                (
+                    "TestData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(1))),
+                ),
+                (
+                    "OuterGroup".to_string(),
+                    ValueData::Group(HashMap::from([(
+                        "OuterTestData".to_string(),
+                        ValueData::Value(Some(Value::UInt32(2))),
+                    )])),
+                ),
             ])),
         },
     );
@@ -698,8 +814,14 @@ fn decode_static_reference() {
         TemplateData {
             name: "StaticReference".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("PreRefData".to_string(), ValueData::Value(Some(Value::UInt32(6)))),
-                ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(7))))
+                (
+                    "PreRefData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(6))),
+                ),
+                (
+                    "TestData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(7))),
+                ),
             ])),
         },
     );
@@ -712,15 +834,20 @@ fn decode_dynamic_reference() {
         TemplateData {
             name: "DynamicReference".to_string(),
             value: ValueData::Group(HashMap::from([
-                ("PreRefData".to_string(), ValueData::Value(Some(Value::UInt32(6)))),
-                ("templateRef:0".to_string(), ValueData::DynamicTemplateRef(
-                    Box::new(TemplateData {
+                (
+                    "PreRefData".to_string(),
+                    ValueData::Value(Some(Value::UInt32(6))),
+                ),
+                (
+                    "templateRef:0".to_string(),
+                    ValueData::DynamicTemplateRef(Box::new(TemplateData {
                         name: "RefData".to_string(),
-                        value: ValueData::Group(HashMap::from([
-                            ("TestData".to_string(), ValueData::Value(Some(Value::UInt32(5))))
-                        ])),
-                    })
-                ))
+                        value: ValueData::Group(HashMap::from([(
+                            "TestData".to_string(),
+                            ValueData::Value(Some(Value::UInt32(5))),
+                        )])),
+                    })),
+                ),
             ])),
         },
     );
@@ -757,10 +884,22 @@ fn encode_to_buffer() {
     let data = TemplateData {
         name: "String".to_string(),
         value: ValueData::Group(HashMap::from([
-            ("MandatoryAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("abc".to_string())))),
-            ("OptionalAscii".to_string(), ValueData::Value(Some(Value::ASCIIString("def".to_string())))),
-            ("MandatoryUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("ghi".to_string())))),
-            ("OptionalUnicode".to_string(), ValueData::Value(Some(Value::UnicodeString("klm".to_string())))),
+            (
+                "MandatoryAscii".to_string(),
+                ValueData::Value(Some(Value::ASCIIString("abc".to_string()))),
+            ),
+            (
+                "OptionalAscii".to_string(),
+                ValueData::Value(Some(Value::ASCIIString("def".to_string()))),
+            ),
+            (
+                "MandatoryUnicode".to_string(),
+                ValueData::Value(Some(Value::UnicodeString("ghi".to_string()))),
+            ),
+            (
+                "OptionalUnicode".to_string(),
+                ValueData::Value(Some(Value::UnicodeString("klm".to_string()))),
+            ),
         ])),
     };
     let mut msg = ModelVisitor::new(data);
@@ -771,7 +910,10 @@ fn encode_to_buffer() {
     let n = e.encode_buffer(&mut buffer, &mut msg).unwrap();
 
     // check encoded data
-    let encoded: Vec<u8> = vec![0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c, 0x6d];
+    let encoded: Vec<u8> = vec![
+        0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b, 0x6c,
+        0x6d,
+    ];
     assert_eq!(&buffer[0..n], encoded);
 }
 
@@ -781,8 +923,14 @@ fn encode_to_buffer_eof() {
     let data = TemplateData {
         name: "ByteVector".to_string(),
         value: ValueData::Group(HashMap::from([
-            ("MandatoryVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![193])))),
-            ("OptionalVector".to_string(), ValueData::Value(Some(Value::Bytes(vec![179])))),
+            (
+                "MandatoryVector".to_string(),
+                ValueData::Value(Some(Value::Bytes(vec![193]))),
+            ),
+            (
+                "OptionalVector".to_string(),
+                ValueData::Value(Some(Value::Bytes(vec![179]))),
+            ),
         ])),
     };
     let mut msg = ModelVisitor::new(data);

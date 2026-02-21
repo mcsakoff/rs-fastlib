@@ -2,9 +2,9 @@ use std::io::Write;
 
 use serde::ser::Serialize;
 
-use crate::{Encoder, Error, Result, Writer};
 use crate::model::ModelVisitor;
 use crate::model::template::TemplateData;
+use crate::{Encoder, Error, Result, Writer};
 
 /// Encode single message into `Vec<u8>`.
 #[allow(unused)]
@@ -85,7 +85,7 @@ where
 impl serde::ser::Error for Error {
     fn custom<T>(msg: T) -> Self
     where
-        T: std::fmt::Display
+        T: std::fmt::Display,
     {
         Error::Runtime(msg.to_string())
     }
