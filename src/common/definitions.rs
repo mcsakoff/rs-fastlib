@@ -2,10 +2,10 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::{Error, Result};
 use crate::base::instruction::Instruction;
 use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
 use crate::base::value::ValueType;
+use crate::{Error, Result};
 
 /// Stores template definitions and global processing context.
 pub struct Definitions {
@@ -101,9 +101,7 @@ impl Definitions {
             ValueType::Group | ValueType::TemplateReference | ValueType::Decimal => {
                 &instr.instructions
             }
-            ValueType::Sequence => {
-                &instr.instructions[1..]
-            }
+            ValueType::Sequence => &instr.instructions[1..],
             _ => {
                 return Ok(());
             }
@@ -121,29 +119,33 @@ impl Definitions {
         match instr.value_type {
             ValueType::Group => {
                 // If a ::Group field is optional, it will occupy a single bit in the presence map.
-                return Ok(instr.is_optional())
+                return Ok(instr.is_optional());
             }
             ValueType::Sequence => {
                 // For ::Sequence its length field show if the sequence has a bit in the presence map.
-                return self.has_presence_map_bit(
-                    instr.instructions
-                        .first()
-                        .ok_or_else(|| Error::Static(format!("sequence '{}' has no length field", instr.name)))?
-                );
+                return self.has_presence_map_bit(instr.instructions.first().ok_or_else(|| {
+                    Error::Static(format!("sequence '{}' has no length field", instr.name))
+                })?);
             }
             ValueType::TemplateReference => {
                 if !instr.name.is_empty() {
                     // Static template ref checks corresponding template it is needs any presence bit.
                     let template = match self.templates_by_name.get(&instr.name) {
-                        None => return Err(Error::Static(format!("template '{}' not found", instr.name))),
+                        None => {
+                            return Err(Error::Static(format!(
+                                "template '{}' not found",
+                                instr.name
+                            )));
+                        }
                         Some(t) => t,
                     };
                     return match template.require_pmap.get() {
-                        None => Err(Error::Static(
-                            format!("template '{}' not initialized yet; consider reordering templates", instr.name)
-                        )),
+                        None => Err(Error::Static(format!(
+                            "template '{}' not initialized yet; consider reordering templates",
+                            instr.name
+                        ))),
                         Some(b) => Ok(b),
-                    }
+                    };
                 } else {
                     // Dynamic template ref doesn't need a presence map bit.
                     return Ok(false);

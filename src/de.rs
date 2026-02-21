@@ -2,8 +2,8 @@ use std::io::Read;
 
 use serde::de::Deserialize;
 
-use crate::{Decoder, Error, Reader, Result};
 use crate::model::ModelFactory;
+use crate::{Decoder, Error, Reader, Result};
 
 /// Decode single message from `Vec<u8>`.
 pub fn from_vec<'de, T>(decoder: &mut Decoder, bytes: Vec<u8>) -> Result<T>
@@ -94,7 +94,6 @@ where
     let data = msg.data.unwrap();
     T::deserialize(data)
 }
-
 
 impl serde::de::Error for Error {
     fn custom<T: std::fmt::Display>(msg: T) -> Self {

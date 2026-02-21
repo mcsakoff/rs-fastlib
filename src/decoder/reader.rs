@@ -12,7 +12,6 @@ use crate::{Error, Result};
 
 /// A trait that provides methods for reading basic primitive types.
 pub trait Reader {
-
     /// Do not return [`Error::Eof`][crate::Error::Eof] from this method.
     /// Return [`Error::UnexpectedEof`][crate::Error::UnexpectedEof] instead.
     fn read_u8(&mut self) -> Result<u8>;
@@ -35,7 +34,7 @@ pub trait Reader {
             size += 7;
 
             if byte & 0x80 == 0x80 {
-                return Ok((bitmap, size))
+                return Ok((bitmap, size));
             }
             byte = self.read_u8()?
         }
@@ -48,7 +47,7 @@ pub trait Reader {
             value <<= 7;
             value |= (byte & 0x7f) as u64;
             if byte & 0x80 == 0x80 {
-                return Ok(value)
+                return Ok(value);
             }
         }
     }
@@ -66,7 +65,8 @@ pub trait Reader {
         let mut value: i64 = 0;
 
         let mut byte = self.read_u8()?;
-        if byte & 0x40 != 0 { // Negative Integer
+        if byte & 0x40 != 0 {
+            // Negative Integer
             value = -1;
         }
         loop {
@@ -74,7 +74,7 @@ pub trait Reader {
             value |= (byte & 0x7f) as i64;
 
             if byte & 0x80 == 0x80 {
-                return Ok(value)
+                return Ok(value);
             }
             byte = self.read_u8()?;
         }
@@ -86,7 +86,7 @@ pub trait Reader {
             Ok(Some(value - 1))
         } else if value < 0 {
             Ok(Some(value))
-        } else  {
+        } else {
             Ok(None)
         }
     }
@@ -101,7 +101,7 @@ pub trait Reader {
         loop {
             buf.push(byte & 0x7f);
             if byte & 0x80 == 0x80 {
-                break
+                break;
             }
             byte = self.read_u8()?;
         }
@@ -125,7 +125,7 @@ pub trait Reader {
         loop {
             buf.push(byte & 0x7f);
             if byte & 0x80 == 0x80 {
-                break
+                break;
             }
             byte = self.read_u8()?;
         }
@@ -140,9 +140,7 @@ pub trait Reader {
     fn read_unicode_string_nullable(&mut self) -> Result<Option<String>> {
         match self.read_bytes_nullable()? {
             None => Ok(None),
-            Some(bytes) => {
-                Ok(Some(String::from_utf8(bytes)?))
-            }
+            Some(bytes) => Ok(Some(String::from_utf8(bytes)?)),
         }
     }
 
@@ -169,7 +167,6 @@ pub trait Reader {
     }
 }
 
-
 impl Reader for bytes::Bytes {
     fn read_u8(&mut self) -> Result<u8> {
         if self.is_empty() {
@@ -179,7 +176,6 @@ impl Reader for bytes::Bytes {
         Ok(b)
     }
 }
-
 
 /// Wrapper around `std::io::Read` that implements [`fastlib::Reader`][crate::decoder::reader::Reader].
 pub(crate) struct StreamReader<'a> {
@@ -365,14 +361,14 @@ mod tests {
             value: String,
         }
         let test_cases: Vec<TestCase> = vec![
-           TestCase {
+            TestCase {
                 input: vec![0x80],
                 value: "".to_string(),
             },
-           TestCase {
-               input: vec![0x41, 0x42, 0xc3],
-               value: "ABC".to_string(),
-           },
+            TestCase {
+                input: vec![0x41, 0x42, 0xc3],
+                value: "ABC".to_string(),
+            },
         ];
         for tc in test_cases {
             let mut buf = bytes::Bytes::from(tc.input);

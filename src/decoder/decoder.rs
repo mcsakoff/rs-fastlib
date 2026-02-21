@@ -53,7 +53,10 @@ impl Decoder {
         let mut cursor = std::io::Cursor::new(bytes);
         self.decode_stream(&mut cursor, msg)?;
         if cursor.has_remaining() {
-            return Err(Error::Runtime(format!("Bytes left in the buffer after decoding: {}", cursor.remaining())));
+            return Err(Error::Runtime(format!(
+                "Bytes left in the buffer after decoding: {}",
+                cursor.remaining()
+            )));
         }
         Ok(())
     }
@@ -64,24 +67,39 @@ impl Decoder {
         let mut raw = bytes::Bytes::from(bytes);
         self.decode_reader(&mut raw, msg)?;
         if !raw.is_empty() {
-            return Err(Error::Runtime(format!("Bytes left in the buffer after decoding: {}", raw.len())));
+            return Err(Error::Runtime(format!(
+                "Bytes left in the buffer after decoding: {}",
+                raw.len()
+            )));
         }
         Ok(())
     }
 
     /// Decode single message from `bytes::Bytes`.
-    pub fn decode_bytes(&mut self, bytes: &mut bytes::Bytes, msg: &mut impl MessageFactory) -> Result<()> {
+    pub fn decode_bytes(
+        &mut self,
+        bytes: &mut bytes::Bytes,
+        msg: &mut impl MessageFactory,
+    ) -> Result<()> {
         self.decode_reader(bytes, msg)
     }
 
     /// Decode single message from object that implements [`std::io::Read`][std::io::Read] trait.
-    pub fn decode_stream(&mut self, rdr: &mut dyn Read, msg: &mut impl MessageFactory) -> Result<()> {
+    pub fn decode_stream(
+        &mut self,
+        rdr: &mut dyn Read,
+        msg: &mut impl MessageFactory,
+    ) -> Result<()> {
         let mut rdr = StreamReader::new(rdr);
         self.decode_reader(&mut rdr, msg)
     }
 
     /// Decode single message from object that implements [`fastlib::Reader`][crate::decoder::reader::Reader] trait.
-    pub fn decode_reader(&mut self, rdr: &mut impl Reader, msg: &mut impl MessageFactory) -> Result<()> {
+    pub fn decode_reader(
+        &mut self,
+        rdr: &mut impl Reader,
+        msg: &mut impl MessageFactory,
+    ) -> Result<()> {
         DecoderContext::new(self, rdr, msg).decode_template()
     }
 }
@@ -112,9 +130,10 @@ pub(crate) struct DecoderContext<'a> {
 }
 
 impl<'a> DecoderContext<'a> {
-    pub(crate) fn new(d: &'a mut Decoder,
-                      r: &'a mut impl Reader,
-                      m: &'a mut impl MessageFactory,
+    pub(crate) fn new(
+        d: &'a mut Decoder,
+        r: &'a mut impl Reader,
+        m: &'a mut impl MessageFactory,
     ) -> Self {
         Self {
             definitions: &mut d.definitions,
@@ -133,8 +152,12 @@ impl<'a> DecoderContext<'a> {
         let instruction = self.definitions.template_id_instruction.clone();
         match instruction.extract(self)? {
             Some(Value::UInt32(id)) => Ok(id),
-            Some(_) => Err(Error::Runtime("Wrong template id type in context storage".to_string())),
-            None => Err(Error::Runtime("No template id in context storage".to_string())),
+            Some(_) => Err(Error::Runtime(
+                "Wrong template id type in context storage".to_string(),
+            )),
+            None => Err(Error::Runtime(
+                "No template id in context storage".to_string(),
+            )),
         }
     }
 
@@ -167,9 +190,16 @@ impl<'a> DecoderContext<'a> {
     pub(crate) fn decode_template(&mut self) -> Result<()> {
         self.decode_presence_map()?;
         self.decode_template_id()?;
-        let template = self.definitions.templates_by_id
+        let template = self
+            .definitions
+            .templates_by_id
             .get(self.template_id.peek().unwrap())
-            .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
+            .ok_or_else(|| {
+                Error::Dynamic(format!(
+                    "Unknown template id: {}",
+                    self.template_id.peek().unwrap()
+                ))
+            })? // [ErrD09]
             .clone(); //
         self.msg.start_template(template.id, &template.name);
 
@@ -179,8 +209,12 @@ impl<'a> DecoderContext<'a> {
 
         self.decode_instructions(&template.instructions)?;
 
-        if has_dictionary { self.restore_dictionary() }
-        if has_type_ref { self.restore_type_ref() }
+        if has_dictionary {
+            self.restore_dictionary()
+        }
+        if has_type_ref {
+            self.restore_type_ref()
+        }
 
         self.msg.stop_template();
         self.drop_template_id();
@@ -234,7 +268,8 @@ impl<'a> DecoderContext<'a> {
         match self.extract_field(length_instruction)? {
             None => {}
             Some(Value::UInt32(length)) => {
-                self.msg.start_sequence(instruction.id, &instruction.name, length);
+                self.msg
+                    .start_sequence(instruction.id, &instruction.name, length);
                 for idx in 0..length {
                     self.msg.start_sequence_item(idx);
                     // If any instruction of the sequence needs to allocate a bit in a presence map, each element is represented
@@ -251,8 +286,12 @@ impl<'a> DecoderContext<'a> {
             _ => return Err(Error::Dynamic("Length field must be UInt32".to_string())), // [ErrD10]
         }
 
-        if has_dictionary { self.restore_dictionary() }
-        if has_type_ref { self.restore_type_ref() }
+        if has_dictionary {
+            self.restore_dictionary()
+        }
+        if has_type_ref {
+            self.restore_type_ref()
+        }
         Ok(())
     }
 
@@ -277,8 +316,12 @@ impl<'a> DecoderContext<'a> {
         }
         self.msg.stop_group();
 
-        if has_dictionary { self.restore_dictionary() }
-        if has_type_ref { self.restore_type_ref() }
+        if has_dictionary {
+            self.restore_dictionary()
+        }
+        if has_type_ref {
+            self.restore_type_ref()
+        }
         Ok(())
     }
 
@@ -291,12 +334,19 @@ impl<'a> DecoderContext<'a> {
         let template: Rc<Template> = if is_dynamic {
             self.decode_presence_map()?;
             self.decode_template_id()?;
-            self.definitions.templates_by_id
+            self.definitions
+                .templates_by_id
                 .get(self.template_id.peek().unwrap())
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template id: {}", self.template_id.peek().unwrap())))? // [ErrD09]
+                .ok_or_else(|| {
+                    Error::Dynamic(format!(
+                        "Unknown template id: {}",
+                        self.template_id.peek().unwrap()
+                    ))
+                })? // [ErrD09]
                 .clone()
         } else {
-            self.definitions.templates_by_name
+            self.definitions
+                .templates_by_name
                 .get(&instruction.name)
                 .ok_or_else(|| Error::Dynamic(format!("Unknown template: {}", instruction.name)))? // [ErrD09]
                 .clone()
@@ -309,8 +359,12 @@ impl<'a> DecoderContext<'a> {
 
         self.decode_instructions(&template.instructions)?;
 
-        if has_dictionary { self.restore_dictionary() }
-        if has_type_ref { self.restore_type_ref() }
+        if has_dictionary {
+            self.restore_dictionary()
+        }
+        if has_type_ref {
+            self.restore_type_ref()
+        }
 
         self.msg.stop_template_ref();
         if is_dynamic {
@@ -366,16 +420,22 @@ impl<'a> DecoderContext<'a> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: &Option<Value>) {
-        self.context.set(self.make_dict_type(), i.key.clone(), v.clone());
+        self.context
+            .set(self.make_dict_type(), i.key.clone(), v.clone());
     }
 
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
         let v = self.context.get(self.make_dict_type(), &i.key);
-        if let Some(Some(ref v)) = v && !i.value_type.matches_type(v) {
+        if let Some(Some(ref v)) = v
+            && !i.value_type.matches_type(v)
+        {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
             // the same type as the value of the entry.
-            return Err(Error::Runtime(format!("field {} has wrong value type in context", i.name)));  // [ERR D4]
+            return Err(Error::Runtime(format!(
+                "field {} has wrong value type in context",
+                i.name
+            ))); // [ERR D4]
         }
         Ok(v)
     }
@@ -384,12 +444,8 @@ impl<'a> DecoderContext<'a> {
         let dictionary = self.dictionary.must_peek();
         match dictionary {
             Dictionary::Inherit => unreachable!(),
-            Dictionary::Global => {
-                DictionaryType::Global
-            }
-            Dictionary::Template => {
-                DictionaryType::Template(*self.template_id.must_peek())
-            }
+            Dictionary::Global => DictionaryType::Global,
+            Dictionary::Template => DictionaryType::Template(*self.template_id.must_peek()),
             Dictionary::Type => {
                 let name = match self.type_ref.must_peek() {
                     TypeRef::Any => Rc::from("__any__"),
@@ -397,9 +453,7 @@ impl<'a> DecoderContext<'a> {
                 };
                 DictionaryType::Type(name)
             }
-            Dictionary::UserDefined(name) => {
-                DictionaryType::UserDefined(name.clone())
-            }
+            Dictionary::UserDefined(name) => DictionaryType::UserDefined(name.clone()),
         }
     }
 }

@@ -41,18 +41,17 @@ impl Decimal {
         }
         let integer = part1.unwrap();
 
-        let (exponent, mantissa) =
-            if let Some(fractional) = part2 {
-                let mantissa = format!("{}{}", integer, fractional).parse::<i64>()?;
-                if mantissa == 0 {
-                    return Ok(Decimal::new(0, 0));
-                }
-                let (exponent_fix, mantissa) = scale_down(mantissa);
-                let exponent = -(fractional.len() as i32) + exponent_fix;
-                (exponent, mantissa)
-            } else {
-                scale_down(integer.parse::<i64>()?)
-            };
+        let (exponent, mantissa) = if let Some(fractional) = part2 {
+            let mantissa = format!("{}{}", integer, fractional).parse::<i64>()?;
+            if mantissa == 0 {
+                return Ok(Decimal::new(0, 0));
+            }
+            let (exponent_fix, mantissa) = scale_down(mantissa);
+            let exponent = -(fractional.len() as i32) + exponent_fix;
+            (exponent, mantissa)
+        } else {
+            scale_down(integer.parse::<i64>()?)
+        };
         Ok(Decimal::new(exponent, mantissa))
     }
 
@@ -125,7 +124,7 @@ impl From<Decimal> for f64 {
 impl TryFrom<f64> for Decimal {
     type Error = Error;
 
-    fn try_from(value: f64) ->Result<Self> {
+    fn try_from(value: f64) -> Result<Self> {
         Self::from_float(value)
     }
 }
@@ -176,7 +175,6 @@ impl TryFrom<rust_decimal::Decimal> for Decimal {
         Ok(Self::new(exponent, mantissa))
     }
 }
-
 
 #[cfg(test)]
 mod test {

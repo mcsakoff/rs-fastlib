@@ -11,9 +11,13 @@ pub(crate) fn bytes_to_string(bytes: &[u8]) -> String {
 pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
     let s = s.trim().replace(" ", "");
     if !s.len().is_multiple_of(2) {
-        return Err(Error::Runtime(format!("Invalid hex string (length): '{}'", s)));
+        return Err(Error::Runtime(format!(
+            "Invalid hex string (length): '{}'",
+            s
+        )));
     }
-    let v = s.chars()
+    let v = s
+        .chars()
         .collect::<Vec<_>>()
         .chunks(2)
         .map(|ch| {
@@ -39,7 +43,12 @@ fn hexchar2byte(c: char) -> Result<u8> {
 
 pub fn string_delta<'a>(a: &'a str, b: &'a str) -> Result<(&'a str, i32)> {
     let common_front = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-    let common_back = a.bytes().rev().zip(b.bytes().rev()).take_while(|(x, y)| x == y).count();
+    let common_back = a
+        .bytes()
+        .rev()
+        .zip(b.bytes().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
     if common_back == 0 && common_front == 0 {
         Ok((b, a.len() as i32))
     } else if common_back > common_front {
@@ -56,7 +65,12 @@ pub fn string_delta<'a>(a: &'a str, b: &'a str) -> Result<(&'a str, i32)> {
 
 pub fn bytes_delta<'a>(a: &'a [u8], b: &'a [u8]) -> Result<(&'a [u8], i32)> {
     let common_front = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
-    let common_back = a.iter().rev().zip(b.iter().rev()).take_while(|(x, y)| x == y).count();
+    let common_back = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
     if common_back == 0 && common_front == 0 {
         Ok((b, a.len() as i32))
     } else if common_front >= common_back {
@@ -78,7 +92,9 @@ pub fn string_tail<'a>(a: &'a str, b: &'a str) -> Result<&'a str> {
     } else if b.len() > a.len() {
         Ok(b)
     } else {
-        Err(Error::Dynamic("tail: next value length is less than the previous one".to_string()))
+        Err(Error::Dynamic(
+            "tail: next value length is less than the previous one".to_string(),
+        ))
     }
 }
 
@@ -89,10 +105,11 @@ pub fn bytes_tail<'a>(a: &'a [u8], b: &'a [u8]) -> Result<&'a [u8]> {
     } else if b.len() > a.len() {
         Ok(b)
     } else {
-        Err(Error::Dynamic("tail: next value length is less than the previous one".to_string()))
+        Err(Error::Dynamic(
+            "tail: next value length is less than the previous one".to_string(),
+        ))
     }
 }
-
 
 #[cfg(test)]
 mod test {
@@ -116,7 +133,7 @@ mod test {
     fn test_string_delta() {
         assert_eq!(string_delta("", "GEH6").unwrap(), ("GEH6", 0));
         assert_eq!(string_delta("GEH6", "GEM6").unwrap(), ("M6", 2));
-        assert_eq!(string_delta("GEM6", "ESM6").unwrap(), ("ES", -3));   // -2 - 1
+        assert_eq!(string_delta("GEM6", "ESM6").unwrap(), ("ES", -3)); // -2 - 1
         assert_eq!(string_delta("ESM6", "RSESM6").unwrap(), ("RS", -1)); // -0 - 1
         assert_eq!(string_delta("GEH6", "GE").unwrap(), ("", 2));
         assert_eq!(string_delta("GEH6", "H6").unwrap(), ("", -3));

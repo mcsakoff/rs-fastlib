@@ -1,9 +1,9 @@
 use std::cmp::min;
 use std::fmt::{Display, Formatter};
 
-use crate::{Error, Result};
 use crate::base::decimal::Decimal;
 use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
+use crate::{Error, Result};
 
 /// Represents type of field instruction.
 ///
@@ -84,7 +84,10 @@ impl ValueType {
             ValueType::ASCIIString => Ok(Value::ASCIIString(String::new())),
             ValueType::UnicodeString => Ok(Value::UnicodeString(String::new())),
             ValueType::Bytes => Ok(Value::Bytes(Vec::new())),
-            _ => Err(Error::Runtime(format!("{} cannot be converted to value", self.type_str()))),
+            _ => Err(Error::Runtime(format!(
+                "{} cannot be converted to value",
+                self.type_str()
+            ))),
         }
     }
 
@@ -101,7 +104,12 @@ impl ValueType {
             ValueType::ASCIIString => Value::ASCIIString(String::new()),
             ValueType::UnicodeString => Value::UnicodeString(String::new()),
             ValueType::Bytes => Value::Bytes(Vec::new()),
-            _ => return Err(Error::Runtime(format!("{} cannot be converted to value", self.type_str()))),
+            _ => {
+                return Err(Error::Runtime(format!(
+                    "{} cannot be converted to value",
+                    self.type_str()
+                )));
+            }
         };
         value.set_from_string(s)?;
         Ok(value)
@@ -121,11 +129,10 @@ impl ValueType {
             (ValueType::ASCIIString, Value::ASCIIString(_)) => true,
             (ValueType::UnicodeString, Value::UnicodeString(_)) => true,
             (ValueType::Bytes, Value::Bytes(_)) => true,
-            _ => false
+            _ => false,
         }
     }
 }
-
 
 /// Represents current value of a field.
 #[derive(Debug, PartialEq, Clone)]
@@ -189,7 +196,9 @@ impl Value {
                 i = sub as usize;
             }
             if i > len {
-                return Err(Error::Dynamic(format!("subtraction length ({i}) is larger than string length ('{len}')")));  // [ERR D7]
+                return Err(Error::Dynamic(format!(
+                    "subtraction length ({i}) is larger than string length ('{len}')"
+                ))); // [ERR D7]
             }
             if !front {
                 i = len - i;
@@ -218,9 +227,7 @@ impl Value {
                     Ok(Value::UInt32(*v + *d as u32))
                 }
             }
-            (Value::Int32(v), Value::Int64(d)) => {
-                Ok(Value::Int32(*v + *d as i32))
-            }
+            (Value::Int32(v), Value::Int64(d)) => Ok(Value::Int32(*v + *d as i32)),
             (Value::UInt64(v), Value::Int64(d)) => {
                 if *d < 0 {
                     Ok(Value::UInt64(*v - (-*d) as u64))
@@ -228,75 +235,62 @@ impl Value {
                     Ok(Value::UInt64(*v + *d as u64))
                 }
             }
-            (Value::Int64(v), Value::Int64(d)) => {
-                Ok(Value::Int64(*v + *d))
-            }
+            (Value::Int64(v), Value::Int64(d)) => Ok(Value::Int64(*v + *d)),
             (Value::ASCIIString(v), Value::ASCIIString(d)) => {
                 let (front, i) = sub2index(sub, v.len())?;
-                let s= if front {
+                let s = if front {
                     format!("{}{}", d, &v[i..])
                 } else {
                     format!("{}{}", &v[..i], d)
                 };
                 Ok(Value::ASCIIString(s))
             }
-            (Value::Bytes(v), Value::Bytes(d)) => {
-                Ok(Value::Bytes(bytes_delta(v, d, sub)?))
-            }
+            (Value::Bytes(v), Value::Bytes(d)) => Ok(Value::Bytes(bytes_delta(v, d, sub)?)),
             (Value::UnicodeString(v), Value::Bytes(d)) => {
                 let b = bytes_delta(v.as_bytes(), d, sub)?;
                 let s = String::from_utf8(b)?; // [ERR R2]
                 Ok(Value::UnicodeString(s))
             }
-            _ => Err(Error::Runtime(format!("Cannot apply delta {:?} to {:?}", delta, self))),
+            _ => Err(Error::Runtime(format!(
+                "Cannot apply delta {:?} to {:?}",
+                delta, self
+            ))),
         }
     }
 
     pub fn apply_tail(&self, tail: Value) -> Result<Value> {
         let len: usize = match (self, &tail) {
-            (Value::ASCIIString(v), Value::ASCIIString(t)) => {
-                min(t.len(), v.len())
+            (Value::ASCIIString(v), Value::ASCIIString(t)) => min(t.len(), v.len()),
+            (Value::UnicodeString(v), Value::Bytes(t)) => min(t.len(), v.len()),
+            (Value::Bytes(v), Value::Bytes(t)) => min(t.len(), v.len()),
+            _ => {
+                return Err(Error::Runtime(format!(
+                    "Cannot apply tail {:?} to {:?}",
+                    tail, self
+                )));
             }
-            (Value::UnicodeString(v), Value::Bytes(t)) => {
-                min(t.len(), v.len())
-            }
-            (Value::Bytes(v), Value::Bytes(t)) => {
-                min(t.len(), v.len())
-            }
-            _ => return Err(Error::Runtime(format!("Cannot apply tail {:?} to {:?}", tail, self))),
         };
         self.apply_delta(tail, len as i32)
     }
 
     pub fn apply_increment(&self) -> Result<Value> {
         match self {
-            Value::UInt32(v) => {
-                Ok(Value::UInt32(v + 1))
-            }
-            Value::Int32(v) => {
-                Ok(Value::Int32(v + 1))
-            }
-            Value::UInt64(v) => {
-                Ok(Value::UInt64(v + 1))
-            }
-            Value::Int64(v) => {
-                Ok(Value::Int64(v + 1))
-            }
-            _ => Err(Error::Runtime(format!("Cannot apply increment to {:?}", self)))
+            Value::UInt32(v) => Ok(Value::UInt32(v + 1)),
+            Value::Int32(v) => Ok(Value::Int32(v + 1)),
+            Value::UInt64(v) => Ok(Value::UInt64(v + 1)),
+            Value::Int64(v) => Ok(Value::Int64(v + 1)),
+            _ => Err(Error::Runtime(format!(
+                "Cannot apply increment to {:?}",
+                self
+            ))),
         }
     }
 
     pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
         match (self, prev) {
-            (Value::Int32(v), Value::Int32(p)) => {
-                Ok((Value::Int64((v - p) as i64), 0))
-            }
-            (Value::Int64(v), Value::Int64(p)) => {
-                Ok((Value::Int64(v - p), 0))
-            }
-            (Value::UInt32(v), Value::UInt32(p)) => {
-                Ok((Value::Int64(*v as i64 - *p as i64), 0))
-            }
+            (Value::Int32(v), Value::Int32(p)) => Ok((Value::Int64((v - p) as i64), 0)),
+            (Value::Int64(v), Value::Int64(p)) => Ok((Value::Int64(v - p), 0)),
+            (Value::UInt32(v), Value::UInt32(p)) => Ok((Value::Int64(*v as i64 - *p as i64), 0)),
             (Value::UInt64(v), Value::UInt64(p)) => {
                 if *v < *p {
                     Ok((Value::Int64(-((*p - *v) as i64)), 0))
@@ -316,7 +310,7 @@ impl Value {
                 let (delta, sub) = bytes_delta(p, v)?;
                 Ok((Value::Bytes(delta.to_vec()), sub))
             }
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
@@ -334,7 +328,7 @@ impl Value {
                 let tail = bytes_tail(p, v)?;
                 Ok(Value::Bytes(tail.to_vec()))
             }
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 }

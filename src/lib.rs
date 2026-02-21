@@ -193,8 +193,8 @@
 //!
 //! [`rust_decimal`]: https://docs.rs/rust_decimal/latest/rust_decimal/
 
-pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use base::message::{MessageFactory, MessageVisitor};
+pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use decoder::{decoder::Decoder, reader::Reader};
 pub use encoder::{encoder::Encoder, writer::Writer};
 pub use text::{JsonMessageFactory, TextMessageFactory, TextMessageVisitor};
@@ -208,8 +208,8 @@ mod base;
 mod common;
 mod decoder;
 mod encoder;
-mod utils;
 mod text;
+mod utils;
 
 #[cfg(feature = "serde")]
 mod de;
@@ -220,7 +220,6 @@ mod ser;
 
 #[cfg(test)]
 mod tests;
-
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 

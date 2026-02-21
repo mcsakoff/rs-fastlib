@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use roxmltree::Node;
 
-use crate::{Error, Result};
 use crate::base::instruction::Instruction;
+use crate::{Error, Result};
 
 /// A template contains a sequence of instructions. The order of the instructions is significant and corresponds
 /// to the order of the data in the stream.
@@ -23,12 +23,12 @@ pub(crate) struct Template {
 impl Template {
     pub(crate) fn from_node(node: Node) -> Result<Self> {
         if node.tag_name().name() != "template" {
-            return Err(Error::Static(format!("expected <template/> node, got <{}/>", node.tag_name().name())));
+            return Err(Error::Static(format!(
+                "expected <template/> node, got <{}/>",
+                node.tag_name().name()
+            )));
         }
-        let id = node
-            .attribute("id")
-            .unwrap_or("0")
-            .parse::<u32>()?;
+        let id = node.attribute("id").unwrap_or("0").parse::<u32>()?;
         let name = node
             .attribute("name")
             .ok_or_else(|| Error::Static("template name not found".to_string()))?
@@ -58,7 +58,6 @@ impl Template {
     }
 }
 
-
 /// Field operators specify ways to optimize the encoding of a field.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum Operator {
@@ -85,7 +84,6 @@ impl Operator {
     }
 }
 
-
 /// The optional presence attribute indicates whether the field is mandatory or optional.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Presence {
@@ -102,7 +100,6 @@ impl Presence {
         }
     }
 }
-
 
 /// The dictionary name is specified by the dictionary attribute on the field operator element.
 /// There are three predefined dictionaries: "global", "template" and "type".
@@ -126,7 +123,6 @@ impl Dictionary {
         }
     }
 }
-
 
 /// The current application type initially the special type any.
 /// The current application type changes when the processor encounters an element containing a "typeRef" element.
