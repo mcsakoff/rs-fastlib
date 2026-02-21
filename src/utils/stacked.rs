@@ -25,7 +25,7 @@ impl<T> Stacked<T> {
             Some(old) => {
                 self.stack.push(old);
             }
-        };
+        }
     }
 
     pub fn pop(&mut self) -> Option<T> {

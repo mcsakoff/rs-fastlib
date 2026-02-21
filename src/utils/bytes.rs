@@ -1,19 +1,20 @@
+use std::{cmp::Ordering, fmt::Write};
+
 use crate::{Error, Result};
 
 pub(crate) fn bytes_to_string(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        s.push_str(&format!("{b:02x}"));
+        let _ = write!(&mut s, "{b:02x}");
     }
     s
 }
 
 pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
-    let s = s.trim().replace(" ", "");
+    let s = s.trim().replace(' ', "");
     if !s.len().is_multiple_of(2) {
         return Err(Error::Runtime(format!(
-            "Invalid hex string (length): '{}'",
-            s
+            "Invalid hex string (length): '{s}'"
         )));
     }
     let v = s
@@ -41,7 +42,7 @@ fn hexchar2byte(c: char) -> Result<u8> {
     }
 }
 
-pub fn string_delta<'a>(a: &'a str, b: &'a str) -> Result<(&'a str, i32)> {
+pub fn string_delta<'a>(a: &'a str, b: &'a str) -> (&'a str, i32) {
     let common_front = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
     let common_back = a
         .bytes()
@@ -49,21 +50,22 @@ pub fn string_delta<'a>(a: &'a str, b: &'a str) -> Result<(&'a str, i32)> {
         .zip(b.bytes().rev())
         .take_while(|(x, y)| x == y)
         .count();
-    if common_back == 0 && common_front == 0 {
-        Ok((b, a.len() as i32))
-    } else if common_back > common_front {
-        let sub = a.len() - common_back;
-        let idx = b.len() - common_back;
-        let delta = &b[..idx];
-        Ok((delta, -((sub + 1) as i32)))
-    } else {
-        let sub = a.len() - common_front;
-        let delta = &b[common_front..];
-        Ok((delta, sub as i32))
+    match common_front.cmp(&common_back) {
+        Ordering::Equal | Ordering::Greater => {
+            let sub = a.len() - common_front;
+            let delta = &b[common_front..];
+            (delta, sub as i32)
+        }
+        Ordering::Less => {
+            let sub = a.len() - common_back;
+            let idx = b.len() - common_back;
+            let delta = &b[..idx];
+            (delta, -((sub + 1) as i32))
+        }
     }
 }
 
-pub fn bytes_delta<'a>(a: &'a [u8], b: &'a [u8]) -> Result<(&'a [u8], i32)> {
+pub fn bytes_delta<'a>(a: &'a [u8], b: &'a [u8]) -> (&'a [u8], i32) {
     let common_front = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
     let common_back = a
         .iter()
@@ -71,43 +73,44 @@ pub fn bytes_delta<'a>(a: &'a [u8], b: &'a [u8]) -> Result<(&'a [u8], i32)> {
         .zip(b.iter().rev())
         .take_while(|(x, y)| x == y)
         .count();
-    if common_back == 0 && common_front == 0 {
-        Ok((b, a.len() as i32))
-    } else if common_front >= common_back {
-        let sub = a.len() - common_front;
-        let delta = &b[common_front..];
-        Ok((delta, sub as i32))
-    } else {
-        let sub = a.len() - common_back;
-        let idx = b.len() - common_back;
-        let delta = &b[..idx];
-        Ok((delta, -((sub + 1) as i32)))
+    match common_front.cmp(&common_back) {
+        Ordering::Equal | Ordering::Greater => {
+            let sub = a.len() - common_front;
+            let delta = &b[common_front..];
+            (delta, sub as i32)
+        }
+        Ordering::Less => {
+            let sub = a.len() - common_back;
+            let idx = b.len() - common_back;
+            let delta = &b[..idx];
+            (delta, -((sub + 1) as i32))
+        }
     }
 }
 
 pub fn string_tail<'a>(a: &'a str, b: &'a str) -> Result<&'a str> {
-    if b.len() == a.len() {
-        let common_front = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-        Ok(&b[common_front..])
-    } else if b.len() > a.len() {
-        Ok(b)
-    } else {
-        Err(Error::Dynamic(
+    match b.len().cmp(&a.len()) {
+        Ordering::Equal => {
+            let common_front = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
+            Ok(&b[common_front..])
+        }
+        Ordering::Greater => Ok(b),
+        Ordering::Less => Err(Error::Dynamic(
             "tail: next value length is less than the previous one".to_string(),
-        ))
+        )),
     }
 }
 
 pub fn bytes_tail<'a>(a: &'a [u8], b: &'a [u8]) -> Result<&'a [u8]> {
-    if b.len() == a.len() {
-        let common_front = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
-        Ok(&b[common_front..])
-    } else if b.len() > a.len() {
-        Ok(b)
-    } else {
-        Err(Error::Dynamic(
+    match b.len().cmp(&a.len()) {
+        Ordering::Equal => {
+            let common_front = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
+            Ok(&b[common_front..])
+        }
+        Ordering::Greater => Ok(b),
+        Ordering::Less => Err(Error::Dynamic(
             "tail: next value length is less than the previous one".to_string(),
-        ))
+        )),
     }
 }
 
@@ -131,13 +134,13 @@ mod test {
 
     #[test]
     fn test_string_delta() {
-        assert_eq!(string_delta("", "GEH6").unwrap(), ("GEH6", 0));
-        assert_eq!(string_delta("GEH6", "GEM6").unwrap(), ("M6", 2));
-        assert_eq!(string_delta("GEM6", "ESM6").unwrap(), ("ES", -3)); // -2 - 1
-        assert_eq!(string_delta("ESM6", "RSESM6").unwrap(), ("RS", -1)); // -0 - 1
-        assert_eq!(string_delta("GEH6", "GE").unwrap(), ("", 2));
-        assert_eq!(string_delta("GEH6", "H6").unwrap(), ("", -3));
-        assert_eq!(string_delta("GEH6", "GEH6").unwrap(), ("", 0));
+        assert_eq!(string_delta("", "GEH6"), ("GEH6", 0));
+        assert_eq!(string_delta("GEH6", "GEM6"), ("M6", 2));
+        assert_eq!(string_delta("GEM6", "ESM6"), ("ES", -3)); // -2 - 1
+        assert_eq!(string_delta("ESM6", "RSESM6"), ("RS", -1)); // -0 - 1
+        assert_eq!(string_delta("GEH6", "GE"), ("", 2));
+        assert_eq!(string_delta("GEH6", "H6"), ("", -3));
+        assert_eq!(string_delta("GEH6", "GEH6"), ("", 0));
     }
 
     #[test]

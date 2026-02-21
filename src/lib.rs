@@ -192,7 +192,10 @@
 //! Provides `From<Decimal>` implementation for [`rust_decimal::Decimal`] and `TryFrom<rust_decimal::Decimal>` for [`Decimal`].
 //!
 //! [`rust_decimal`]: https://docs.rs/rust_decimal/latest/rust_decimal/
-
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::option_option)]
 pub use base::message::{MessageFactory, MessageVisitor};
 pub use base::{decimal::Decimal, value::Value, value::ValueType};
 pub use decoder::{decoder::Decoder, reader::Reader};

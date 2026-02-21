@@ -45,7 +45,7 @@ impl MessageFactory for ModelFactory {
 
     fn stop_template(&mut self) {
         let (name, value) = self.context.pop().unwrap();
-        self.data = Some(TemplateData { name, value })
+        self.data = Some(TemplateData { name, value });
     }
 
     fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
@@ -119,12 +119,12 @@ impl MessageFactory for ModelFactory {
                 value: ValueData::None,
             }));
             let rc = self.ref_num.must_peek_mut();
-            self.context.push((format!("templateRef:{}", rc), tpl_ref));
+            self.context.push((format!("templateRef:{rc}"), tpl_ref));
             *rc += 1;
         } else {
             let tpl_ref = ValueData::StaticTemplateRef(name.to_string(), Box::new(ValueData::None));
             self.context.push((name.to_string(), tpl_ref));
-        };
+        }
         self.context
             .push((String::new(), ValueData::Group(HashMap::new())));
         self.ref_num.push(0);
@@ -141,7 +141,7 @@ impl MessageFactory for ModelFactory {
                     ValueData::StaticTemplateRef(_m, _) => {
                         // Instead of inserting the group as standalone object, we inline the group into parent's context:
                         if let ValueData::Group(g) = vg {
-                            group.extend(g)
+                            group.extend(g);
                         } else {
                             unreachable!()
                         }
@@ -191,7 +191,7 @@ impl MessageVisitor for ModelVisitor {
     fn get_template_name(&mut self) -> Result<String> {
         match self.data.value {
             ValueData::Group(_) => {
-                self.context.push(&self.data.value);
+                self.context.push(&raw const self.data.value);
                 Ok(self.data.name.clone())
             }
             _ => Err(Error::Runtime(format!(
@@ -210,8 +210,7 @@ impl MessageVisitor for ModelVisitor {
                     match v {
                         ValueData::Value(v) => Ok(v.clone()),
                         _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be ValueData::Value, got {:?}",
-                            v
+                            "Field {name} expected to be ValueData::Value, got {v:?}"
                         ))),
                     }
                 } else {
@@ -236,8 +235,7 @@ impl MessageVisitor for ModelVisitor {
                             Ok(true)
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be ValueData::Group, got {:?}",
-                            v
+                            "Field {name} expected to be ValueData::Group, got {v:?}"
                         ))),
                     }
                 } else {
@@ -268,8 +266,7 @@ impl MessageVisitor for ModelVisitor {
                             Ok(Some(len))
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be ValueData::Sequence, got: {:?}",
-                            v
+                            "Field {name} expected to be ValueData::Sequence, got: {v:?}"
                         ))),
                     }
                 } else {
@@ -293,8 +290,7 @@ impl MessageVisitor for ModelVisitor {
                             Ok(())
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Sequence item #{index} expected to be ValueData::Group, got {:?}",
-                            v
+                            "Sequence item #{index} expected to be ValueData::Group, got {v:?}"
                         ))),
                     }
                 } else {
@@ -320,7 +316,7 @@ impl MessageVisitor for ModelVisitor {
         self.ref_dynamic.push(dynamic);
         if dynamic {
             let rc = self.ref_num.must_peek_mut();
-            let name = format!("templateRef:{}", rc);
+            let name = format!("templateRef:{rc}");
             *rc += 1;
             self.ref_num.push(0);
 
@@ -334,7 +330,7 @@ impl MessageVisitor for ModelVisitor {
                             ValueData::DynamicTemplateRef(t) => match t.value {
                                 ValueData::Group(_) => {
                                     let template_name = t.name.clone();
-                                    self.context.push(&t.value);
+                                    self.context.push(&raw const t.value);
                                     Ok(Some(template_name))
                                 }
                                 _ => Err(Error::Runtime(format!(
@@ -343,8 +339,7 @@ impl MessageVisitor for ModelVisitor {
                                 ))),
                             },
                             _ => Err(Error::Runtime(format!(
-                                "Field {name} expected to be ValueData::DynamicTemplateRef, got {:?}",
-                                v
+                                "Field {name} expected to be ValueData::DynamicTemplateRef, got {v:?}"
                             ))),
                         }
                     } else {

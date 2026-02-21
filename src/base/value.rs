@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 use crate::base::decimal::Decimal;
 use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
@@ -27,6 +27,9 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    /// Creates new value type from tag.
+    /// # Errors
+    /// Returns error if tag is unknown.
     pub fn new_from_tag(tag: &str, unicode: bool) -> Result<Self> {
         match tag {
             "uInt32" => Ok(Self::UInt32),
@@ -48,10 +51,11 @@ impl ValueType {
             "sequence" => Ok(Self::Sequence),
             "group" => Ok(Self::Group),
             "templateRef" => Ok(Self::TemplateReference),
-            _ => Err(Error::Static(format!("Unknown type: {}", tag))),
+            _ => Err(Error::Static(format!("Unknown type: {tag}"))),
         }
     }
 
+    #[must_use]
     pub fn type_str(&self) -> &'static str {
         match self {
             ValueType::UInt32 => "uInt32",
@@ -62,8 +66,7 @@ impl ValueType {
             ValueType::Exponent => "exponent",
             ValueType::Mantissa => "mantissa",
             ValueType::Decimal => "decimal",
-            ValueType::ASCIIString => "string",
-            ValueType::UnicodeString => "string",
+            ValueType::ASCIIString | ValueType::UnicodeString => "string",
             ValueType::Bytes => "byteVector",
             ValueType::Sequence => "sequence",
             ValueType::Group => "group",
@@ -71,15 +74,15 @@ impl ValueType {
         }
     }
 
+    /// Returns default value of the self type.
+    /// # Errors
+    /// Returns error if type does not have default type.
     pub fn to_default_value(&self) -> Result<Value> {
         match self {
-            ValueType::UInt32 => Ok(Value::UInt32(0)),
-            ValueType::Int32 => Ok(Value::Int32(0)),
+            ValueType::Int32 | ValueType::Exponent => Ok(Value::Int32(0)),
+            ValueType::Int64 | ValueType::Mantissa => Ok(Value::Int64(0)),
+            ValueType::UInt32 | ValueType::Length => Ok(Value::UInt32(0)),
             ValueType::UInt64 => Ok(Value::UInt64(0)),
-            ValueType::Int64 => Ok(Value::Int64(0)),
-            ValueType::Length => Ok(Value::UInt32(0)),
-            ValueType::Exponent => Ok(Value::Int32(0)),
-            ValueType::Mantissa => Ok(Value::Int64(0)),
             ValueType::Decimal => Ok(Value::Decimal(Decimal::default())),
             ValueType::ASCIIString => Ok(Value::ASCIIString(String::new())),
             ValueType::UnicodeString => Ok(Value::UnicodeString(String::new())),
@@ -91,15 +94,15 @@ impl ValueType {
         }
     }
 
+    /// Converts string to the self type.
+    /// # Errors
+    /// Returns error if type is not convertible from string.
     pub fn str_to_value(&self, s: &str) -> Result<Value> {
         let mut value = match self {
-            ValueType::UInt32 => Value::UInt32(0),
-            ValueType::Int32 => Value::Int32(0),
+            ValueType::Int32 | ValueType::Exponent => Value::Int32(0),
+            ValueType::Int64 | ValueType::Mantissa => Value::Int64(0),
+            ValueType::UInt32 | ValueType::Length => Value::UInt32(0),
             ValueType::UInt64 => Value::UInt64(0),
-            ValueType::Int64 => Value::Int64(0),
-            ValueType::Length => Value::UInt32(0),
-            ValueType::Exponent => Value::Int32(0),
-            ValueType::Mantissa => Value::Int64(0),
             ValueType::Decimal => Value::Decimal(Decimal::default()),
             ValueType::ASCIIString => Value::ASCIIString(String::new()),
             ValueType::UnicodeString => Value::UnicodeString(String::new()),
@@ -116,6 +119,7 @@ impl ValueType {
     }
 
     #[allow(clippy::match_like_matches_macro)]
+    #[must_use]
     pub fn matches_type(&self, v: &Value) -> bool {
         match (self, v) {
             (ValueType::UInt32, Value::UInt32(_)) => true,
@@ -148,7 +152,9 @@ pub enum Value {
 }
 
 impl Value {
-    // It is a dynamic error [ERR D11] if a string does not match the syntax.
+    /// It is a dynamic error [ERR D11] if a string does not match the syntax.
+    /// # Errors
+    /// Returns error if string parse fails.
     pub fn set_from_string(&mut self, s: &str) -> Result<()> {
         match self {
             Value::UInt32(_) => {
@@ -182,7 +188,10 @@ impl Value {
         Ok(())
     }
 
-    pub fn apply_delta(&self, delta: Value, sub: i32) -> Result<Value> {
+    /// Applies delta to the current value and returns new value.
+    /// # Errors
+    /// Returns error if types are not bytes/string or previous and current types mismatch.
+    pub fn apply_delta(&self, delta: &Value, sub: i32) -> Result<Value> {
         fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
             // A negative subtraction length is used to remove values from the front of the string.
             // Negative zero is used to append values to the front of the string.
@@ -252,27 +261,31 @@ impl Value {
                 Ok(Value::UnicodeString(s))
             }
             _ => Err(Error::Runtime(format!(
-                "Cannot apply delta {:?} to {:?}",
-                delta, self
+                "Cannot apply delta {delta:?} to {self:?}"
             ))),
         }
     }
 
-    pub fn apply_tail(&self, tail: Value) -> Result<Value> {
-        let len: usize = match (self, &tail) {
+    /// Applies tail to the current value and returns new value.
+    /// # Errors
+    /// Returns error if types are not bytes/string or previous and current types mismatch.
+    pub fn apply_tail(&self, tail: &Value) -> Result<Value> {
+        let len: usize = match (self, tail) {
             (Value::ASCIIString(v), Value::ASCIIString(t)) => min(t.len(), v.len()),
             (Value::UnicodeString(v), Value::Bytes(t)) => min(t.len(), v.len()),
             (Value::Bytes(v), Value::Bytes(t)) => min(t.len(), v.len()),
             _ => {
                 return Err(Error::Runtime(format!(
-                    "Cannot apply tail {:?} to {:?}",
-                    tail, self
+                    "Cannot apply tail {tail:?} to {self:?}"
                 )));
             }
         };
         self.apply_delta(tail, len as i32)
     }
 
+    /// Increments underlying integer value.
+    /// # Errors
+    /// Returns error if self type is not an integer.
     pub fn apply_increment(&self) -> Result<Value> {
         match self {
             Value::UInt32(v) => Ok(Value::UInt32(v + 1)),
@@ -280,40 +293,46 @@ impl Value {
             Value::UInt64(v) => Ok(Value::UInt64(v + 1)),
             Value::Int64(v) => Ok(Value::Int64(v + 1)),
             _ => Err(Error::Runtime(format!(
-                "Cannot apply increment to {:?}",
-                self
+                "Cannot apply increment to {self:?}"
             ))),
         }
     }
 
-    pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
+    /// Searches difference between current and previous value.
+    #[must_use]
+    pub fn find_delta(&self, prev: &Value) -> (Value, i32) {
         match (self, prev) {
-            (Value::Int32(v), Value::Int32(p)) => Ok((Value::Int64((v - p) as i64), 0)),
-            (Value::Int64(v), Value::Int64(p)) => Ok((Value::Int64(v - p), 0)),
-            (Value::UInt32(v), Value::UInt32(p)) => Ok((Value::Int64(*v as i64 - *p as i64), 0)),
+            (Value::Int32(v), Value::Int32(p)) => (Value::Int64(i64::from(v - p)), 0),
+            (Value::Int64(v), Value::Int64(p)) => (Value::Int64(v - p), 0),
+            (Value::UInt32(v), Value::UInt32(p)) => {
+                (Value::Int64(i64::from(*v) - i64::from(*p)), 0)
+            }
             (Value::UInt64(v), Value::UInt64(p)) => {
                 if *v < *p {
-                    Ok((Value::Int64(-((*p - *v) as i64)), 0))
+                    (Value::Int64(-((*p - *v) as i64)), 0)
                 } else {
-                    Ok((Value::Int64((*v - *p) as i64), 0))
+                    (Value::Int64((*v - *p) as i64), 0)
                 }
             }
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
-                let (delta, sub) = string_delta(p, v)?;
-                Ok((Value::ASCIIString(delta.to_string()), sub))
+                let (delta, sub) = string_delta(p, v);
+                (Value::ASCIIString(delta.to_string()), sub)
             }
             (Value::UnicodeString(v), Value::UnicodeString(p)) => {
-                let (delta, sub) = bytes_delta(p.as_bytes(), v.as_bytes())?;
-                Ok((Value::Bytes(delta.to_vec()), sub))
+                let (delta, sub) = bytes_delta(p.as_bytes(), v.as_bytes());
+                (Value::Bytes(delta.to_vec()), sub)
             }
             (Value::Bytes(v), Value::Bytes(p)) => {
-                let (delta, sub) = bytes_delta(p, v)?;
-                Ok((Value::Bytes(delta.to_vec()), sub))
+                let (delta, sub) = bytes_delta(p, v);
+                (Value::Bytes(delta.to_vec()), sub)
             }
             _ => unimplemented!(),
         }
     }
 
+    /// Searches tail difference between current value and prev string or byte-slices.
+    /// # Errors
+    /// Returns error if current len is less than previous.
     pub fn find_tail(&self, prev: &Value) -> Result<Value> {
         match (self, prev) {
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
@@ -346,7 +365,7 @@ impl Display for Value {
             Value::Bytes(b) => {
                 let mut s = String::with_capacity(2 * b.len());
                 for v in b {
-                    s += &format!("{:02x}", v);
+                    let _ = write!(&mut s, "{v:02x}");
                 }
                 f.write_fmt(format_args!("{s}"))
             }

@@ -10,15 +10,18 @@ pub struct Decimal {
 }
 
 impl Decimal {
+    #[must_use]
     pub fn new(exponent: i32, mantissa: i64) -> Decimal {
         Decimal { exponent, mantissa }
     }
 
-    // If the field is of type decimal, the value resulting from the conversion is normalized. The reason for this is that
-    // the exponent and mantissa must be predictable when operators are applied to them individually. A decimal value
-    // is normalized by adjusting the mantissa and exponent so that the integer remainder after dividing the mantissa
-    // by 10 is not zero: mant % 10 != 0. For example 100 would be normalized as 1 * 10^2. If the mantissa is zero,
-    // the normalized decimal has a zero mantissa and a zero exponent.
+    /// If the field is of type decimal, the value resulting from the conversion is normalized. The reason for this is that
+    /// the exponent and mantissa must be predictable when operators are applied to them individually. A decimal value
+    /// is normalized by adjusting the mantissa and exponent so that the integer remainder after dividing the mantissa
+    /// by 10 is not zero: mant % 10 != 0. For example 100 would be normalized as 1 * 10^2. If the mantissa is zero,
+    /// the normalized decimal has a zero mantissa and a zero exponent.
+    /// # Errors
+    /// Returns error if string is incorrect format.
     pub fn from_string(value: &str) -> Result<Decimal> {
         fn scale_down(mut value: i64) -> (i32, i64) {
             let mut scale = 0;
@@ -32,32 +35,33 @@ impl Decimal {
         }
 
         let mut parts = value.split('.');
-        let part1 = parts.next();
-        let part2 = parts.next();
-        let part3 = parts.next();
-
-        if part1.is_none() || part3.is_some() {
-            return Err(Error::Static(format!("Not a decimal '{}'", value)));
-        }
-        let integer = part1.unwrap();
-
-        let (exponent, mantissa) = if let Some(fractional) = part2 {
-            let mantissa = format!("{}{}", integer, fractional).parse::<i64>()?;
-            if mantissa == 0 {
-                return Ok(Decimal::new(0, 0));
-            }
-            let (exponent_fix, mantissa) = scale_down(mantissa);
-            let exponent = -(fractional.len() as i32) + exponent_fix;
-            (exponent, mantissa)
-        } else {
-            scale_down(integer.parse::<i64>()?)
+        let Some(mantissa) = parts.next() else {
+            return Err(Error::Static(format!("Not a decimal '{value}'")));
         };
+
+        let Some(fractional) = parts.next() else {
+            let (exponent, mantissa) = scale_down(mantissa.parse::<i64>()?);
+            return Ok(Decimal::new(exponent, mantissa));
+        };
+        if parts.next().is_some() {
+            return Err(Error::Static(format!("Not a decimal '{value}'")));
+        }
+
+        let mantissa = format!("{mantissa}{fractional}").parse::<i64>()?;
+        if mantissa == 0 {
+            return Ok(Decimal::new(0, 0));
+        }
+        let (exponent_fix, mantissa) = scale_down(mantissa);
+        let exponent = -(fractional.len() as i32) + exponent_fix;
         Ok(Decimal::new(exponent, mantissa))
     }
 
+    /// Creates decimal value from float.
+    /// # Errors
+    /// Returns error if number is not finite.
     pub fn from_float(value: f64) -> Result<Decimal> {
         if !value.is_finite() {
-            return Err(Error::Static(format!("Not a finite decimal '{}'", value)));
+            return Err(Error::Static(format!("Not a finite decimal '{value}'")));
         }
         Decimal::from_string(&format!("{value}"))
     }
@@ -68,6 +72,7 @@ impl Decimal {
     /// If the number is negative it is preceded by a minus sign (‘-’).
     /// The integer part must not have any leading zeroes.
     #[allow(clippy::inherent_to_string_shadow_display)]
+    #[must_use]
     pub fn to_string(&self) -> String {
         if self.exponent >= 0 {
             (self.mantissa * 10i64.pow(self.exponent as u32)).to_string()
@@ -81,18 +86,22 @@ impl Decimal {
         }
     }
 
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn to_float(&self) -> f64 {
         // self.mantissa as f64 * 10_f64.powf(self.exponent as f64)
 
         // This is pretty ugly but gives MUCH better results than the implementation above!
-        if self.exponent > 0 {
-            let multiplier = 10i64.pow(self.exponent as u32);
-            (self.mantissa * multiplier) as f64
-        } else if self.exponent < 0 {
-            let divisor = 10u64.pow(-self.exponent as u32);
-            self.mantissa as f64 / divisor as f64
-        } else {
-            self.mantissa as f64
+        match self.exponent {
+            0 => self.mantissa as f64,
+            exponent if exponent > 0 => {
+                let multiplier = 10i64.pow(exponent as u32);
+                (self.mantissa * multiplier) as f64
+            }
+            exponent => {
+                let divisor = 10u64.pow(-exponent as u32);
+                self.mantissa as f64 / divisor as f64
+            }
         }
     }
 }

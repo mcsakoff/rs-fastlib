@@ -28,6 +28,9 @@ impl Encoder {
         })
     }
 
+    /// Creates new encoder from given XML definition.
+    /// # Errors
+    /// Returns error if definition is ill-formed.
     pub fn new_from_xml(text: &str) -> Result<Self> {
         Ok(Encoder {
             definitions: Definitions::new_from_xml(text)?,
@@ -36,21 +39,32 @@ impl Encoder {
     }
 
     pub fn reset(&mut self) {
-        self.context.reset()
+        self.context.reset();
     }
 
+    /// Encodes message into a Vec buffer.
+    /// Returns encoded buffer.
+    /// # Errors
+    /// Returns error if encoding failed.
     pub fn encode_vec(&mut self, msg: &mut impl MessageVisitor) -> Result<Vec<u8>> {
         let mut buf = BytesMut::new();
         self.encode_writer(&mut buf, msg)?;
         Ok(buf.to_vec())
     }
 
+    /// Encodes message into a bytes buffer.
+    /// Returns encoded buffer.
+    /// # Errors
+    /// Returns error if encoding failed.
     pub fn encode_bytes(&mut self, msg: &mut impl MessageVisitor) -> Result<BytesMut> {
         let mut buf = BytesMut::new();
         self.encode_writer(&mut buf, msg)?;
         Ok(buf)
     }
 
+    /// Encodes message into a given stream.
+    /// # Errors
+    /// Returns error if encoding failed.
     pub fn encode_stream(
         &mut self,
         wrt: &mut dyn Write,
@@ -60,6 +74,9 @@ impl Encoder {
         self.encode_writer(&mut wrt, msg)
     }
 
+    /// Encodes message into a given buffer.
+    /// # Errors
+    /// Returns error if encoding failed.
     pub fn encode_buffer(
         &mut self,
         buffer: &mut [u8],
@@ -71,6 +88,9 @@ impl Encoder {
         Ok(buffer.position() as usize)
     }
 
+    /// Encodes message into a given writer.
+    /// # Errors
+    /// Returns error if encoding failed.
     pub fn encode_writer(
         &mut self,
         wrt: &mut impl Writer,
@@ -130,7 +150,7 @@ impl<'a> EncoderContext<'a> {
             .definitions
             .templates_by_name
             .get(&template_name)
-            .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {}", template_name)))?
+            .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))?
             .clone();
 
         let mut buf = BytesMut::new();
@@ -143,10 +163,10 @@ impl<'a> EncoderContext<'a> {
         self.encode_instructions(&mut buf, &template.instructions)?;
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
 
         self.drop_template_id();
@@ -168,7 +188,7 @@ impl<'a> EncoderContext<'a> {
     fn encode_template_id(&mut self, buf: &mut dyn Writer, template_id: u32) -> Result<()> {
         self.template_id.push(template_id);
         let instruction = self.definitions.template_id_instruction.clone();
-        instruction.inject(self, buf, &Some(Value::UInt32(template_id)))
+        instruction.inject(self, buf, Some(Value::UInt32(template_id)))
     }
 
     // Stop processing the current template id, restore the previous value in the processing context.
@@ -204,7 +224,7 @@ impl<'a> EncoderContext<'a> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
-        instruction.inject(self, buf, &value)
+        instruction.inject(self, buf, value)
     }
 
     fn encode_segment(&mut self, buf: &mut dyn Writer, instructions: &[Instruction]) -> Result<()> {
@@ -241,10 +261,10 @@ impl<'a> EncoderContext<'a> {
         }
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
 
         self.msg.release_group()
@@ -259,7 +279,7 @@ impl<'a> EncoderContext<'a> {
         match length {
             None => {
                 if instruction.is_optional() {
-                    length_instruction.inject(self, buf, &None)?;
+                    length_instruction.inject(self, buf, None)?;
                 } else {
                     return Err(Error::Dynamic(format!(
                         "Missing mandatory sequence: {}",
@@ -268,7 +288,7 @@ impl<'a> EncoderContext<'a> {
                 }
             }
             Some(length) => {
-                length_instruction.inject(self, buf, &Some(Value::UInt32(length as u32)))?;
+                length_instruction.inject(self, buf, Some(Value::UInt32(length as u32)))?;
                 for idx in 0..length {
                     self.msg.select_sequence_item(idx)?;
                     if instruction.has_pmap.get() {
@@ -282,10 +302,10 @@ impl<'a> EncoderContext<'a> {
             }
         }
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
 
         Ok(())
@@ -299,20 +319,20 @@ impl<'a> EncoderContext<'a> {
         let is_dynamic = instruction.name.is_empty();
 
         if is_dynamic {
-            let template_name = match self.msg.select_template_ref(&instruction.name, true)? {
-                Some(name) => name,
-                None => {
-                    return Err(Error::Dynamic(format!(
+            let template_name = self
+                .msg
+                .select_template_ref(&instruction.name, true)?
+                .ok_or_else(|| {
+                    Error::Dynamic(format!(
                         "Missing mandatory template reference: {}",
                         instruction.name
-                    )));
-                }
-            };
+                    ))
+                })?;
             let template = self
                 .definitions
                 .templates_by_name
                 .get(&template_name)
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {}", template_name)))? // [ErrD09]
+                .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))? // [ErrD09]
                 .clone();
 
             let mut buf2 = BytesMut::new();
@@ -325,10 +345,10 @@ impl<'a> EncoderContext<'a> {
             self.encode_instructions(&mut buf2, &template.instructions)?;
 
             if has_dictionary {
-                self.restore_dictionary()
+                self.restore_dictionary();
             }
             if has_type_ref {
-                self.restore_type_ref()
+                self.restore_type_ref();
             }
 
             self.drop_template_id();
@@ -350,10 +370,10 @@ impl<'a> EncoderContext<'a> {
             self.encode_instructions(buf, &template.instructions)?;
 
             if has_dictionary {
-                self.restore_dictionary()
+                self.restore_dictionary();
             }
             if has_type_ref {
-                self.restore_type_ref()
+                self.restore_type_ref();
             }
         }
         self.msg.release_template_ref()
@@ -361,11 +381,11 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
-        if *dictionary != Dictionary::Inherit {
+        if *dictionary == Dictionary::Inherit {
+            false
+        } else {
             self.dictionary.push(dictionary.clone());
             true
-        } else {
-            false
         }
     }
 
@@ -376,11 +396,11 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        if *type_ref != TypeRef::Any {
+        if *type_ref == TypeRef::Any {
+            false
+        } else {
             self.type_ref.push(type_ref.clone());
             true
-        } else {
-            false
         }
     }
 
@@ -391,13 +411,12 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     pub(crate) fn pmap_set_next_bit(&mut self, value: bool) {
-        self.presence_map.must_peek_mut().set_next_bit(value)
+        self.presence_map.must_peek_mut().set_next_bit(value);
     }
 
     #[inline]
-    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: &Option<Value>) {
-        self.context
-            .set(self.make_dict_type(), i.key.clone(), v.clone());
+    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
+        self.context.set(self.make_dict_type(), i.key.clone(), v);
     }
 
     #[inline]

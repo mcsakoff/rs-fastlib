@@ -21,6 +21,9 @@ pub struct Decoder {
 
 impl Decoder {
     #[allow(unused)]
+    /// Creates decoder from template lists.
+    /// # Errors
+    /// Returns error if invalid templates given.
     pub(crate) fn new_from_templates(ts: Vec<Template>) -> Result<Self> {
         Ok(Decoder {
             definitions: Definitions::new_from_templates(ts)?,
@@ -28,6 +31,9 @@ impl Decoder {
         })
     }
 
+    /// Creates Decoder from XML definitions.
+    /// # Errors
+    /// Returns error if invalid definitions given.
     pub fn new_from_xml(text: &str) -> Result<Self> {
         Ok(Decoder {
             definitions: Definitions::new_from_xml(text)?,
@@ -36,11 +42,13 @@ impl Decoder {
     }
 
     pub fn reset(&mut self) {
-        self.context.reset()
+        self.context.reset();
     }
 
     /// Decode single message from buffer.
     /// Returns number of bytes consumed from the buffer.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_buffer(&mut self, buffer: &[u8], msg: &mut impl MessageFactory) -> Result<u64> {
         let mut cursor = std::io::Cursor::new(buffer);
         self.decode_stream(&mut cursor, msg)?;
@@ -49,6 +57,8 @@ impl Decoder {
 
     /// Decode single message from slice.
     /// The `bytes` slice must be consumed completely. It is an error if any bytes left after the message is decoded.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_slice(&mut self, bytes: &[u8], msg: &mut impl MessageFactory) -> Result<()> {
         let mut cursor = std::io::Cursor::new(bytes);
         self.decode_stream(&mut cursor, msg)?;
@@ -63,6 +73,8 @@ impl Decoder {
 
     /// Decode single message from bytes vector.
     /// The `bytes` vector must be the whole message. It is an error if any bytes left after the message is decoded.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_vec(&mut self, bytes: Vec<u8>, msg: &mut impl MessageFactory) -> Result<()> {
         let mut raw = bytes::Bytes::from(bytes);
         self.decode_reader(&mut raw, msg)?;
@@ -76,6 +88,8 @@ impl Decoder {
     }
 
     /// Decode single message from `bytes::Bytes`.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_bytes(
         &mut self,
         bytes: &mut bytes::Bytes,
@@ -85,6 +99,8 @@ impl Decoder {
     }
 
     /// Decode single message from object that implements [`std::io::Read`][std::io::Read] trait.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_stream(
         &mut self,
         rdr: &mut dyn Read,
@@ -95,6 +111,8 @@ impl Decoder {
     }
 
     /// Decode single message from object that implements [`fastlib::Reader`][crate::decoder::reader::Reader] trait.
+    /// # Errors
+    /// Returns error if message decode failed.
     pub fn decode_reader(
         &mut self,
         rdr: &mut impl Reader,
@@ -210,10 +228,10 @@ impl<'a> DecoderContext<'a> {
         self.decode_instructions(&template.instructions)?;
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
 
         self.msg.stop_template();
@@ -287,10 +305,10 @@ impl<'a> DecoderContext<'a> {
         }
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
         Ok(())
     }
@@ -317,10 +335,10 @@ impl<'a> DecoderContext<'a> {
         self.msg.stop_group();
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
         Ok(())
     }
@@ -360,10 +378,10 @@ impl<'a> DecoderContext<'a> {
         self.decode_instructions(&template.instructions)?;
 
         if has_dictionary {
-            self.restore_dictionary()
+            self.restore_dictionary();
         }
         if has_type_ref {
-            self.restore_type_ref()
+            self.restore_type_ref();
         }
 
         self.msg.stop_template_ref();
@@ -385,11 +403,11 @@ impl<'a> DecoderContext<'a> {
 
     #[inline]
     fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
-        if *dictionary != Dictionary::Inherit {
+        if *dictionary == Dictionary::Inherit {
+            false
+        } else {
             self.dictionary.push(dictionary.clone());
             true
-        } else {
-            false
         }
     }
 
@@ -400,11 +418,11 @@ impl<'a> DecoderContext<'a> {
 
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        if *type_ref != TypeRef::Any {
+        if *type_ref == TypeRef::Any {
+            false
+        } else {
             self.type_ref.push(type_ref.clone());
             true
-        } else {
-            false
         }
     }
 
@@ -419,9 +437,8 @@ impl<'a> DecoderContext<'a> {
     }
 
     #[inline]
-    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: &Option<Value>) {
-        self.context
-            .set(self.make_dict_type(), i.key.clone(), v.clone());
+    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
+        self.context.set(self.make_dict_type(), i.key.clone(), v);
     }
 
     #[inline]

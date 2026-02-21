@@ -7,6 +7,8 @@ use crate::model::template::TemplateData;
 use crate::{Encoder, Error, Result, Writer};
 
 /// Encode single message into `Vec<u8>`.
+/// # Errors
+/// Will return Err if serialization failed.
 #[allow(unused)]
 pub fn to_vec<T>(encoder: &mut Encoder, value: &T) -> Result<Vec<u8>>
 where
@@ -22,6 +24,8 @@ where
 }
 
 /// Encode single message into `bytes::BufMut`.
+/// # Errors
+/// Will return Err if serialization failed.
 #[allow(unused)]
 pub fn to_bytes<T>(encoder: &mut Encoder, value: &T) -> Result<bytes::BytesMut>
 where
@@ -37,6 +41,8 @@ where
 }
 
 /// Encode single message into object that implements `fastlib::Writer` trait.
+/// # Errors
+/// Will return Err if serialization failed.
 #[allow(unused)]
 pub fn to_writer<T>(encoder: &mut Encoder, wrt: &mut impl Writer, value: &T) -> Result<()>
 where
@@ -52,6 +58,8 @@ where
 }
 
 /// Encode single message into object that implements `std::io::Write` trait.
+/// # Errors
+/// Will return Err if serialization failed.
 #[allow(unused)]
 pub fn to_stream<T>(encoder: &mut Encoder, wrt: &mut dyn Write, value: &T) -> Result<()>
 where
@@ -66,8 +74,10 @@ where
     encoder.encode_stream(wrt, &mut msg)
 }
 
-/// Encode single message into pre-allocated buffer .
+/// Encode single message into pre-allocated buffer.
 /// Returns number of bytes written.
+/// # Errors
+/// Will return Err if serialization failed.
 #[allow(unused)]
 pub fn to_buffer<T>(encoder: &mut Encoder, buffer: &mut [u8], value: &T) -> Result<usize>
 where

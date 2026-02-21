@@ -46,30 +46,30 @@ impl Context {
                 self.global.insert(key, val);
             }
             DictionaryType::Template(id) => {
-                if !self.template.contains_key(&id) {
+                if self.template.contains_key(&id) {
+                    self.template.get_mut(&id).unwrap().insert(key, val);
+                } else {
                     let mut hm = HashMap::new();
                     hm.insert(key, val);
                     self.template.insert(id, hm);
-                } else {
-                    self.template.get_mut(&id).unwrap().insert(key, val);
                 }
             }
             DictionaryType::Type(name) => {
-                if !self.type_.contains_key(&name) {
+                if self.type_.contains_key(&name) {
+                    self.type_.get_mut(&name).unwrap().insert(key, val);
+                } else {
                     let mut hm = HashMap::new();
                     hm.insert(key, val);
                     self.type_.insert(name, hm);
-                } else {
-                    self.type_.get_mut(&name).unwrap().insert(key, val);
                 }
             }
             DictionaryType::UserDefined(name) => {
-                if !self.user.contains_key(&name) {
+                if self.user.contains_key(&name) {
+                    self.user.get_mut(&name).unwrap().insert(key, val);
+                } else {
                     let mut hm = HashMap::new();
                     hm.insert(key, val);
                     self.user.insert(name, hm);
-                } else {
-                    self.user.get_mut(&name).unwrap().insert(key, val);
                 }
             }
         }

@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 use roxmltree::Node;
@@ -10,9 +11,6 @@ use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
 use crate::{Decimal, Error, Result};
 
-const MAX_INT32: i64 = 2147483647;
-const MIN_INT32: i64 = -2147483648;
-const MAX_UINT32: u64 = 4294967295;
 const MAX_EXPONENT: i32 = 63;
 const MIN_EXPONENT: i32 = -63;
 
@@ -68,8 +66,8 @@ impl Instruction {
         let ky: String;
         match type_ {
             ValueType::Mantissa | ValueType::Exponent => {
-                nm = "".to_string();
-                ky = "".to_string();
+                nm = String::new();
+                ky = String::new();
             }
             _ => {
                 nm = name.to_string();
@@ -91,6 +89,7 @@ impl Instruction {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn from_node(node: Node) -> Result<Self> {
         let id = node.attribute("id").unwrap_or("0").parse::<u32>()?;
         let name = node.attribute("name").unwrap_or("");
@@ -133,7 +132,7 @@ impl Instruction {
         let mut instruction = Instruction::new(id, name, type_);
         if let Some(p) = node.attribute("presence") {
             instruction.presence = Presence::from_str(p)?;
-        };
+        }
         if let Some(d) = node.attribute("dictionary") {
             instruction.dictionary = Dictionary::from_str(d);
         }
@@ -148,49 +147,39 @@ impl Instruction {
             ValueType::TemplateReference => {}
 
             ValueType::Group => {
-                for n in node.children() {
-                    if !n.is_element() {
-                        continue;
-                    }
+                for n in node.children().filter(Node::is_element) {
                     let i = Instruction::from_node(n)?;
                     instruction.add_instruction(i);
                 }
             }
 
             ValueType::Sequence => {
-                let mut i: usize = 0;
-                for n in node.children() {
-                    if !n.is_element() {
-                        continue;
-                    }
-                    let mut instr = Instruction::from_node(n)?;
+                for (i, c) in node.children().filter(Node::is_element).enumerate() {
+                    let mut instr = Instruction::from_node(c)?;
                     if i == 0 {
-                        match instr.value_type {
-                            ValueType::Length => {
-                                if instr.name.is_empty() {
-                                    // The name is generated and is unique to the name of the sequence field.
-                                    // The name is guaranteed to never collide with a field name explicitly specified
-                                    // in a template.
-                                    instr.name = format!("{}:length", instruction.name);
-                                }
-                                // An optional sequence means that the length field is optional.
-                                instr.presence = instruction.presence;
+                        if let ValueType::Length = instr.value_type {
+                            if instr.name.is_empty() {
+                                // The name is generated and is unique to the name of the sequence field.
+                                // The name is guaranteed to never collide with a field name explicitly specified
+                                // in a template.
+                                instr.name = format!("{}:length", instruction.name);
                             }
+                            // An optional sequence means that the length field is optional.
+                            instr.presence = instruction.presence;
+                        } else {
                             // If no <length> element is specified, the length field has an implicit name and no field operator.
-                            _ => {
-                                let mut length = Instruction::new(
-                                    0,
-                                    &format!("{}:length", instruction.name),
-                                    ValueType::Length,
-                                );
-                                // An optional sequence means that the length field is optional.
-                                length.presence = instruction.presence;
-                                instruction.add_instruction(length);
-                            }
+
+                            let mut length = Instruction::new(
+                                0,
+                                &format!("{}:length", instruction.name),
+                                ValueType::Length,
+                            );
+                            // An optional sequence means that the length field is optional.
+                            length.presence = instruction.presence;
+                            instruction.add_instruction(length);
                         }
                     }
                     instruction.add_instruction(instr);
-                    i += 1;
                 }
             }
 
@@ -201,10 +190,7 @@ impl Instruction {
                 let mut mantissa: Option<Instruction> = None;
                 let mut initial_value: Option<String> = None;
 
-                for op_node in node.children() {
-                    if !op_node.is_element() {
-                        continue;
-                    }
+                for op_node in node.children().filter(Node::is_element) {
                     let op_name = op_node.tag_name().name();
                     match op_name {
                         "exponent" => {
@@ -278,15 +264,11 @@ impl Instruction {
             }
 
             _ => {
-                for operator in node.children() {
-                    if !operator.is_element() {
-                        continue;
-                    }
+                if let Some(operator) = node.children().find(Node::is_element) {
                     instruction.operator = Operator::new_from_tag(operator.tag_name().name())?;
                     if let Some(s) = operator.attribute("value") {
                         instruction.set_initial_value(s)?; // [ERR S3]
                     }
-                    break;
                 }
             }
         }
@@ -401,6 +383,7 @@ impl Instruction {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn extract(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
         match self.operator {
             Operator::None => Ok(self.read(s)?),
@@ -425,127 +408,95 @@ impl Instruction {
             // if the instruction context has no initial value. If the field has optional presence and no initial value,
             // the field is considered absent when there is no value in the stream.
             Operator::Default => {
-                let v: Option<Value> = if s.pmap_next_bit_set() {
-                    self.read(s)?
+                if s.pmap_next_bit_set() {
+                    Ok(self.read(s)?)
                 } else {
-                    match &self.initial_value {
-                        Some(v) => Some(v.clone()),
-                        None => {
-                            if self.is_optional() {
-                                None
-                            } else {
-                                unreachable!()
-                            }
-                        }
+                    if self.is_nullable() && !self.is_optional() {
+                        return Err(Error::Runtime(
+                            "default operator has no default value".to_string(),
+                        )); // [ERR D6])
                     }
-                };
-                Ok(v)
+                    Ok(self.initial_value.clone())
+                }
             }
 
             // The copy operator specifies that the value of a field is optionally present in the stream.
             Operator::Copy => {
-                let v: Option<Value>;
                 if s.pmap_next_bit_set() {
                     // If the value is present in the stream it becomes the new previous value.
-                    v = self.read(s)?;
-                    s.ctx_set(self, &v);
-                } else {
-                    // When the value is not present in the stream there are three cases depending
-                    // on the state of the previous value:
-                    v = match s.ctx_get(self)? {
-                        Some(v) => match v {
-                            // Assigned: The value of the field is the previous value.
-                            Some(prev) => Some(prev.clone()),
-                            // Empty: If the field is optional the value is considered absent.
-                            // It is a dynamic error [ERR D6] if the field is mandatory.
-                            None => {
-                                if self.is_optional() {
-                                    None
-                                } else {
-                                    return Err(Error::Runtime(
-                                        "copy operator has no previous value".to_string(),
-                                    )); // [ERR D6]
-                                }
-                            }
-                        },
-                        // Undefined: The value of the field is the initial value that also becomes the new previous value.
-                        // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context has no initial value.
-                        // If the field has optional presence and no initial value, the field is considered absent and the state of the previous
-                        // value is changed to empty.
-                        None => {
-                            let v = match &self.initial_value {
-                                Some(initial) => Some(initial.clone()),
-                                None => {
-                                    if self.is_optional() {
-                                        None
-                                    } else {
-                                        return Err(Error::Runtime(
-                                            "copy operator has no initial value".to_string(),
-                                        )); // [ERR D5]
-                                    }
-                                }
-                            };
-                            s.ctx_set(self, &v);
-                            v
-                        }
-                    }
+                    let v = self.read(s)?;
+                    s.ctx_set(self, v.clone());
+                    return Ok(v);
                 }
+
+                // When the value is not present in the stream there are three cases depending
+                // on the state of the previous value:
+                let Some(v) = s.ctx_get(self)? else {
+                    // Undefined: The value of the field is the initial value that also becomes the new previous value.
+                    // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context has no initial value.
+                    // If the field has optional presence and no initial value, the field is considered absent and the state of the previous
+                    // value is changed to empty.
+                    if self.initial_value.is_none() && !self.is_optional() {
+                        return Err(Error::Runtime(
+                            "copy operator has no initial value".to_string(),
+                        )); // [ERR D5]
+                    }
+
+                    s.ctx_set(self, self.initial_value.clone());
+                    return Ok(self.initial_value.clone());
+                };
+
+                // Empty: If the field is optional the value is considered absent.
+                // It is a dynamic error [ERR D6] if the field is mandatory.
+                if v.is_none() && !self.is_optional() {
+                    return Err(Error::Runtime(
+                        "copy operator has no previous value".to_string(),
+                    )); // [ERR D6]
+                }
+
+                // Assigned: The value of the field is the previous value.
                 Ok(v)
             }
 
             // The increment operator specifies that the value of a field is optionally present in the stream.
             Operator::Increment => {
-                let v: Option<Value>;
                 if s.pmap_next_bit_set() {
                     //If the value is present in the stream it becomes the new previous value.
-                    v = self.read(s)?;
-                    s.ctx_set(self, &v);
-                } else {
-                    // When the value is not present in the stream there are three cases depending on the state of the previous value:
-                    v = match s.ctx_get(self)? {
-                        Some(v) => match v {
-                            // Assigned: the value of the field is the previous value incremented by one.
-                            // The incremented value also becomes the new previous value.
-                            Some(prev) => {
-                                let v = Some(prev.apply_increment()?);
-                                s.ctx_set(self, &v);
-                                v
-                            }
-                            // Empty: the value of the field is empty.
-                            // If the field is optional, the value is considered absent.
-                            // It is a dynamic error [ERR D6] if the field is mandatory.
-                            None => {
-                                if self.is_optional() {
-                                    None
-                                } else {
-                                    return Err(Error::Runtime(
-                                        "increment operator has no previous value".to_string(),
-                                    )); // [ERR D6]
-                                }
-                            }
-                        },
-                        // Undefined: the value of the field is the initial value that also becomes the new previous value.
-                        // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
-                        // has no initial value. If the field has optional presence and no initial value, the field is considered
-                        // absent and the state of the previous value is changed to empty.
-                        None => {
-                            let v = match &self.initial_value {
-                                Some(i) => Some(i.clone()),
-                                None => {
-                                    if self.is_optional() {
-                                        None
-                                    } else {
-                                        return Err(Error::Runtime(
-                                            "increment operator has no initial value".to_string(),
-                                        )); // [ERR D5]
-                                    }
-                                }
-                            };
-                            s.ctx_set(self, &v);
-                            v
-                        }
-                    };
+                    let v = self.read(s)?;
+                    s.ctx_set(self, v.clone());
+                    return Ok(v);
                 }
+                // When the value is not present in the stream there are three cases depending on the state of the previous value:
+                let Some(v) = s.ctx_get(self)? else {
+                    // Undefined: the value of the field is the initial value that also becomes the new previous value.
+                    // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
+                    // has no initial value. If the field has optional presence and no initial value, the field is considered
+                    // absent and the state of the previous value is changed to empty.
+                    if !self.is_optional() && self.initial_value.is_none() {
+                        return Err(Error::Runtime(
+                            "increment operator has no initial value".to_string(),
+                        )); // [ERR D5]
+                    }
+                    s.ctx_set(self, self.initial_value.clone());
+                    return Ok(self.initial_value.clone());
+                };
+
+                // Assigned: the value of the field is the previous value incremented by one.
+                // The incremented value also becomes the new previous value.
+                let Some(prev) = v else {
+                    // Empty: the value of the field is empty.
+                    // If the field is optional, the value is considered absent.
+                    // It is a dynamic error [ERR D6] if the field is mandatory.
+                    if !self.is_optional() {
+                        return Err(Error::Runtime(
+                            "increment operator has no previous value".to_string(),
+                        ));
+                    }
+                    return Ok(None);
+                };
+
+                let v = Some(prev.apply_increment()?);
+                s.ctx_set(self, v.clone());
                 Ok(v)
             }
 
@@ -553,9 +504,8 @@ impl Instruction {
             Operator::Delta => {
                 // If the field has optional presence, the delta value can be NULL.
                 // In that case the value of the field is considered absent.
-                let (delta, aux) = match self.read_delta(s)? {
-                    Some(d) => d,
-                    None => return Ok(None),
+                let Some((delta, aux)) = self.read_delta(s)? else {
+                    return Ok(None);
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
@@ -577,28 +527,24 @@ impl Instruction {
                         None => self.value_type.to_default_value()?,
                     },
                 };
-                let value = Some(base.apply_delta(delta, aux)?);
-                s.ctx_set(self, &value);
+                let value = Some(base.apply_delta(&delta, aux)?);
+                s.ctx_set(self, value.clone());
                 Ok(value)
             }
 
             // The tail operator specifies that a tail value is optionally present in the stream.
             Operator::Tail => {
-                let value: Option<Value>;
                 if s.pmap_next_bit_set() {
-                    let tail = match self.read_tail(s)? {
+                    let Some(tail) = self.read_tail(s)? else {
                         // If the field has optional presence, the tail value can be NULL.
                         // In that case the value of the field is considered absent.
-                        None => {
-                            return if self.is_optional() {
-                                Ok(None)
-                            } else {
-                                Err(Error::Runtime(
-                                    "tail operator has no previous value".to_string(),
-                                )) // [ERR D7]
-                            };
-                        }
-                        Some(t) => t,
+                        return if self.is_optional() {
+                            Ok(None)
+                        } else {
+                            Err(Error::Runtime(
+                                "tail operator has no previous value".to_string(),
+                            )) // [ERR D7]
+                        };
                     };
                     // Otherwise, if the tail value is present, the value of the field is obtained by combining
                     // the tail value with a base value. The base value depends on the state of the previous value:
@@ -621,51 +567,36 @@ impl Instruction {
                             None => self.value_type.to_default_value()?,
                         },
                     };
-                    value = Some(base.apply_tail(tail)?);
+                    let value = Some(base.apply_tail(&tail)?);
                     // The combined value becomes the new previous value.
-                    s.ctx_set(self, &value);
-                } else {
-                    // If the tail value is not present in the stream, the value of the field depends
-                    // on the state of the previous value.
-                    value = match s.ctx_get(self)? {
-                        Some(v) => match v {
-                            // Assigned: the value of the field is the previous value.
-                            Some(prev) => Some(prev.clone()),
-                            // Empty: the value of the field is empty. If the field is optional the value is considered absent.
-                            // It is a dynamic error [ERR D7] if the field is mandatory.
-                            None => {
-                                if self.is_optional() {
-                                    None
-                                } else {
-                                    return Err(Error::Runtime(
-                                        "tail operator has no previous value".to_string(),
-                                    )); // [ERR D7]
-                                }
-                            }
-                        },
-                        // Undefined: the value of the field is the initial value that also becomes the new previous value.
-                        // Unless the field has optional presence, it is a dynamic error [ERR D6] if the instruction context
-                        // has no initial value. If the field has optional presence and no initial value, the field is considered
-                        // absent and the state of the previous value is changed to empty.
-                        None => {
-                            let value = match &self.initial_value {
-                                Some(v) => Some(v.clone()),
-                                None => {
-                                    if self.is_optional() {
-                                        None
-                                    } else {
-                                        return Err(Error::Runtime(
-                                            "tail operator has no initial value".to_string(),
-                                        )); // [ERR D6]
-                                    }
-                                }
-                            };
-                            s.ctx_set(self, &value);
-                            value
-                        }
-                    };
+                    s.ctx_set(self, value.clone());
+                    return Ok(value);
                 }
-                Ok(value)
+
+                // If the tail value is not present in the stream, the value of the field depends
+                // on the state of the previous value.
+                let Some(v) = s.ctx_get(self)? else {
+                    // Undefined: the value of the field is the initial value that also becomes the new previous value.
+                    // Unless the field has optional presence, it is a dynamic error [ERR D6] if the instruction context
+                    // has no initial value. If the field has optional presence and no initial value, the field is considered
+                    // absent and the state of the previous value is changed to empty.
+                    if self.initial_value.is_none() && !self.is_optional() {
+                        return Err(Error::Runtime(
+                            "tail operator has no initial value".to_string(),
+                        )); // [ERR D6]
+                    }
+                    s.ctx_set(self, self.initial_value.clone());
+                    return Ok(self.initial_value.clone());
+                };
+
+                // Empty: the value of the field is empty. If the field is optional the value is considered absent.
+                // It is a dynamic error [ERR D7] if the field is mandatory.
+                if v.is_none() && !self.is_optional() {
+                    return Err(Error::Runtime(
+                        "tail operator has no previous value".to_string(),
+                    )); // [ERR D7]
+                }
+                Ok(v)
             }
         }
     }
@@ -702,9 +633,8 @@ impl Instruction {
             },
             // A scaled number is represented as a Signed Integer exponent followed by a Signed Integer mantissa.
             ValueType::Decimal => {
-                let (exponent, mantissa) = match self.read_decimal_components(s)? {
-                    Some((e, m)) => (e, m),
-                    None => return Ok(None),
+                let Some((exponent, mantissa)) = self.read_decimal_components(s)? else {
+                    return Ok(None);
                 };
                 Ok(Some(Value::Decimal(Decimal::new(exponent, mantissa))))
             }
@@ -721,22 +651,16 @@ impl Instruction {
             match s.rdr.read_uint_nullable()? {
                 None => Ok(None),
                 Some(v) => {
-                    if v > MAX_UINT32 {
-                        return Err(Error::Runtime(format!(
-                            "uInt32 value is out of range: {}",
-                            v
-                        )));
+                    if v > u64::from(u32::MAX) {
+                        return Err(Error::Runtime(format!("uInt32 value is out of range: {v}")));
                     }
                     Ok(Some(v as u32))
                 }
             }
         } else {
             let v = s.rdr.read_uint()?;
-            if v > MAX_UINT32 {
-                return Err(Error::Runtime(format!(
-                    "uInt32 value is out of range: {}",
-                    v
-                )));
+            if v > u64::from(u32::MAX) {
+                return Err(Error::Runtime(format!("uInt32 value is out of range: {v}")));
             }
             Ok(Some(v as u32))
         }
@@ -751,26 +675,21 @@ impl Instruction {
     }
 
     fn read_int32(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
+        const INT32_RANGE: RangeInclusive<i64> = (i32::MIN as i64)..=(i32::MAX as i64);
         if self.is_nullable() {
             match s.rdr.read_int_nullable()? {
                 None => Ok(None),
                 Some(v) => {
-                    if !(MIN_INT32..=MAX_INT32).contains(&v) {
-                        return Err(Error::Runtime(format!(
-                            "uInt32 value is out of range: {}",
-                            v
-                        ))); // [ERR D2]
+                    if !INT32_RANGE.contains(&v) {
+                        return Err(Error::Runtime(format!("Int32 value is out of range: {v}"))); // [ERR D2]
                     }
                     Ok(Some(v as i32))
                 }
             }
         } else {
             let v = s.rdr.read_int()?;
-            if !(MIN_INT32..=MAX_INT32).contains(&v) {
-                return Err(Error::Runtime(format!(
-                    "uInt32 value is out of range: {}",
-                    v
-                ))); // [ERR D2]
+            if !INT32_RANGE.contains(&v) {
+                return Err(Error::Runtime(format!("Int32 value is out of range: {v}"))); // [ERR D2]
             }
             Ok(Some(v as i32))
         }
@@ -876,24 +795,23 @@ impl Instruction {
     }
 
     fn read_exponent(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
-        let e = match self.read_int32(s)? {
-            None => return Ok(None),
-            Some(e) => e,
+        let Some(e) = self.read_int32(s)? else {
+            return Ok(None);
         };
         if !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
             return Err(Error::Dynamic(format!(
-                "exponent value is out of range: {}",
-                e
+                "exponent value is out of range: {e}"
             ))); // [ERR R1]
         }
         Ok(Some(e))
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn inject(
         &self,
         s: &mut EncoderContext,
         buf: &mut dyn Writer,
-        value: &Option<Value>,
+        value: Option<Value>,
     ) -> Result<()> {
         if value.is_none() && !self.is_optional() {
             return Err(Error::Runtime(format!(
@@ -903,9 +821,8 @@ impl Instruction {
         }
         match self.operator {
             Operator::None => self.write(buf, s, value),
-
             Operator::Constant => {
-                if value.is_some() && self.initial_value != *value {
+                if value.is_some() && self.initial_value != value {
                     return Err(Error::Runtime(format!(
                         "constant field {} has wrong value",
                         self.name
@@ -916,35 +833,31 @@ impl Instruction {
                 }
                 Ok(())
             }
-
             Operator::Default => {
-                if self.initial_value != *value {
-                    s.pmap_set_next_bit(true);
-                    self.write(buf, s, value)
-                } else {
+                if self.initial_value == value {
                     s.pmap_set_next_bit(false);
                     Ok(())
+                } else {
+                    s.pmap_set_next_bit(true);
+                    self.write(buf, s, value)
                 }
             }
-
             Operator::Copy => {
-                let prev_value = match s.ctx_get(self)? {
-                    Some(v) => v,
-                    None => {
-                        s.ctx_set(self, &self.initial_value);
-                        self.initial_value.clone()
-                    }
+                let prev_value = if let Some(v) = s.ctx_get(self)? {
+                    v
+                } else {
+                    s.ctx_set(self, self.initial_value.clone());
+                    self.initial_value.clone()
                 };
-                if prev_value == *value {
+                if prev_value == value {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
                     s.pmap_set_next_bit(true);
-                    s.ctx_set(self, value);
+                    s.ctx_set(self, value.clone());
                     self.write(buf, s, value)
                 }
             }
-
             Operator::Increment => {
                 let prev_value = s
                     .ctx_get(self)?
@@ -953,8 +866,8 @@ impl Instruction {
                     None => None,
                     Some(v) => Some(v.apply_increment()?),
                 };
-                s.ctx_set(self, value);
-                if next_value == *value {
+                s.ctx_set(self, value.clone());
+                if next_value == value {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -962,13 +875,9 @@ impl Instruction {
                     self.write(buf, s, value)
                 }
             }
-
             Operator::Delta => {
-                let value = match value {
-                    Some(v) => v,
-                    None => {
-                        return self.write_delta(buf, None);
-                    }
+                let Some(value) = value else {
+                    return self.write_delta(buf, None);
                 };
 
                 let base = match s.ctx_get(self)? {
@@ -986,24 +895,23 @@ impl Instruction {
                     },
                 };
 
-                let delta = value.find_delta(&base)?;
-                s.ctx_set(self, &Some(value.clone()));
+                let delta = value.find_delta(&base);
+                s.ctx_set(self, Some(value));
                 self.write_delta(buf, Some(delta))
             }
-
             Operator::Tail => {
                 let prev_value = s
                     .ctx_get(self)?
                     .unwrap_or_else(|| self.initial_value.clone());
-                if prev_value == *value {
+                if prev_value == value {
                     s.pmap_set_next_bit(false);
                     s.ctx_set(self, value);
                     Ok(())
                 } else {
-                    let tail = match value {
+                    let tail = match &value {
                         None => None,
                         Some(v) => {
-                            s.ctx_set(self, value);
+                            s.ctx_set(self, value.clone());
                             let prev = match prev_value {
                                 Some(p) => p,
                                 None => self.value_type.to_default_value()?,
@@ -1022,12 +930,12 @@ impl Instruction {
         &self,
         buf: &mut dyn Writer,
         s: &mut EncoderContext,
-        value: &Option<Value>,
+        value: Option<Value>,
     ) -> Result<()> {
         match self.value_type {
             ValueType::UInt32 | ValueType::Length => match value {
                 None => self.write_uint::<u32>(buf, None),
-                Some(Value::UInt32(v)) => self.write_uint(buf, Some(*v)),
+                Some(Value::UInt32(v)) => self.write_uint(buf, Some(v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {} must have UInt32 value, got: {:?} instead",
                     self.name, value
@@ -1035,7 +943,7 @@ impl Instruction {
             },
             ValueType::Int32 => match value {
                 None => self.write_int::<i32>(buf, None),
-                Some(Value::Int32(v)) => self.write_int(buf, Some(*v)),
+                Some(Value::Int32(v)) => self.write_int(buf, Some(v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {} must have Int32 value, got: {:?} instead",
                     self.name, value
@@ -1043,7 +951,7 @@ impl Instruction {
             },
             ValueType::UInt64 => match value {
                 None => self.write_uint::<u64>(buf, None),
-                Some(Value::UInt64(v)) => self.write_uint(buf, Some(*v)),
+                Some(Value::UInt64(v)) => self.write_uint(buf, Some(v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {} must have UInt64 value, got: {:?} instead",
                     self.name, value
@@ -1051,7 +959,7 @@ impl Instruction {
             },
             ValueType::Int64 | ValueType::Mantissa => match value {
                 None => self.write_int::<i64>(buf, None),
-                Some(Value::Int64(v)) => self.write_int(buf, Some(*v)),
+                Some(Value::Int64(v)) => self.write_int(buf, Some(v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {}:mantissa must have Int64 value, got: {:?} instead",
                     self.name, value
@@ -1059,7 +967,7 @@ impl Instruction {
             },
             ValueType::Exponent => match value {
                 None => self.write_exponent(buf, None),
-                Some(Value::Int32(v)) => self.write_exponent(buf, Some(*v)),
+                Some(Value::Int32(v)) => self.write_exponent(buf, Some(v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {}:exponent must have Int32 value, got: {:?} instead",
                     self.name, value
@@ -1075,10 +983,10 @@ impl Instruction {
             },
             ValueType::ASCIIString => match value {
                 None => self.write_ascii_string(buf, None),
-                Some(Value::ASCIIString(v)) => self.write_ascii_string(buf, Some(v)),
+                Some(Value::ASCIIString(v)) => self.write_ascii_string(buf, Some(&v)),
                 Some(Value::UnicodeString(v)) => {
                     if v.is_ascii() {
-                        self.write_ascii_string(buf, Some(v))
+                        self.write_ascii_string(buf, Some(&v))
                     } else {
                         Err(Error::Runtime(format!(
                             "Field {} must be valid ASCII string",
@@ -1093,8 +1001,9 @@ impl Instruction {
             },
             ValueType::UnicodeString => match value {
                 None => self.write_unicode_string(buf, None),
-                Some(Value::UnicodeString(v)) => self.write_unicode_string(buf, Some(v)),
-                Some(Value::ASCIIString(v)) => self.write_unicode_string(buf, Some(v)),
+                Some(Value::UnicodeString(v) | Value::ASCIIString(v)) => {
+                    self.write_unicode_string(buf, Some(&v))
+                }
                 _ => Err(Error::Runtime(format!(
                     "Field {} must have UnicodeString value, got: {:?} instead",
                     self.name, value
@@ -1102,7 +1011,7 @@ impl Instruction {
             },
             ValueType::Bytes => match value {
                 None => self.write_bytes(buf, None),
-                Some(Value::Bytes(v)) => self.write_bytes(buf, Some(v)),
+                Some(Value::Bytes(v)) => self.write_bytes(buf, Some(&v)),
                 _ => Err(Error::Runtime(format!(
                     "Field {} must have Bytes value, got: {:?} instead",
                     self.name, value
@@ -1116,7 +1025,7 @@ impl Instruction {
     where
         T: Into<u64>,
     {
-        let value = value.map(|v| v.into());
+        let value = value.map(std::convert::Into::into);
         if self.is_nullable() {
             buf.write_uint_nullable(value)
         } else {
@@ -1130,7 +1039,7 @@ impl Instruction {
     where
         T: Into<i64>,
     {
-        let value = value.map(|v| v.into());
+        let value = value.map(std::convert::Into::into);
         if self.is_nullable() {
             buf.write_int_nullable(value)
         } else {
@@ -1231,26 +1140,28 @@ impl Instruction {
         &self,
         buf: &mut dyn Writer,
         s: &mut EncoderContext,
-        value: Option<&Decimal>,
+        value: Option<Decimal>,
     ) -> Result<()> {
         let (e, m) = match value {
             None => (None, Value::Int64(0)),
             Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa)),
         };
+
+        let without_exponent = e.is_none();
         // write exponent
         self.instructions
             .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
-            .inject(s, buf, &e)?;
+            .inject(s, buf, e)?;
 
-        if e.is_none() {
+        if without_exponent {
             return Ok(());
         }
         // write mantissa
         self.instructions
             .get(1)
             .ok_or_else(|| Error::Runtime("mantissa field not found".to_string()))?
-            .inject(s, buf, &Some(m))
+            .inject(s, buf, Some(m))
     }
 
     fn write_exponent(&self, buf: &mut dyn Writer, value: Option<i32>) -> Result<()> {
@@ -1258,8 +1169,7 @@ impl Instruction {
             && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e)
         {
             return Err(Error::Dynamic(format!(
-                "exponent value is out of range: {}",
-                e
+                "exponent value is out of range: {e}"
             ))); // [ERR R1]
         }
         self.write_int(buf, value)

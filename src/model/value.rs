@@ -36,16 +36,14 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                     Value::UInt64(n) => visitor.visit_u64(n),
                     Value::Int64(n) => visitor.visit_i64(n),
                     Value::Decimal(f) => visitor.visit_f64(f.to_float()),
-                    Value::ASCIIString(s) => visitor.visit_string(s),
-                    Value::UnicodeString(s) => visitor.visit_string(s),
+                    Value::ASCIIString(s) | Value::UnicodeString(s) => visitor.visit_string(s),
                     Value::Bytes(b) => visitor.visit_byte_buf(b),
                 },
             },
             ValueData::Group(_) => self.deserialize_map(visitor),
             ValueData::Sequence(_) => self.deserialize_seq(visitor),
             _ => Err(Error::Runtime(format!(
-                "deserialize_any: data model unsupported type: {:?}",
-                self
+                "deserialize_any: data model unsupported type: {self:?}"
             ))),
         }
     }
@@ -81,14 +79,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::Int32(n) => visitor.visit_i32(n),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_i32: data model must be Value::Int32, got: {:?}",
-                        v
+                        "deserialize_i32: data model must be Value::Int32, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_i32: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_i32: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -103,14 +99,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::Int64(n) => visitor.visit_i64(n),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_i64: data model must be Value::Int64, got: {:?}",
-                        v
+                        "deserialize_i64: data model must be Value::Int64, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_i64: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_i64: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -139,14 +133,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::UInt32(n) => visitor.visit_u32(n),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_u64: data model must be Value::UInt32, got: {:?}",
-                        v
+                        "deserialize_u64: data model must be Value::UInt32, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_u64: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_u64: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -161,14 +153,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::UInt64(n) => visitor.visit_u64(n),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_u64: data model must be Value::UInt64, got: {:?}",
-                        v
+                        "deserialize_u64: data model must be Value::UInt64, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_u64: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_u64: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -190,14 +180,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::Decimal(n) => visitor.visit_f64(n.to_float()),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_f64: data model must be Value::Decimal, got: {:?}",
-                        v
+                        "deserialize_f64: data model must be Value::Decimal, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_f64: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_f64: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -219,14 +207,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                         }
                     }
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}",
-                        v
+                        "deserialize_char: data model must be Value::ASCIIString or Value::UnicodeString, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_char: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_char: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -248,14 +234,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::ASCIIString(s) | Value::UnicodeString(s) => visitor.visit_string(s),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString, got: {:?}",
-                        v
+                        "deserialize_string: data model must be Value::ASCIIString or Value::UnicodeString, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_string: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_string: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -277,14 +261,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 Some(v) => match v {
                     Value::Bytes(b) => visitor.visit_byte_buf(b),
                     _ => Err(Error::Runtime(format!(
-                        "deserialize_byte_buf: data model must be Value::Bytes, got: {:?}",
-                        v
+                        "deserialize_byte_buf: data model must be Value::Bytes, got: {v:?}"
                     ))),
                 },
             },
             _ => Err(Error::Runtime(format!(
-                "deserialize_string: data model must be ValueData::Value, got: {:?}",
-                self
+                "deserialize_string: data model must be ValueData::Value, got: {self:?}"
             ))),
         }
     }
@@ -299,11 +281,9 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 None => visitor.visit_none(),
                 Some(_) => visitor.visit_some(self),
             },
-            ValueData::Group(_) => visitor.visit_some(self),
-            ValueData::Sequence(_) => visitor.visit_some(self),
+            ValueData::Group(_) | ValueData::Sequence(_) => visitor.visit_some(self),
             _ => Err(Error::Runtime(format!(
-                "deserialize_option: cannot be optional, got: {:?}",
-                self
+                "deserialize_option: cannot be optional, got: {self:?}"
             ))),
         }
     }
@@ -344,8 +324,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         match self {
             ValueData::Sequence(q) => visitor.visit_seq(SequenceDeserializer::new(q)),
             _ => Err(Error::Runtime(format!(
-                "deserialize_seq: data model must be ValueData::Sequence, got {:?}",
-                self
+                "deserialize_seq: data model must be ValueData::Sequence, got {self:?}"
             ))),
         }
     }
@@ -371,14 +350,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
                 visitor.visit_seq(d)
             } else {
                 Err(Error::Runtime(format!(
-                    "deserialize_tuple_struct: expected Value::Decimal, got {:?}",
-                    self
+                    "deserialize_tuple_struct: expected Value::Decimal, got {self:?}"
                 )))
             };
         }
         Err(Error::Runtime(format!(
-            "deserialize_seq: unsupported data model {:?}",
-            self
+            "deserialize_seq: unsupported data model {self:?}"
         )))
     }
 
@@ -389,8 +366,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         match self {
             ValueData::Group(group) => visitor.visit_map(GroupDeserializer::new(group)),
             _ => Err(Error::Runtime(format!(
-                "deserialize_map: data model must be ValueData::Group, got: {:?}",
-                self
+                "deserialize_map: data model must be ValueData::Group, got: {self:?}"
             ))),
         }
     }
@@ -419,8 +395,7 @@ impl<'de> serde::Deserializer<'de> for ValueData {
         match self {
             ValueData::DynamicTemplateRef(t) => t.deserialize_enum(name, variants, visitor),
             _ => Err(Error::Runtime(format!(
-                "deserialize_enum: data model must be ValueData::DynamicTemplateRef, got: {:?}",
-                self
+                "deserialize_enum: data model must be ValueData::DynamicTemplateRef, got: {self:?}"
             ))),
         }
     }
@@ -538,11 +513,11 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::Int32(v as i32))))
+        Ok(ValueData::Value(Some(Value::Int32(i32::from(v)))))
     }
 
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::Int32(v as i32))))
+        Ok(ValueData::Value(Some(Value::Int32(i32::from(v)))))
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
@@ -554,11 +529,11 @@ impl serde::Serializer for ValueDataSerializer {
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::UInt32(v as u32))))
+        Ok(ValueData::Value(Some(Value::UInt32(u32::from(v)))))
     }
 
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-        Ok(ValueData::Value(Some(Value::UInt32(v as u32))))
+        Ok(ValueData::Value(Some(Value::UInt32(u32::from(v)))))
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
@@ -571,7 +546,7 @@ impl serde::Serializer for ValueDataSerializer {
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
         Ok(ValueData::Value(Some(Value::Decimal(Decimal::from_float(
-            v as f64,
+            f64::from(v),
         )?))))
     }
 
@@ -816,17 +791,15 @@ impl SerializeMap for ValueDataMapSerializer {
         K: ?Sized + Serialize,
         V: ?Sized + Serialize,
     {
-        let key = match key.serialize(ValueDataSerializer)? {
-            ValueData::Value(Some(Value::ASCIIString(s))) => s,
-            ValueData::Value(Some(Value::UnicodeString(s))) => s,
-            _ => {
-                return Err(Error::Runtime(
-                    "serialize_entry: key must be a string".to_string(),
-                ));
-            }
+        let ValueData::Value(Some(Value::ASCIIString(s) | Value::UnicodeString(s))) =
+            key.serialize(ValueDataSerializer)?
+        else {
+            return Err(Error::Runtime(
+                "serialize_entry: key must be a string".to_string(),
+            ));
         };
         let value = value.serialize(ValueDataSerializer)?;
-        self.data.insert(key, value);
+        self.data.insert(s, value);
         Ok(())
     }
 

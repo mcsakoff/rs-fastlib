@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use hashbrown::HashMap;
 
 use crate::Result;
@@ -14,6 +16,7 @@ pub struct TextMessageFactory {
 
 impl TextMessageFactory {
     /// Creates a new message factory.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             text: String::with_capacity(4096),
@@ -31,10 +34,10 @@ impl TextMessageFactory {
     }
 
     fn delimiter(&mut self) {
-        if !self.block_start {
-            self.text += "|";
-        } else {
+        if self.block_start {
             self.block_start = false;
+        } else {
+            self.text += "|";
         }
     }
 }
@@ -65,17 +68,16 @@ impl MessageFactory for TextMessageFactory {
                 Value::UInt64(v) => format!("{v}"),
                 Value::Int64(v) => format!("{v}"),
                 Value::Decimal(v) => v.to_string(),
-                Value::ASCIIString(v) => v.clone(),
-                Value::UnicodeString(v) => v.clone(),
+                Value::ASCIIString(v) | Value::UnicodeString(v) => v.clone(),
                 Value::Bytes(b) => bytes_to_string(&b),
             };
-            self.text += &format!("{name}={value}");
+            let _ = write!(&mut self.text, "{name}={value}");
         }
     }
 
     fn start_sequence(&mut self, _id: u32, name: &str, _length: u32) {
         self.delimiter();
-        self.text += &format!("{name}=");
+        let _ = write!(&mut self.text, "{name}=");
     }
 
     fn start_sequence_item(&mut self, _index: u32) {
@@ -93,20 +95,21 @@ impl MessageFactory for TextMessageFactory {
 
     fn start_group(&mut self, name: &str) {
         self.delimiter();
-        self.text += &format!("{name}=<");
+        let _ = write!(&mut self.text, "{name}=<");
         self.block_start = true;
     }
 
     fn stop_group(&mut self) {
         self.text += ">";
-        self.block_start = false
+        self.block_start = false;
     }
 
     fn start_template_ref(&mut self, name: &str, dynamic: bool) {
         self.dynamic.push(dynamic);
         if dynamic {
             self.delimiter();
-            self.text += &format!("TemplateReference=<{name}=<");
+
+            let _ = write!(&mut self.text, "TemplateReference=<{name}=<");
             self.block_start = true;
         }
     }
@@ -128,6 +131,7 @@ pub struct JsonMessageFactory {
 
 impl JsonMessageFactory {
     /// Creates a new message factory.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             json: String::with_capacity(4096),
@@ -145,10 +149,10 @@ impl JsonMessageFactory {
     }
 
     fn delimiter(&mut self) {
-        if !self.block_start {
-            self.json += ",";
-        } else {
+        if self.block_start {
             self.block_start = false;
+        } else {
+            self.json += ",";
         }
     }
 }
@@ -179,17 +183,16 @@ impl MessageFactory for JsonMessageFactory {
                 Value::UInt64(v) => format!("{v}"),
                 Value::Int64(v) => format!("{v}"),
                 Value::Decimal(v) => format!("{v}"),
-                Value::ASCIIString(v) => format!("\"{v}\""),
-                Value::UnicodeString(v) => format!("\"{v}\""),
+                Value::ASCIIString(v) | Value::UnicodeString(v) => format!("\"{v}\""),
                 Value::Bytes(b) => bytes_to_string(&b),
             };
-            self.json += &format!("\"{name}\":{value}");
+            let _ = write!(&mut self.json, "\"{name}\":{value}");
         }
     }
 
     fn start_sequence(&mut self, _id: u32, name: &str, _length: u32) {
         self.delimiter();
-        self.json += &format!("\"{name}\":[");
+        let _ = write!(&mut self.json, "\"{name}\":[");
         self.block_start = true;
     }
 
@@ -210,20 +213,22 @@ impl MessageFactory for JsonMessageFactory {
 
     fn start_group(&mut self, name: &str) {
         self.delimiter();
-        self.json += &format!("\"{name}\":{{");
+
+        let _ = write!(&mut self.json, "\"{name}\":{{");
         self.block_start = true;
     }
 
     fn stop_group(&mut self) {
         self.json += "}";
-        self.block_start = false
+        self.block_start = false;
     }
 
     fn start_template_ref(&mut self, name: &str, dynamic: bool) {
         self.dynamic.push(dynamic);
         if dynamic {
             self.delimiter();
-            self.json += &format!("\"TemplateReference\":{{\"{name}\":{{");
+
+            let _ = write!(&mut self.json, "\"TemplateReference\":{{\"{name}\":{{");
             self.block_start = true;
         }
     }
@@ -243,6 +248,10 @@ pub struct TextMessageVisitor {
 }
 
 impl TextMessageVisitor {
+    /// Creates `TextMessageVisitor` from text
+    ///
+    /// # Errors
+    /// Returns error if text can't be parsed.
     pub fn from_text(text: &str) -> Result<Self> {
         Ok(Self {
             data: TextMessageValue::from_text(text)?,
@@ -282,8 +291,7 @@ impl MessageVisitor for TextMessageVisitor {
                             Ok(Some(value))
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be TextMessageValue::Value, got {:?}",
-                            v
+                            "Field {name} expected to be TextMessageValue::Value, got {v:?}"
                         ))),
                     }
                 } else {
@@ -306,8 +314,7 @@ impl MessageVisitor for TextMessageVisitor {
                             Ok(true)
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be TextMessageValue::Group, got {:?}",
-                            v
+                            "Field {name} expected to be TextMessageValue::Group, got {v:?}"
                         ))),
                     }
                 } else {
@@ -341,9 +348,8 @@ impl MessageVisitor for TextMessageVisitor {
                             self.context.push(v);
                             Ok(Some(len))
                         }
-                        _ => Err(Error::Runtime(format!(
-                            "Field {name} expected to be TextMessageValue::Sequence, got {:?}",
-                            v
+                        TextMessageValue::Value(_) => Err(Error::Runtime(format!(
+                            "Field {name} expected to be TextMessageValue::Sequence, got {v:?}"
                         ))),
                     }
                 } else {
@@ -374,12 +380,11 @@ impl MessageVisitor for TextMessageVisitor {
                             Ok(())
                         }
                         _ => Err(Error::Runtime(format!(
-                            "Sequence item #{index} expected to be TextMessageValue::Group, got {:?}",
-                            v
+                            "Sequence item #{index} expected to be TextMessageValue::Group, got {v:?}"
                         ))),
                     }
                 } else {
-                    Err(Error::Runtime(format!("Index {} is out of range", index)))
+                    Err(Error::Runtime(format!("Index {index} is out of range")))
                 }
             }
             _ => unreachable!(),
@@ -422,18 +427,12 @@ pub enum TextMessageValue {
 impl TextMessageValue {
     fn from_text(text: &str) -> Result<Self> {
         match TextMessageValue::parse_next(text)? {
-            (name, TextMessageValue::Group(value), size) => {
-                if size != text.len() {
-                    Err(Error::Dynamic(
-                        "Symbols left in buffer after parsing text message".to_string(),
-                    ))
-                } else {
-                    Ok(TextMessageValue::Group(HashMap::from([(
-                        name,
-                        TextMessageValue::Group(value),
-                    )])))
-                }
-            }
+            (name, TextMessageValue::Group(value), size) if size == text.len() => Ok(
+                TextMessageValue::Group(HashMap::from([(name, TextMessageValue::Group(value))])),
+            ),
+            (_, TextMessageValue::Group(_), _) => Err(Error::Dynamic(
+                "Symbols left in buffer after parsing text message".to_string(),
+            )),
             _ => Err(Error::Dynamic("Failed to parse message body".to_string())),
         }
     }
