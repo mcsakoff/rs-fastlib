@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6
+- Add some `rust_decimal` support.
+- Optimized encoding algorithms.
+- Format and Clippy pedantic fixes.
+
 ## 0.3.5
 - Un-deprecate `from_vec` and `Decoder::decode_vec()`.
 - Minor code style changes.
