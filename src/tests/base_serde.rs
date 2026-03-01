@@ -2,7 +2,11 @@
 //!
 //! See: https://github.com/mcsakoff/goFAST/tree/main
 //!
+
+use serde::de::Deserialize;
+use serde::ser::Serialize;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 use crate::ser::to_vec;
 use crate::{Decimal, Decoder, Encoder, from_buffer};
@@ -131,10 +135,13 @@ struct DynamicReferenceMsg {
 
 const DEFINITION: &str = include_str!("templates/base.xml");
 
-fn do_test(raw: Vec<u8>, data: Message) {
+fn do_test<'de, M>(raw: Vec<u8>, data: M)
+where
+    M: ?Sized + Serialize + Deserialize<'de> + PartialEq + Debug,
+{
     {
         let mut d = Decoder::new_from_xml(DEFINITION).unwrap();
-        let (msg, n) = from_buffer::<Message>(&mut d, &raw).unwrap();
+        let (msg, n) = from_buffer::<M>(&mut d, &raw).unwrap();
         assert!(n > 0, "buffer not consumed");
         assert_eq!(msg, data, "decode mismatch");
     }
@@ -308,5 +315,27 @@ fn decode_dynamic_reference() {
             pre_ref_data: 6,
             ref0: Box::new(Message::RefData(RefDataMsg { test_data: 5 })),
         }),
+    )
+}
+
+// Boxed version of the message(s)
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+enum BoxedMessage {
+    String(Box<StringMsg>),
+}
+
+#[test]
+fn decode_strings_boxed() {
+    do_test(
+        vec![
+            0xc0, 0x82, 0x61, 0x62, 0xe3, 0x64, 0x65, 0xe6, 0x83, 0x67, 0x68, 0x69, 0x84, 0x6b,
+            0x6c, 0x6d,
+        ],
+        BoxedMessage::String(Box::new(StringMsg {
+            mandatory_ascii: "abc".to_string(),
+            optional_ascii: Some("def".to_string()),
+            mandatory_unicode: "ghi".to_string(),
+            optional_unicode: Some("klm".to_string()),
+        })),
     )
 }
