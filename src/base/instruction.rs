@@ -9,7 +9,7 @@ use crate::base::value::{Value, ValueType};
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
-use crate::{Decimal, Error, Result};
+use crate::{Decimal, Error, MessageFactory, MessageVisitor, Reader, Result};
 
 const MAX_EXPONENT: i32 = 63;
 const MIN_EXPONENT: i32 = -63;
@@ -384,7 +384,11 @@ impl Instruction {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn extract(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
+    pub(crate) fn extract<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         match self.operator {
             Operator::None => Ok(self.read(s)?),
 
@@ -601,7 +605,11 @@ impl Instruction {
         }
     }
 
-    fn read(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
+    fn read<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         match self.value_type {
             ValueType::UInt32 | ValueType::Length => match self.read_uint32(s)? {
                 None => Ok(None),
@@ -646,7 +654,11 @@ impl Instruction {
         }
     }
 
-    fn read_uint32(&self, s: &mut DecoderContext) -> Result<Option<u32>> {
+    fn read_uint32<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<u32>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             match s.rdr.read_uint_nullable()? {
                 None => Ok(None),
@@ -666,7 +678,11 @@ impl Instruction {
         }
     }
 
-    fn read_uint64(&self, s: &mut DecoderContext) -> Result<Option<u64>> {
+    fn read_uint64<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<u64>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             Ok(s.rdr.read_uint_nullable()?)
         } else {
@@ -674,7 +690,11 @@ impl Instruction {
         }
     }
 
-    fn read_int32(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
+    fn read_int32<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<i32>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         const INT32_RANGE: RangeInclusive<i64> = (i32::MIN as i64)..=(i32::MAX as i64);
         if self.is_nullable() {
             match s.rdr.read_int_nullable()? {
@@ -695,7 +715,11 @@ impl Instruction {
         }
     }
 
-    fn read_int64(&self, s: &mut DecoderContext) -> Result<Option<i64>> {
+    fn read_int64<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<i64>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             Ok(s.rdr.read_int_nullable()?)
         } else {
@@ -703,7 +727,11 @@ impl Instruction {
         }
     }
 
-    fn read_ascii_string(&self, s: &mut DecoderContext) -> Result<Option<String>> {
+    fn read_ascii_string<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<String>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             Ok(s.rdr.read_ascii_string_nullable()?)
         } else {
@@ -711,7 +739,11 @@ impl Instruction {
         }
     }
 
-    fn read_unicode_string(&self, s: &mut DecoderContext) -> Result<Option<String>> {
+    fn read_unicode_string<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<String>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             Ok(s.rdr.read_unicode_string_nullable()?)
         } else {
@@ -719,7 +751,11 @@ impl Instruction {
         }
     }
 
-    fn read_bytes(&self, s: &mut DecoderContext) -> Result<Option<Vec<u8>>> {
+    fn read_bytes<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Vec<u8>>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         if self.is_nullable() {
             Ok(s.rdr.read_bytes_nullable()?)
         } else {
@@ -730,7 +766,11 @@ impl Instruction {
     // The delta operator specifies that a delta value is present in the stream.
     // If the field has optional presence, the delta value can be NULL. In that case the value of the field
     // is considered absent. Otherwise, the field is obtained by combining the delta value with a base value.
-    fn read_delta(&self, s: &mut DecoderContext) -> Result<Option<(Value, i32)>> {
+    fn read_delta<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<(Value, i32)>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         match self.value_type {
             ValueType::UInt32
             | ValueType::Int32
@@ -762,7 +802,11 @@ impl Instruction {
         }
     }
 
-    fn read_tail(&self, s: &mut DecoderContext) -> Result<Option<Value>> {
+    fn read_tail<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         match self.value_type {
             ValueType::ASCIIString => Ok(self.read_ascii_string(s)?.map(Value::ASCIIString)),
             ValueType::UnicodeString | ValueType::Bytes => {
@@ -772,7 +816,14 @@ impl Instruction {
         }
     }
 
-    fn read_decimal_components(&self, s: &mut DecoderContext) -> Result<Option<(i32, i64)>> {
+    fn read_decimal_components<R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+    ) -> Result<Option<(i32, i64)>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         let exponent = self
             .instructions
             .first()
@@ -794,7 +845,11 @@ impl Instruction {
         }
     }
 
-    fn read_exponent(&self, s: &mut DecoderContext) -> Result<Option<i32>> {
+    fn read_exponent<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<i32>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
         let Some(e) = self.read_int32(s)? else {
             return Ok(None);
         };
@@ -807,12 +862,16 @@ impl Instruction {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn inject(
+    pub(crate) fn inject<W, M>(
         &self,
-        s: &mut EncoderContext,
-        buf: &mut dyn Writer,
+        s: &mut EncoderContext<W, M>,
+        buf: &mut impl Writer,
         value: Option<Value>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        W: Writer,
+        M: MessageVisitor,
+    {
         if value.is_none() && !self.is_optional() {
             return Err(Error::Runtime(format!(
                 "mandatory field {} has no value",
@@ -926,12 +985,16 @@ impl Instruction {
         }
     }
 
-    fn write(
+    fn write<W, M>(
         &self,
-        buf: &mut dyn Writer,
-        s: &mut EncoderContext,
+        buf: &mut impl Writer,
+        s: &mut EncoderContext<W, M>,
         value: Option<Value>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        W: Writer,
+        M: MessageVisitor,
+    {
         match self.value_type {
             ValueType::UInt32 | ValueType::Length => match value {
                 None => self.write_uint::<u32>(buf, None),
@@ -1021,7 +1084,7 @@ impl Instruction {
         }
     }
 
-    fn write_uint<T>(&self, buf: &mut dyn Writer, value: Option<T>) -> Result<()>
+    fn write_uint<T>(&self, buf: &mut impl Writer, value: Option<T>) -> Result<()>
     where
         T: Into<u64>,
     {
@@ -1035,7 +1098,7 @@ impl Instruction {
         }
     }
 
-    fn write_int<T>(&self, buf: &mut dyn Writer, value: Option<T>) -> Result<()>
+    fn write_int<T>(&self, buf: &mut impl Writer, value: Option<T>) -> Result<()>
     where
         T: Into<i64>,
     {
@@ -1049,7 +1112,7 @@ impl Instruction {
         }
     }
 
-    fn write_ascii_string(&self, buf: &mut dyn Writer, value: Option<&str>) -> Result<()> {
+    fn write_ascii_string(&self, buf: &mut impl Writer, value: Option<&str>) -> Result<()> {
         if self.is_nullable() {
             buf.write_ascii_string_nullable(value)
         } else {
@@ -1059,7 +1122,7 @@ impl Instruction {
         }
     }
 
-    fn write_unicode_string(&self, buf: &mut dyn Writer, value: Option<&str>) -> Result<()> {
+    fn write_unicode_string(&self, buf: &mut impl Writer, value: Option<&str>) -> Result<()> {
         if self.is_nullable() {
             buf.write_unicode_string_nullable(value)
         } else {
@@ -1069,7 +1132,7 @@ impl Instruction {
         }
     }
 
-    fn write_bytes(&self, buf: &mut dyn Writer, value: Option<&[u8]>) -> Result<()> {
+    fn write_bytes(&self, buf: &mut impl Writer, value: Option<&[u8]>) -> Result<()> {
         if self.is_nullable() {
             buf.write_bytes_nullable(value)
         } else {
@@ -1079,7 +1142,7 @@ impl Instruction {
         }
     }
 
-    fn write_delta(&self, buf: &mut dyn Writer, value: Option<(Value, i32)>) -> Result<()> {
+    fn write_delta(&self, buf: &mut impl Writer, value: Option<(Value, i32)>) -> Result<()> {
         match self.value_type {
             ValueType::UInt32
             | ValueType::Int32
@@ -1114,7 +1177,7 @@ impl Instruction {
         }
     }
 
-    fn write_tail(&self, buf: &mut dyn Writer, tail: Option<Value>) -> Result<()> {
+    fn write_tail(&self, buf: &mut impl Writer, tail: Option<Value>) -> Result<()> {
         match self.value_type {
             ValueType::ASCIIString => match tail {
                 None => self.write_ascii_string(buf, None),
@@ -1136,12 +1199,16 @@ impl Instruction {
         }
     }
 
-    fn write_decimal(
+    fn write_decimal<W, M>(
         &self,
-        buf: &mut dyn Writer,
-        s: &mut EncoderContext,
+        buf: &mut impl Writer,
+        s: &mut EncoderContext<W, M>,
         value: Option<Decimal>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        W: Writer,
+        M: MessageVisitor,
+    {
         let (e, m) = match value {
             None => (None, Value::Int64(0)),
             Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa)),
@@ -1164,7 +1231,7 @@ impl Instruction {
             .inject(s, buf, Some(m))
     }
 
-    fn write_exponent(&self, buf: &mut dyn Writer, value: Option<i32>) -> Result<()> {
+    fn write_exponent(&self, buf: &mut impl Writer, value: Option<i32>) -> Result<()> {
         if let Some(e) = value
             && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e)
         {

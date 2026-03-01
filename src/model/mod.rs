@@ -1,4 +1,4 @@
-use hashbrown::HashMap;
+use ahash::HashMap;
 
 use crate::Result;
 use crate::base::message::MessageVisitor;
@@ -40,7 +40,7 @@ impl ModelFactory {
 impl MessageFactory for ModelFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
         self.context
-            .push((name.to_string(), ValueData::Group(HashMap::new())));
+            .push((name.to_string(), ValueData::Group(HashMap::default())));
     }
 
     fn stop_template(&mut self) {
@@ -67,7 +67,7 @@ impl MessageFactory for ModelFactory {
 
     fn start_sequence_item(&mut self, _index: u32) {
         self.context
-            .push((String::new(), ValueData::Group(HashMap::new())));
+            .push((String::new(), ValueData::Group(HashMap::default())));
         self.ref_num.push(0);
     }
 
@@ -96,7 +96,7 @@ impl MessageFactory for ModelFactory {
 
     fn start_group(&mut self, name: &str) {
         self.context
-            .push((name.to_string(), ValueData::Group(HashMap::new())));
+            .push((name.to_string(), ValueData::Group(HashMap::default())));
         self.ref_num.push(0);
     }
 
@@ -126,7 +126,7 @@ impl MessageFactory for ModelFactory {
             self.context.push((name.to_string(), tpl_ref));
         }
         self.context
-            .push((String::new(), ValueData::Group(HashMap::new())));
+            .push((String::new(), ValueData::Group(HashMap::default())));
         self.ref_num.push(0);
     }
 

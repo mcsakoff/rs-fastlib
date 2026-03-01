@@ -1,4 +1,4 @@
-use hashbrown::HashMap;
+use ahash::{HashMap, HashMapExt};
 use serde::Serialize;
 use serde::de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{
