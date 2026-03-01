@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::Result;
 use crate::base::message::MessageVisitor;

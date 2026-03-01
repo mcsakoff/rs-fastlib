@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::Value;
 use crate::base::instruction::Instruction;

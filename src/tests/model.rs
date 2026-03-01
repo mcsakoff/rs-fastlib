@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::model::{ModelFactory, template::TemplateData, value::ValueData};
 use crate::{Decoder, Value};

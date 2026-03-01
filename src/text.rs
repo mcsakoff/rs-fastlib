@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use ahash::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::Result;
 use crate::utils::bytes::bytes_to_string;

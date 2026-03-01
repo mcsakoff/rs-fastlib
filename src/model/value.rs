@@ -1,4 +1,4 @@
-use ahash::{HashMap, HashMapExt};
+use rustc_hash::{FxBuildHasher, FxHashMap as HashMap};
 use serde::Serialize;
 use serde::de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{
@@ -761,8 +761,8 @@ impl ValueDataMapSerializer {
     fn new(len: Option<usize>) -> Self {
         Self {
             data: match len {
-                Some(len) => HashMap::with_capacity(len),
-                None => HashMap::new(),
+                Some(len) => HashMap::with_capacity_and_hasher(len, FxBuildHasher),
+                None => HashMap::default(),
             },
         }
     }
@@ -815,7 +815,7 @@ pub(crate) struct ValueDataGroupSerializer {
 impl ValueDataGroupSerializer {
     fn new(len: usize) -> Self {
         Self {
-            data: HashMap::with_capacity(len),
+            data: HashMap::with_capacity_and_hasher(len, FxBuildHasher),
         }
     }
 }

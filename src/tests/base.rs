@@ -4,7 +4,7 @@
 //!
 use std::io::Cursor;
 
-use ahash::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;

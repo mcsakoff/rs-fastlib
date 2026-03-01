@@ -1,6 +1,5 @@
+use rustc_hash::FxHashMap as HashMap;
 use std::rc::Rc;
-
-use ahash::HashMap;
 
 use crate::Value;
 
