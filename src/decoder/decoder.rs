@@ -124,11 +124,11 @@ impl Decoder {
 
 /// Processing context of the decoder. It represents context state during one message decoding.
 /// Created when it starts decoding a new message and destroyed after decoding of a message.
-pub(crate) struct DecoderContext<'a> {
+pub(crate) struct DecoderContext<'a, R, M> {
     pub(crate) definitions: &'a mut Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) rdr: &'a mut dyn Reader,
-    pub(crate) msg: &'a mut dyn MessageFactory,
+    pub(crate) rdr: &'a mut R,
+    pub(crate) msg: &'a mut M,
 
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
@@ -147,12 +147,8 @@ pub(crate) struct DecoderContext<'a> {
     pub(crate) presence_map: Stacked<PresenceMap>,
 }
 
-impl<'a> DecoderContext<'a> {
-    pub(crate) fn new(
-        d: &'a mut Decoder,
-        r: &'a mut impl Reader,
-        m: &'a mut impl MessageFactory,
-    ) -> Self {
+impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
+    pub(crate) fn new(d: &'a mut Decoder, r: &'a mut R, m: &'a mut M) -> Self {
         Self {
             definitions: &mut d.definitions,
             context: &mut d.context,

@@ -1,4 +1,4 @@
-use hashbrown::HashMap;
+use ahash::HashMap;
 
 use crate::Value;
 use crate::base::instruction::Instruction;
@@ -159,7 +159,10 @@ fn extract_value(msg: ModelFactory, name: &str, test_name: &str) -> Option<Value
 fn pack_value(templaet_name: &str, name: &str, value: Option<Value>) -> TemplateData {
     TemplateData {
         name: templaet_name.to_string(),
-        value: ValueData::Group(HashMap::from([(name.to_string(), ValueData::Value(value))])),
+        value: ValueData::Group(HashMap::from_iter([(
+            name.to_string(),
+            ValueData::Value(value),
+        )])),
     }
 }
 

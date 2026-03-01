@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use hashbrown::HashMap;
+use ahash::HashMap;
 
 use crate::Result;
 use crate::utils::bytes::bytes_to_string;
@@ -427,9 +427,12 @@ pub enum TextMessageValue {
 impl TextMessageValue {
     fn from_text(text: &str) -> Result<Self> {
         match TextMessageValue::parse_next(text)? {
-            (name, TextMessageValue::Group(value), size) if size == text.len() => Ok(
-                TextMessageValue::Group(HashMap::from([(name, TextMessageValue::Group(value))])),
-            ),
+            (name, TextMessageValue::Group(value), size) if size == text.len() => {
+                Ok(TextMessageValue::Group(HashMap::from_iter([(
+                    name,
+                    TextMessageValue::Group(value),
+                )])))
+            }
             (_, TextMessageValue::Group(_), _) => Err(Error::Dynamic(
                 "Symbols left in buffer after parsing text message".to_string(),
             )),
@@ -484,7 +487,7 @@ impl TextMessageValue {
 
     fn parse_group(mut text: &str) -> Result<(Self, usize)> {
         let mut size = 0;
-        let mut value: HashMap<String, TextMessageValue> = HashMap::new();
+        let mut value: HashMap<String, TextMessageValue> = HashMap::default();
         loop {
             let (name, v, sz) = TextMessageValue::parse_next(text)?;
             size += sz;
@@ -515,7 +518,7 @@ mod tests {
         let (value, size) = TextMessageValue::parse_group("MessageType=0|ApplVerID=8>|").unwrap();
         assert_eq!(
             value,
-            TextMessageValue::Group(HashMap::from([
+            TextMessageValue::Group(HashMap::from_iter([
                 (
                     "MessageType".to_string(),
                     TextMessageValue::Value("0".to_string())
@@ -538,7 +541,7 @@ mod tests {
         let (value, size) = TextMessageValue::parse_value("<MessageType=0>|").unwrap();
         assert_eq!(
             value,
-            TextMessageValue::Group(HashMap::from([(
+            TextMessageValue::Group(HashMap::from_iter([(
                 "MessageType".to_string(),
                 TextMessageValue::Value("0".to_string())
             )]))
@@ -550,11 +553,11 @@ mod tests {
         assert_eq!(
             value,
             TextMessageValue::Sequence(vec![
-                TextMessageValue::Group(HashMap::from([(
+                TextMessageValue::Group(HashMap::from_iter([(
                     "MessageType".to_string(),
                     TextMessageValue::Value("0".to_string())
                 )])),
-                TextMessageValue::Group(HashMap::from([(
+                TextMessageValue::Group(HashMap::from_iter([(
                     "MessageType".to_string(),
                     TextMessageValue::Value("1".to_string())
                 )])),
@@ -568,9 +571,9 @@ mod tests {
         let m = TextMessageValue::from_text(
             "MDHeartbeat=<MessageType=0|ApplVerID=8|SenderCompID=CQG|MsgSeqNum=2286|SendingTime=20240712171046052>"
         ).unwrap();
-        let r = TextMessageValue::Group(HashMap::from([(
+        let r = TextMessageValue::Group(HashMap::from_iter([(
             "MDHeartbeat".to_string(),
-            TextMessageValue::Group(HashMap::from([
+            TextMessageValue::Group(HashMap::from_iter([
                 (
                     "MessageType".to_string(),
                     TextMessageValue::Value("0".to_string()),

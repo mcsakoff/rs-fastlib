@@ -102,11 +102,11 @@ impl Encoder {
 
 /// Processing context of the encoder. It represents context state during one message encoding.
 /// Created when it starts encoding a new message and destroyed after encoding of a message.
-pub(crate) struct EncoderContext<'a> {
+pub(crate) struct EncoderContext<'a, W, M> {
     pub(crate) definitions: &'a mut Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) wrt: &'a mut dyn Writer,
-    pub(crate) msg: &'a mut dyn MessageVisitor,
+    pub(crate) wrt: &'a mut W,
+    pub(crate) msg: &'a mut M,
 
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
@@ -125,12 +125,8 @@ pub(crate) struct EncoderContext<'a> {
     pub(crate) presence_map: Stacked<PresenceMap>,
 }
 
-impl<'a> EncoderContext<'a> {
-    pub(crate) fn new(
-        d: &'a mut Encoder,
-        w: &'a mut impl Writer,
-        m: &'a mut impl MessageVisitor,
-    ) -> Self {
+impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
+    pub(crate) fn new(d: &'a mut Encoder, w: &'a mut W, m: &'a mut M) -> Self {
         Self {
             definitions: &mut d.definitions,
             context: &mut d.context,
@@ -179,13 +175,13 @@ impl<'a> EncoderContext<'a> {
     }
 
     // Write presence map to the stream and remove if from the stack.
-    fn write_presence_map(&mut self, buf: &mut dyn Writer) -> Result<()> {
+    fn write_presence_map(&mut self, buf: &mut impl Writer) -> Result<()> {
         let presence_map = self.presence_map.pop().unwrap();
         buf.write_presence_map(presence_map.bitmap, presence_map.size)
     }
 
     // Encode template id to the buffer and change the current processing context accordingly.
-    fn encode_template_id(&mut self, buf: &mut dyn Writer, template_id: u32) -> Result<()> {
+    fn encode_template_id(&mut self, buf: &mut impl Writer, template_id: u32) -> Result<()> {
         self.template_id.push(template_id);
         let instruction = self.definitions.template_id_instruction.clone();
         instruction.inject(self, buf, Some(Value::UInt32(template_id)))
@@ -198,7 +194,7 @@ impl<'a> EncoderContext<'a> {
 
     fn encode_instructions(
         &mut self,
-        buf: &mut dyn Writer,
+        buf: &mut impl Writer,
         instructions: &[Instruction],
     ) -> Result<()> {
         for instruction in instructions {
@@ -220,14 +216,18 @@ impl<'a> EncoderContext<'a> {
         Ok(())
     }
 
-    fn encode_field(&mut self, buf: &mut dyn Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_field(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
         instruction.inject(self, buf, value)
     }
 
-    fn encode_segment(&mut self, buf: &mut dyn Writer, instructions: &[Instruction]) -> Result<()> {
+    fn encode_segment(
+        &mut self,
+        buf: &mut impl Writer,
+        instructions: &[Instruction],
+    ) -> Result<()> {
         self.presence_map.push(PresenceMap::new_empty());
         let mut buf2 = BytesMut::new();
         self.encode_instructions(&mut buf2, instructions)?;
@@ -235,7 +235,7 @@ impl<'a> EncoderContext<'a> {
         buf.write_buf(buf2.as_ref())
     }
 
-    fn encode_group(&mut self, buf: &mut dyn Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_group(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
         if !self.msg.select_group(&instruction.name)? {
             return if instruction.is_optional() {
                 self.pmap_set_next_bit(false);
@@ -270,7 +270,7 @@ impl<'a> EncoderContext<'a> {
         self.msg.release_group()
     }
 
-    fn encode_sequence(&mut self, buf: &mut dyn Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_sequence(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
         let length = self.msg.select_sequence(&instruction.name)?;
         let length_instruction = instruction.instructions.first().unwrap();
 
@@ -313,7 +313,7 @@ impl<'a> EncoderContext<'a> {
 
     fn encode_template_reference(
         &mut self,
-        buf: &mut dyn Writer,
+        buf: &mut impl Writer,
         instruction: &Instruction,
     ) -> Result<()> {
         let is_dynamic = instruction.name.is_empty();
