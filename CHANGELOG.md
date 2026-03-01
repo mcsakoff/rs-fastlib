@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.7
+- Context performance improvements.
+
 ## 0.3.6
 - Add some `rust_decimal` support.
 - Optimized encoding algorithms.
