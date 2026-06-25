@@ -144,13 +144,11 @@ impl Definitions {
                     ))
                 });
             }
-            ValueType::Decimal => {
-                if instr.has_pmap.get() {
-                    // We already know that this field require a presence bit due to its subcomponents.
-                    return Ok(true);
-                }
-                // Otherwise, fall-though and check the field's operator (like for normal field).
+            ValueType::Decimal if instr.has_pmap.get() => {
+                // We already know that this field require a presence bit due to its subcomponents.
+                return Ok(true);
             }
+            // Otherwise, fall-though and check the field's operator (like for normal field).
             _ => {}
         }
         match instr.operator {
