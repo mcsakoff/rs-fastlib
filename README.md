@@ -10,8 +10,8 @@ FAST data compression algorithm is designed to optimize electronic exchange of f
 low latency data dissemination. It significantly reduces bandwidth requirements and latency between sender and receiver.
 FAST works especially well at improving performance during periods of peak message rates.
 
-_Technical Specification_: https://www.fixtrading.org/standards/fast-online/  
-_Supported version_: 1.x.1
+_Technical Specification_: https://fixtrading.org/packages/fast-specification-version-1-1/  
+_Supported version_: 1.1
 
 
 ## Usage

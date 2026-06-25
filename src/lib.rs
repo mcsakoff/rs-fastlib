@@ -7,7 +7,9 @@
 //! between sender and receiver. FAST works especially well at improving performance during periods of peak message
 //! rates.
 //!
-//! Fot the FAST protocol description see [technical specification](https://www.fixtrading.org/standards/fast-online/).
+//! Supported protocol version: 1.1.
+//!
+//! For the FAST protocol description see [technical specification](https://fixtrading.org/packages/fast-specification-version-1-1/).
 //!
 //! The `fastlib` crate provides a decoder for FAST protocol messages.
 //!

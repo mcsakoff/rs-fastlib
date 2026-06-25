@@ -1,6 +1,6 @@
 //! # Tests based on FAST spec descriptions
 //!
-//! See: https://www.fixtrading.org/standards/fast-online/
+//! See: https://fixtrading.org/packages/fast-specification-version-1-1/
 //!
 use super::*;
 

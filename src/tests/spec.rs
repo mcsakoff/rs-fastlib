@@ -1,6 +1,6 @@
 //! # Tests based on FAST specs examples
 //!
-//! See: https://www.fixtrading.org/standards/fast-online/
+//! See: https://fixtrading.org/packages/fast-specification-version-1-1/
 //!
 use crate::Decimal;
 use crate::decoder::decoder::Decoder;
