@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates version="2.26" xmlns="http://www.fixprotocol.org/ns/template-definition">
+    <template id="4001" name="MDSnapshotFullRefresh_4001">
+        <typeRef name="MDSnapshotFullRefresh" />
+        <string id="1500" name="MDStreamID"><copy /></string>
+        <string id="48" name="SecurityID"><tail /></string>
+    </template>
+</templates>

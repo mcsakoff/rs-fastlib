@@ -139,24 +139,35 @@ impl Instruction {
         if let Some(k) = node.attribute("key") {
             instruction.key = Rc::from(k);
         }
-        if let Some(k) = node.attribute("typeRef") {
-            instruction.type_ref = TypeRef::from_str(k);
-        }
 
         match instruction.value_type {
             ValueType::TemplateReference => {}
 
             ValueType::Group => {
                 for n in node.children().filter(Node::is_element) {
+                    // Try to parse as a typeRef
+                    if let Some(tr) = TypeRef::try_from_node(&n)? {
+                        instruction.type_ref = tr;
+                        continue;
+                    }
+                    // Parse as an instruction
                     let i = Instruction::from_node(n)?;
                     instruction.add_instruction(i);
                 }
             }
 
             ValueType::Sequence => {
+                let mut first_instruction: usize = 0;
                 for (i, c) in node.children().filter(Node::is_element).enumerate() {
+                    // Try to parse as a typeRef
+                    if let Some(tr) = TypeRef::try_from_node(&c)? {
+                        instruction.type_ref = tr;
+                        first_instruction += 1;
+                        continue;
+                    }
+                    // Parse as an instruction
                     let mut instr = Instruction::from_node(c)?;
-                    if i == 0 {
+                    if i == first_instruction {
                         if let ValueType::Length = instr.value_type {
                             if instr.name.is_empty() {
                                 // The name is generated and is unique to the name of the sequence field.
@@ -168,7 +179,6 @@ impl Instruction {
                             instr.presence = instruction.presence;
                         } else {
                             // If no <length> element is specified, the length field has an implicit name and no field operator.
-
                             let mut length = Instruction::new(
                                 0,
                                 &format!("{}:length", instruction.name),

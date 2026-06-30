@@ -33,17 +33,20 @@ impl Template {
             .attribute("name")
             .ok_or_else(|| Error::Static("template name not found".to_string()))?
             .to_string();
-        let type_ref = node
-            .attribute("typeRef")
-            .map_or(TypeRef::Any, TypeRef::from_str);
         let dictionary = node
             .attribute("dictionary")
             .map_or(Dictionary::Global, Dictionary::from_str);
+
+        let mut type_ref = TypeRef::Any;
         let mut instructions = Vec::new();
-        for child in node.children() {
-            if child.is_element() {
-                instructions.push(Instruction::from_node(child)?);
+        for child in node.children().filter(Node::is_element) {
+            // Try to parse as a typeRef
+            if let Some(tr) = TypeRef::try_from_node(&child)? {
+                type_ref = tr;
+                continue;
             }
+            // Parse as an instruction
+            instructions.push(Instruction::from_node(child)?);
         }
         Ok(Self {
             id,
@@ -133,5 +136,18 @@ pub(crate) enum TypeRef {
 impl TypeRef {
     pub(crate) fn from_str(name: &str) -> Self {
         Self::ApplicationType(Rc::from(name))
+    }
+
+    /// Tries to create a `TypeRef` from a node.
+    /// Returns `None` if the node is not a `typeRef`.
+    pub(crate) fn try_from_node(node: &Node) -> Result<Option<Self>> {
+        if node.tag_name().name() == "typeRef" {
+            let type_ref_name = node
+                .attribute("name")
+                .ok_or_else(|| Error::Static("typeRef name not found".to_string()))?;
+            Ok(Some(TypeRef::from_str(type_ref_name)))
+        } else {
+            Ok(None)
+        }
     }
 }

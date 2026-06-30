@@ -16,6 +16,7 @@ mod base_serde;
 mod model;
 mod spec;
 mod spec2;
+mod typeref;
 
 pub struct TestField {
     id: u32,
