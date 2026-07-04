@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<templates version="2.26" xmlns="http://www.fixprotocol.org/ns/template-definition">
-    <template id="4001" name="MDSnapshotFullRefresh_4001">
-        <typeRef name="MDSnapshotFullRefresh" />
-        <string id="1500" name="MDStreamID"><copy /></string>
-        <string id="48" name="SecurityID"><tail /></string>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+    <template name="Message1" id="1" dictionary="type">
+        <typeRef name="MessageContext"/>
+        <string name="Value" id="101"><copy/></string>
+    </template>
+    <template name="Message2" id="2">
+        <string name="Value" id="102"><copy/></string>
+    </template>
+    <template name="Message3" id="3" dictionary="type">
+        <typeRef name="MessageContext"/>
+        <string name="Value" id="103"><copy/></string>
     </template>
 </templates>
