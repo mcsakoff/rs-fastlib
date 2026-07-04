@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.8
+- Fix for processing `typeRef` element.
+
 ## 0.3.7
 - Context performance improvements.
 
