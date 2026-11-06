@@ -200,7 +200,10 @@
 #![allow(clippy::option_option)]
 pub use base::message::{MessageFactory, MessageVisitor};
 pub use base::{decimal::Decimal, value::Value, value::ValueType};
-pub use decoder::{decoder::Decoder, reader::Reader};
+pub use decoder::{
+    decoder::Decoder,
+    reader::{Reader, SliceReader},
+};
 pub use encoder::{encoder::Encoder, writer::Writer};
 pub use text::{JsonMessageFactory, TextMessageFactory, TextMessageVisitor};
 

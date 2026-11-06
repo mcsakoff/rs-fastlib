@@ -1,4 +1,3 @@
-use bytes::Buf;
 use std::io::Read;
 use std::rc::Rc;
 
@@ -9,7 +8,7 @@ use crate::base::types::{Dictionary, Template, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::common::context::{Context, DictionaryType};
 use crate::common::definitions::Definitions;
-use crate::decoder::reader::{Reader, StreamReader};
+use crate::decoder::reader::{Reader, SliceReader, StreamReader};
 use crate::utils::stacked::Stacked;
 use crate::{Error, Result};
 
@@ -50,9 +49,9 @@ impl Decoder {
     /// # Errors
     /// Returns error if message decode failed.
     pub fn decode_buffer(&mut self, buffer: &[u8], msg: &mut impl MessageFactory) -> Result<u64> {
-        let mut cursor = std::io::Cursor::new(buffer);
-        self.decode_stream(&mut cursor, msg)?;
-        Ok(cursor.position())
+        let mut rdr = SliceReader::new(buffer);
+        self.decode_reader(&mut rdr, msg)?;
+        Ok(rdr.position() as u64)
     }
 
     /// Decode single message from slice.
@@ -60,12 +59,12 @@ impl Decoder {
     /// # Errors
     /// Returns error if message decode failed.
     pub fn decode_slice(&mut self, bytes: &[u8], msg: &mut impl MessageFactory) -> Result<()> {
-        let mut cursor = std::io::Cursor::new(bytes);
-        self.decode_stream(&mut cursor, msg)?;
-        if cursor.has_remaining() {
+        let mut rdr = SliceReader::new(bytes);
+        self.decode_reader(&mut rdr, msg)?;
+        if !rdr.remaining().is_empty() {
             return Err(Error::Runtime(format!(
                 "Bytes left in the buffer after decoding: {}",
-                cursor.remaining()
+                rdr.remaining().len()
             )));
         }
         Ok(())

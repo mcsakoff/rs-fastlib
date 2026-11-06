@@ -12,12 +12,42 @@ use crate::common::definitions::MAX_PMAP_BITS;
 use crate::{Error, Result};
 
 /// A trait that provides methods for reading basic primitive types.
+///
+/// Only [`read_u8`][Reader::read_u8] is required. Reader backed by contiguous memory should also override
+/// the bulk methods ([`read_stop_bit_run`][Reader::read_stop_bit_run], [`read_exact_into`][Reader::read_exact_into])
+/// and integer methods for better performance, as [`SliceReader`] does.
 pub trait Reader {
     /// Reads a single byte.
     /// # Errors
     /// Do not return [`Error::Eof`][crate::Error::Eof] from this method.
     /// Return [`Error::UnexpectedEof`][crate::Error::UnexpectedEof] instead.
     fn read_u8(&mut self) -> Result<u8>;
+
+    /// Append bytes to `out` up to and including the first byte with the stop bit set.
+    /// Bytes are appended as is, i.e. the stop bit is not cleared.
+    /// # Errors
+    /// Returns error if the stream ends before the stop bit.
+    fn read_stop_bit_run(&mut self, out: &mut Vec<u8>) -> Result<()> {
+        loop {
+            let byte = self.read_u8()?;
+            out.push(byte);
+            if byte & 0x80 == 0x80 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Appends exactly `n` bytes to `out`.
+    /// # Errors
+    /// Returns error if the stream ends before `n` bytes are read.
+    fn read_exact_into(&mut self, n: usize, out: &mut Vec<u8>) -> Result<()> {
+        // Do not trust `n` for pre-allocation: it comes from the stream.
+        out.reserve(n.min(4096));
+        for _ in 0..n {
+            out.push(self.read_u8()?);
+        }
+        Ok(())
+    }
 
     /// Read the presence map. Return the bitmap and the number of bits in the bitmap.
     /// # Errors
@@ -40,9 +70,7 @@ pub trait Reader {
                 return Ok((bitmap, size));
             }
             if usize::from(size) >= MAX_PMAP_BITS {
-                return Err(Error::Dynamic(format!(
-                    "presence map is longer that {MAX_PMAP_BITS} bits"
-                )));
+                return Err(pmap_overflow());
             }
             byte = self.read_u8()?;
         }
@@ -50,7 +78,7 @@ pub trait Reader {
 
     /// Returns decoded non-nullable 64 bits unsigned integer.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_uint(&mut self) -> Result<u64> {
         let mut value: u64 = 0;
         loop {
@@ -68,7 +96,7 @@ pub trait Reader {
 
     /// Returns decoded nullable 64 bits unsigned integer.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
         let value = self.read_uint()?;
         if value == 0 {
@@ -80,15 +108,11 @@ pub trait Reader {
 
     /// Returns decoded non-nullable 64 bits signed integer.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_int(&mut self) -> Result<i64> {
-        let mut value: i64 = 0;
-
         let mut byte = self.read_u8()?;
-        if byte & 0x40 != 0 {
-            // Negative Integer
-            value = -1;
-        }
+        // Negative integers are sign-extended.
+        let mut value: i64 = if byte & 0x40 != 0 { -1 } else { 0 };
         loop {
             if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
                 return Err(integer_overflow()); // [ERR D2]
@@ -105,7 +129,7 @@ pub trait Reader {
 
     /// Returns decoded nullable 64 bits signed integer.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_int_nullable(&mut self) -> Result<Option<i64>> {
         let value = self.read_int()?;
         match value {
@@ -119,48 +143,26 @@ pub trait Reader {
     /// # Errors
     /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_ascii_string(&mut self) -> Result<String> {
-        let mut byte = self.read_u8()?;
-        if byte == 0x80 {
-            return Ok(String::new());
-        }
-
-        let mut buf: Vec<u8> = Vec::new();
-        loop {
-            buf.push(byte & 0x7f);
-            if byte & 0x80 == 0x80 {
-                break;
-            }
-            byte = self.read_u8()?;
-        }
-        // SAFETY: `buf` contains ASCII 7-bit characters
-        unsafe { Ok(String::from_utf8_unchecked(buf)) }
+        let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
+        self.read_stop_bit_run(&mut buf)?;
+        Ok(ascii_from_run(buf))
     }
 
     /// Returns decoded nullable ASCII encoded string.
     /// # Errors
     /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
-        let mut byte = self.read_u8()?;
-
-        if byte == 0x80 {
-            return Ok(None);
-        } else if byte == 0x00 {
-            byte = self.read_u8()?;
-            if byte == 0x80 {
-                return Ok(Some(String::new()));
+        let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
+        self.read_stop_bit_run(&mut buf)?;
+        match buf.as_slice() {
+            [0x80] => Ok(None),
+            [0x00, 0x80] => Ok(Some(String::new())),
+            [0x80, ..] => {
+                buf.remove(0);
+                Ok(Some(ascii_from_run(buf)))
             }
+            _ => Ok(Some(ascii_from_run(buf))),
         }
-
-        let mut buf: Vec<u8> = Vec::new();
-        loop {
-            buf.push(byte & 0x7f);
-            if byte & 0x80 == 0x80 {
-                break;
-            }
-            byte = self.read_u8()?;
-        }
-        // SAFETY: `buf` contains ASCII 7-bit characters
-        unsafe { Ok(Some(String::from_utf8_unchecked(buf))) }
     }
 
     /// Returns decoded non-nullable unicode encoded string.
@@ -184,11 +186,9 @@ pub trait Reader {
     /// # Errors
     /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_bytes(&mut self) -> Result<Vec<u8>> {
-        let length = self.read_uint()?;
-        let mut buf = Vec::with_capacity(length as usize);
-        for _ in 0..length {
-            buf.push(self.read_u8()?);
-        }
+        let length = usize::try_from(self.read_uint()?).map_err(|_| integer_overflow())?;
+        let mut buf = Vec::new();
+        self.read_exact_into(length, &mut buf)?;
         Ok(buf)
     }
 
@@ -199,10 +199,9 @@ pub trait Reader {
         match self.read_uint_nullable()? {
             None => Ok(None),
             Some(length) => {
-                let mut buf = Vec::with_capacity(length as usize);
-                for _ in 0..length {
-                    buf.push(self.read_u8()?);
-                }
+                let length = usize::try_from(length).map_err(|_| integer_overflow())?;
+                let mut buf = Vec::new();
+                self.read_exact_into(length, &mut buf)?;
                 Ok(Some(buf))
             }
         }
@@ -210,18 +209,213 @@ pub trait Reader {
 }
 
 #[cold]
+fn pmap_overflow() -> Error {
+    Error::Dynamic(format!("presence map is longer that {MAX_PMAP_BITS} bits"))
+}
+
+#[cold]
 fn integer_overflow() -> Error {
     Error::Dynamic("integer value does not fit into 64 bits".to_string())
 }
 
-impl Reader for bytes::Bytes {
-    fn read_u8(&mut self) -> Result<u8> {
-        if self.is_empty() {
-            return Err(Error::UnexpectedEof);
-        }
-        let b = self.get_u8();
-        Ok(b)
+// Converts a stop bit encoded run into an ASCII string.
+// A single 0x80 byte is an empty string.
+fn ascii_from_run(mut buf: Vec<u8>) -> String {
+    if buf == [0x80] {
+        return String::new();
     }
+    if let Some(last) = buf.last_mut() {
+        *last &= 0x7f;
+    }
+    // SAFETY: `buf` contains ASCII 7-bit characters.
+    //         A stop bit run has the 8th bit set only in the last byte, which was cleared above.
+    unsafe { String::from_utf8_unchecked(buf) }
+}
+
+// Helpers that parse values from contiguous memory. Each returns the value and the number of consumed bytes.
+mod slice {
+    use super::{MAX_PMAP_BITS, integer_overflow, pmap_overflow};
+    use crate::{Error, Result};
+
+    #[inline]
+    pub(super) fn stop_bit_len(buf: &[u8]) -> Result<usize> {
+        match buf.iter().position(|b| b & 0x80 != 0) {
+            Some(i) => Ok(i + 1),
+            None => Err(Error::UnexpectedEof),
+        }
+    }
+
+    #[inline]
+    pub(super) fn uint(buf: &[u8]) -> Result<(u64, usize)> {
+        let mut value: u64 = 0;
+        for (i, &byte) in buf.iter().enumerate() {
+            if value > u64::MAX >> 7 {
+                return Err(integer_overflow()); // [ERR D2]
+            }
+            value = (value << 7) | u64::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok((value, i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+
+    #[inline]
+    pub(super) fn int(buf: &[u8]) -> Result<(i64, usize)> {
+        let Some(&first) = buf.first() else {
+            return Err(Error::UnexpectedEof);
+        };
+        // Negative integers are sign-extended.
+        let mut value: i64 = if first & 0x40 != 0 { -1 } else { 0 };
+        for (i, &byte) in buf.iter().enumerate() {
+            if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
+                return Err(integer_overflow()); // [ERR D2]
+            }
+            value = (value << 7) | i64::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok((value, i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+
+    #[inline]
+    pub(super) fn presence_map(buf: &[u8]) -> Result<((u64, u8), usize)> {
+        if buf.is_empty() {
+            return Err(Error::Eof);
+        }
+        let mut bitmap: u64 = 0;
+        for (i, &byte) in buf.iter().enumerate() {
+            if i * 7 >= MAX_PMAP_BITS {
+                return Err(pmap_overflow());
+            }
+            bitmap = (bitmap << 7) | u64::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok(((bitmap, (i as u8 + 1) * 7), i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+}
+
+// Readers backed by contiguous memory.
+trait Contiguous {
+    // Returns remaining bytes.
+    fn rest(&self) -> &[u8];
+    // Consume `n` bytes.
+    fn consume(&mut self, n: usize);
+}
+
+// Implements the fast `Reader` methods for a type implementing `Contiguous`.
+macro_rules! impl_contiguous_reader {
+    () => {
+        #[inline]
+        fn read_u8(&mut self) -> Result<u8> {
+            let Some(&b) = Contiguous::rest(self).first() else {
+                return Err(Error::UnexpectedEof);
+            };
+            Contiguous::consume(self, 1);
+            Ok(b)
+        }
+
+        #[inline]
+        fn read_stop_bit_run(&mut self, out: &mut Vec<u8>) -> Result<()> {
+            let rest = Contiguous::rest(self);
+            let n = slice::stop_bit_len(rest)?;
+            out.extend_from_slice(&rest[..n]);
+            Contiguous::consume(self, n);
+            Ok(())
+        }
+
+        #[inline]
+        fn read_exact_into(&mut self, n: usize, out: &mut Vec<u8>) -> Result<()> {
+            let rest = Contiguous::rest(self);
+            if rest.len() < n {
+                return Err(Error::UnexpectedEof);
+            }
+            out.extend_from_slice(&rest[..n]);
+            Contiguous::consume(self, n);
+            Ok(())
+        }
+
+        #[inline]
+        fn read_presence_map(&mut self) -> Result<(u64, u8)> {
+            let (v, n) = slice::presence_map(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_uint(&mut self) -> Result<u64> {
+            let (v, n) = slice::uint(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_int(&mut self) -> Result<i64> {
+            let (v, n) = slice::int(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+    };
+}
+
+impl Contiguous for bytes::Bytes {
+    fn rest(&self) -> &[u8] {
+        self.as_ref()
+    }
+
+    fn consume(&mut self, n: usize) {
+        self.advance(n);
+    }
+}
+
+impl Reader for bytes::Bytes {
+    impl_contiguous_reader!();
+}
+
+/// Reader over a byte slice.
+///
+/// It is the fastest [`Reader`] implementation.
+pub struct SliceReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> SliceReader<'a> {
+    #[must_use]
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    /// Returns the number of byres consumed so far.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
+    /// Returns the bytes not consumed yet.
+    #[must_use]
+    pub fn remaining(&self) -> &'a [u8] {
+        &self.buf[self.pos..]
+    }
+}
+
+impl Contiguous for SliceReader<'_> {
+    #[inline]
+    fn rest(&self) -> &[u8] {
+        &self.buf[self.pos..]
+    }
+
+    #[inline]
+    fn consume(&mut self, n: usize) {
+        self.pos += n;
+    }
+}
+
+impl Reader for SliceReader<'_> {
+    impl_contiguous_reader!();
 }
 
 /// Wrapper around `std::io::Read` that implements [`fastlib::Reader`][crate::decoder::reader::Reader].
@@ -594,5 +788,57 @@ mod tests {
             0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff,
         ]);
         assert!(matches!(buf.read_presence_map(), Err(Error::Dynamic(_))));
+    }
+
+    // Fast paths of contiguous reader must behave exactly like the default byte-by-byte implementation.
+    #[test]
+    fn contiguous_reader_match_default() {
+        use std::io::Cursor;
+
+        // Stops at the first error: decoding is aborted after an error anyway.
+        fn run<R: Reader>(r: &mut R) -> Vec<String> {
+            let mut out = Vec::new();
+            macro_rules! step {
+                ($e:expr) => {
+                    let v = $e;
+                    out.push(format!("{v:?}"));
+                    if v.is_err() {
+                        return out;
+                    }
+                };
+            }
+            step!(r.read_presence_map());
+            step!(r.read_uint());
+            step!(r.read_int());
+            step!(r.read_ascii_string_nullable());
+            step!(r.read_ascii_string());
+            step!(r.read_bytes_nullable());
+            step!(r.read_unicode_string());
+            step!(r.read_int_nullable());
+            out
+        }
+        let inputs: Vec<Vec<u8>> = vec![
+            vec![],
+            vec![0x80],
+            vec![0x0f, 0x8f, 0x81, 0xff, 0x80, 0x80],
+            vec![
+                0x80, 0x39, 0x45, 0xa3, 0x7c, 0x1b, 0xdd, 0x00, 0x80, 0x41, 0xc2,
+            ],
+            vec![
+                0x91, 0x81, 0x81, 0x00, 0x41, 0xc2, 0x80, 0x84, 0x41, 0x42, 0x43, 0x82, 0xc3, 0xa9,
+                0x80,
+            ],
+            vec![0x81, 0x81, 0x81, 0x80, 0x85, 0x41],
+            vec![0x7f; 12],
+            vec![0x81, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
+            vec![0x81, 0x80, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
+            vec![0x81, 0x80, 0x80, 0x80, 0x81, 0xff],
+        ];
+        for input in inputs {
+            let mut cursor = Cursor::new(input.clone());
+            let expected = run(&mut StreamReader::new(&mut cursor));
+            assert_eq!(run(&mut SliceReader::new(&input)), expected, "{input:x?}");
+            assert_eq!(run(&mut bytes::Bytes::from(input.clone())), expected, "{input:x?}");
+        }
     }
 }
