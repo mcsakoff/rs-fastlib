@@ -14,6 +14,7 @@ use crate::model::{ModelFactory, ModelVisitor};
 mod base;
 mod base_serde;
 mod model;
+mod pmap;
 mod spec;
 mod spec2;
 mod typeref;

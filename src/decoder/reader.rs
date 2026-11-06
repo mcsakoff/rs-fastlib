@@ -8,6 +8,7 @@ use std::io::{ErrorKind, Read};
 
 use bytes::Buf;
 
+use crate::common::definitions::MAX_PMAP_BITS;
 use crate::{Error, Result};
 
 /// A trait that provides methods for reading basic primitive types.
@@ -38,17 +39,25 @@ pub trait Reader {
             if byte & 0x80 == 0x80 {
                 return Ok((bitmap, size));
             }
+            if usize::from(size) >= MAX_PMAP_BITS {
+                return Err(Error::Dynamic(format!(
+                    "presence map is longer that {MAX_PMAP_BITS} bits"
+                )));
+            }
             byte = self.read_u8()?;
         }
     }
 
-    /// Returns decoded non-nullable 64 bit unsigned integer.
+    /// Returns decoded non-nullable 64 bits unsigned integer.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_uint(&mut self) -> Result<u64> {
         let mut value: u64 = 0;
         loop {
             let byte = self.read_u8()?;
+            if value > u64::MAX >> 7 {
+                return Err(integer_overflow()); // [ERR D2]
+            }
             value <<= 7;
             value |= u64::from(byte & 0x7f);
             if byte & 0x80 == 0x80 {
@@ -57,9 +66,9 @@ pub trait Reader {
         }
     }
 
-    /// Returns decoded nullable 64 bit unsigned integer.
+    /// Returns decoded nullable 64 bits unsigned integer.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
         let value = self.read_uint()?;
         if value == 0 {
@@ -69,9 +78,9 @@ pub trait Reader {
         }
     }
 
-    /// Returns decoded non-nullable 64 bit signed integer.
+    /// Returns decoded non-nullable 64 bits signed integer.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_int(&mut self) -> Result<i64> {
         let mut value: i64 = 0;
 
@@ -81,6 +90,9 @@ pub trait Reader {
             value = -1;
         }
         loop {
+            if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
+                return Err(integer_overflow()); // [ERR D2]
+            }
             value <<= 7;
             value |= i64::from(byte & 0x7f);
 
@@ -91,9 +103,9 @@ pub trait Reader {
         }
     }
 
-    /// Returns decoded nullable 64 bit signed integer.
+    /// Returns decoded nullable 64 bits signed integer.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_int_nullable(&mut self) -> Result<Option<i64>> {
         let value = self.read_int()?;
         match value {
@@ -105,7 +117,7 @@ pub trait Reader {
 
     /// Returns decoded non-nullable ASCII encoded string.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_ascii_string(&mut self) -> Result<String> {
         let mut byte = self.read_u8()?;
         if byte == 0x80 {
@@ -126,7 +138,7 @@ pub trait Reader {
 
     /// Returns decoded nullable ASCII encoded string.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
         let mut byte = self.read_u8()?;
 
@@ -153,7 +165,7 @@ pub trait Reader {
 
     /// Returns decoded non-nullable unicode encoded string.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_unicode_string(&mut self) -> Result<String> {
         Ok(String::from_utf8(self.read_bytes()?)?)
     }
@@ -170,7 +182,7 @@ pub trait Reader {
 
     /// Returns decoded non-nullable bytes.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_bytes(&mut self) -> Result<Vec<u8>> {
         let length = self.read_uint()?;
         let mut buf = Vec::with_capacity(length as usize);
@@ -182,7 +194,7 @@ pub trait Reader {
 
     /// Returns decoded nullable bytes.
     /// # Errors
-    /// Returns error if can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_bytes_nullable(&mut self) -> Result<Option<Vec<u8>>> {
         match self.read_uint_nullable()? {
             None => Ok(None),
@@ -195,6 +207,11 @@ pub trait Reader {
             }
         }
     }
+}
+
+#[cold]
+fn integer_overflow() -> Error {
+    Error::Dynamic("integer value does not fit into 64 bits".to_string())
 }
 
 impl Reader for bytes::Bytes {
@@ -531,5 +548,51 @@ mod tests {
             let value = buf.read_bytes_nullable().unwrap();
             assert_eq!(value, tc.value);
         }
+    }
+
+    #[test]
+    fn read_integer_limits() {
+        use crate::encoder::writer::Writer;
+
+        for v in [0, 1, u64::from(u32::MAX), u64::MAX >> 7, u64::MAX] {
+            let mut buf = bytes::BytesMut::new();
+            buf.write_uint(v).unwrap();
+            assert_eq!(buf.freeze().read_uint().unwrap(), v);
+        }
+
+        for v in [0, -1, 1, i64::MIN >> 7, i64::MAX >> 7, i64::MIN, i64::MAX] {
+            let mut buf = bytes::BytesMut::new();
+            buf.write_int(v).unwrap();
+            assert_eq!(buf.freeze().read_int().unwrap(), v);
+        }
+    }
+
+    #[test]
+    fn read_integer_overflow() {
+        // 2^64 doesn't fit into u64
+        let mut buf = bytes::Bytes::from(vec![0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80]);
+        assert!(matches!(buf.read_uint(), Err(Error::Dynamic(_))));
+
+        // 2^63 doesn't fit into i64
+        let mut buf = bytes::Bytes::from(vec![0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80]);
+        assert!(matches!(buf.read_int(), Err(Error::Dynamic(_))));
+
+        // -2^63 - 1 doesn't fit into i64
+        let mut buf = bytes::Bytes::from(vec![
+            0x7e, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff,
+        ]);
+        assert!(matches!(buf.read_int(), Err(Error::Dynamic(_))));
+    }
+
+    #[test]
+    fn read_pmap_long() {
+        let mut buf =
+            bytes::Bytes::from(vec![0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff]);
+        assert_eq!(buf.read_presence_map().unwrap(), (u64::MAX >> 1, 63));
+
+        let mut buf = bytes::Bytes::from(vec![
+            0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff,
+        ]);
+        assert!(matches!(buf.read_presence_map(), Err(Error::Dynamic(_))));
     }
 }

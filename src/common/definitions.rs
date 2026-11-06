@@ -7,6 +7,9 @@ use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
 use crate::base::value::ValueType;
 use crate::{Error, Result};
 
+/// Maximum number of bits in a presence map segment.
+pub const MAX_PMAP_BITS: usize = 63;
+
 /// Stores template definitions and global processing context.
 pub struct Definitions {
     pub(crate) templates: Vec<Rc<Template>>,
@@ -78,88 +81,93 @@ impl Definitions {
     // templates structure is generated.
     fn finalize(&self) -> Result<()> {
         for tpl in &self.templates {
-            let need_pmap = self.require_presence_map_bit(&tpl.instructions)?;
-            tpl.require_pmap.set(Some(need_pmap));
+            let bits = self.count_presence_map_bits(&tpl.instructions)?;
+            // The template segment also contains the template identifier bit
+            Self::check_segment_size(&tpl.name, bits + 1)?;
+            tpl.pmap_bits.set(Some(bits));
         }
         Ok(())
     }
 
-    // Go through sequence of instructions and check if any of them require presence map bit.
-    // No early exit! Must iterate over all items because has_presence_map_bit() also initializes has_pmap bit.
-    fn require_presence_map_bit(&self, instructions: &[Instruction]) -> Result<bool> {
-        let mut has_pmap_bit = false;
+    // Presence map is stored in `u64`, so a segment can't use more than 63 bits.
+    fn check_segment_size(name: &str, bits: usize) -> Result<()> {
+        if bits > MAX_PMAP_BITS {
+            return Err(Error::Static(format!(
+                "'{name}' requires {bits} presence map, at most {MAX_PMAP_BITS} supported"
+            )));
+        }
+        Ok(())
+    }
+
+    // Count presence map bits the instruction occupy in the enclosing segment.
+    // No early exit! Must iterate over all items because presence_map_bits() also initializes has_pmap bit.
+    fn count_presence_map_bits(&self, instructions: &[Instruction]) -> Result<usize> {
+        let mut pmap_bits = 0;
         for i in instructions {
-            if self.has_presence_map_bit(i)? {
-                has_pmap_bit = true;
-            }
+            pmap_bits += self.presence_map_bits(i)?;
         }
-        Ok(has_pmap_bit)
+        Ok(pmap_bits)
     }
 
-    fn set_has_pmap(&self, instr: &Instruction) -> Result<()> {
-        let instructions: &[Instruction] = match instr.value_type {
-            ValueType::Group | ValueType::TemplateReference | ValueType::Decimal => {
-                &instr.instructions
-            }
-            ValueType::Sequence => &instr.instructions[1..],
-            _ => {
-                return Ok(());
-            }
-        };
-        let need_pmap = self.require_presence_map_bit(instructions)?;
-        instr.has_pmap.set(need_pmap);
-        Ok(())
-    }
-
-    fn has_presence_map_bit(&self, instr: &Instruction) -> Result<bool> {
-        // first, initialize internals of the instruction
-        self.set_has_pmap(instr)?;
-
-        // then, check if it has a presence map bit
+    // Initializes `has_pmap` of the instructions and returns the number of presence map bits it occupies
+    // in the enclosing segment.
+    fn presence_map_bits(&self, instr: &Instruction) -> Result<usize> {
         match instr.value_type {
             ValueType::Group => {
+                let inner = self.count_presence_map_bits(&instr.instructions)?;
+                Self::check_segment_size(&instr.name, inner)?;
+                instr.has_pmap.set(inner > 0);
                 // If a ::Group field is optional, it will occupy a single bit in the presence map.
-                return Ok(instr.is_optional());
+                return Ok(usize::from(instr.is_optional()));
             }
             ValueType::Sequence => {
-                // For ::Sequence its length field show if the sequence has a bit in the presence map.
-                return self.has_presence_map_bit(instr.instructions.first().ok_or_else(|| {
+                let length = instr.instructions.first().ok_or_else(|| {
                     Error::Static(format!("sequence '{}' has no length field", instr.name))
-                })?);
+                })?;
+                let inner = self.count_presence_map_bits(&instr.instructions[1..])?;
+                Self::check_segment_size(&instr.name, inner)?;
+                instr.has_pmap.set(inner > 0);
+                // For ::Sequence its length field show if the sequence has a bit in the presence map.
+                return self.presence_map_bits(length);
             }
             ValueType::TemplateReference => {
                 if instr.name.is_empty() {
                     // Dynamic template ref doesn't need a presence map bit.
-                    return Ok(false);
+                    return Ok(0);
                 }
-                // Static template ref checks corresponding template it is needs any presence bit.
+                // Static template ref occupies the same bits as the corresponding template.
                 let template = self
                     .templates_by_name
                     .get(&instr.name)
                     .ok_or_else(|| Error::Static(format!("template '{}' not found", instr.name)))?;
-                return template.require_pmap.get().ok_or_else(|| {
+                return template.pmap_bits.get().ok_or_else(|| {
                     Error::Static(format!(
                         "template '{}' not initialized yet; consider reordering templates",
                         instr.name
                     ))
                 });
             }
-            ValueType::Decimal if instr.has_pmap.get() => {
-                // We already know that this field require a presence bit due to its subcomponents.
-                return Ok(true);
+            ValueType::Decimal => {
+                let inner = self.count_presence_map_bits(&instr.instructions)?;
+                instr.has_pmap.set(inner > 0);
+                if instr.operator == Operator::None {
+                    // Subcomponents occupy their own bits
+                    return Ok(inner);
+                }
             }
             // Otherwise, fall-though and check the field's operator (like for normal field).
             _ => {}
         }
-        match instr.operator {
+        let bit = match instr.operator {
             // If a field (is mandatory and) has no field operator, it will not occupy any bit in the presence map
             // and its value must always appear in the stream.
             // Delta is always present in the stream, so doesn't need a presence bit.
-            Operator::None | Operator::Delta => Ok(false),
+            Operator::None | Operator::Delta => false,
             // Always require a presence bit.
-            Operator::Default | Operator::Copy | Operator::Increment | Operator::Tail => Ok(true),
+            Operator::Default | Operator::Copy | Operator::Increment | Operator::Tail => true,
             // An optional field with the constant operator will occupy a single bit.
-            Operator::Constant => Ok(instr.is_optional()),
-        }
+            Operator::Constant => instr.is_optional(),
+        };
+        Ok(usize::from(bit))
     }
 }

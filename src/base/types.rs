@@ -15,9 +15,9 @@ pub(crate) struct Template {
     pub(crate) dictionary: Dictionary,
     pub(crate) instructions: Vec<Instruction>,
 
-    // This flag indicates if the template requires a presence map in case of statically referenced
-    // from another template. If the flag is None, the presence map is not calculated yet.
-    pub(crate) require_pmap: Cell<Option<bool>>,
+    // Number of presence map bits the template instruction occupy (without the template identifier bit).
+    // If it is None, the presence map is not calculated yet.
+    pub(crate) pmap_bits: Cell<Option<usize>>,
 }
 
 impl Template {
@@ -54,7 +54,7 @@ impl Template {
             type_ref,
             dictionary,
             instructions,
-            require_pmap: Cell::new(None),
+            pmap_bits: Cell::new(None),
         })
     }
 }
