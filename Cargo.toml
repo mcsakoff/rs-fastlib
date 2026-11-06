@@ -24,6 +24,7 @@ thiserror = "2"
 [dev-dependencies]
 serde_derive = "1.0"
 serde_bytes = "0.11"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [features]
 default = ["serde"]
@@ -33,3 +34,7 @@ serde = [
 rust_decimal = [
     "dep:rust_decimal",
 ]
+
+[[bench]]
+name = "codec"
+harness = false

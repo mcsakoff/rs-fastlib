@@ -8,7 +8,7 @@ use fastlib::{Decimal, Decoder, Encoder};
 
 /// Message templates must be implements as `enum`.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum Message {
+pub enum Message {
     MDSecurityDefinition(SecurityDefinition),
     MDHeartbeat(Heartbeat),
     MDLogon(Logon),
@@ -16,7 +16,7 @@ enum Message {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct MsgHeader {
+pub struct MsgHeader {
     #[serde(rename = "ApplVerID")]
     appl_ver_id: char,
     #[serde(rename = "SenderCompID")]
@@ -30,7 +30,7 @@ struct MsgHeader {
 /// Static template references can be flattened with `#[serde(flatten)]` or inlined as is.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Heartbeat {
+pub struct Heartbeat {
     message_type: char,
 
     // static templateRef as flattened struct
@@ -40,7 +40,7 @@ struct Heartbeat {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Logon {
+pub struct Logon {
     message_type: char,
 
     // static templateRef as inlined fields
@@ -59,7 +59,7 @@ struct Logon {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Logout {
+pub struct Logout {
     message_type: char,
     #[serde(flatten)]
     msg_header: MsgHeader,
@@ -68,7 +68,7 @@ struct Logout {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct SecurityDefinition {
+pub struct SecurityDefinition {
     message_type: char,
     #[serde(flatten)]
     msg_header: MsgHeader,
@@ -107,7 +107,7 @@ struct SecurityDefinition {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Event {
+pub struct Event {
     event_type: u32,
     event_date: u64,
     event_time: u64,
@@ -115,7 +115,7 @@ struct Event {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct FeedType {
+pub struct FeedType {
     #[serde(rename = "MDFeedType")]
     feed_type: String,
     market_depth: u32,
@@ -123,14 +123,14 @@ struct FeedType {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct InstrAttrib {
+pub struct InstrAttrib {
     instr_attrib_type: u64,
     instr_attrib_value: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Connection {
+pub struct Connection {
     connection_type: u32,
     #[serde(rename = "ConnectionIPAddress")]
     connection_ip_address: String,
@@ -139,7 +139,7 @@ struct Connection {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct TradingSession {
+pub struct TradingSession {
     trade_date: u64,
     trad_ses_start_time: u64,
     trad_ses_open_time: u64,
@@ -147,7 +147,7 @@ struct TradingSession {
     trad_ses_end_time: u64,
 }
 
-const DEFINITION: &str = include_str!("templates.xml");
+pub const DEFINITION: &str = include_str!("templates.xml");
 
 fn do_tests_seq(raw: Vec<Vec<u8>>, data: Vec<Message>) {
     let mut e = Encoder::new_from_xml(DEFINITION).unwrap();
@@ -201,7 +201,7 @@ fn test_heartbeats() {
                 },
             }),
         ],
-    )
+    );
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn test_logon() {
             encrypt_method: 0,
             heartbeat_int: 10,
         })],
-    )
+    );
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn test_logout() {
             },
             text: Some("Request timeout".to_string()),
         })],
-    )
+    );
 }
 
 #[test]
@@ -386,5 +386,5 @@ fn test_definitions() {
                 },
             ],
         })],
-    )
+    );
 }
