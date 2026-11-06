@@ -406,10 +406,9 @@ impl MessageVisitor for TextMessageVisitor {
     fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<String>> {
         if dynamic {
             todo!()
-        } else {
-            // do nothing because static template ref is embedded into current context
-            Ok(None)
         }
+        // do nothing because static template ref is embedded into current context
+        Ok(None)
     }
 
     fn release_template_ref(&mut self) -> Result<()> {

@@ -43,7 +43,7 @@ pub fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
     );
     for (t, tt) in d.definitions.templates.iter().zip(tts) {
         assert_eq!(t.id, tt.id, "{} id mismatch", t.name);
-        assert_eq!(t.name, t.name, "{} name mismatch", t.name);
+        assert_eq!(t.name, tt.name, "{} name mismatch", t.name);
         assert_eq!(
             t.dictionary, tt.dictionary,
             "{} dictionary mismatch",
@@ -57,7 +57,7 @@ pub fn test_instructions(iss: &Vec<Instruction>, tis: &Vec<TestField>, name: &st
     assert_eq!(iss.len(), tis.len(), "{name} fields count mismatch");
     for (t, tt) in iss.iter().zip(tis) {
         assert_eq!(t.id, tt.id, "{} id mismatch", tt.name);
-        assert_eq!(t.name, t.name, "{} name mismatch", tt.name);
+        assert_eq!(t.name, tt.name, "{} name mismatch", tt.name);
         assert_eq!(t.presence, tt.presence, "{} presence mismatch", tt.name);
         assert_eq!(t.operator, tt.operator, "{} operator mismatch", tt.name);
         assert_eq!(t.value_type, tt.value, "{} value mismatch", tt.name);

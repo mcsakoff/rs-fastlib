@@ -262,10 +262,10 @@ impl Instruction {
                 mn.presence = Presence::Mandatory;
                 // Set proper storage keys if it is not set explicitly with 'key' attribute.
                 if ex.key.is_empty() {
-                    ex.key = Rc::from(format!("{}:exponent", &instruction.key));
+                    ex.key = Rc::from(format!("{}:exponent", instruction.key));
                 }
                 if mn.key.is_empty() {
-                    mn.key = Rc::from(format!("{}:mantissa", &instruction.key));
+                    mn.key = Rc::from(format!("{}:mantissa", instruction.key));
                 }
                 instruction.operator = op;
                 // Put subcomponents into instruction.
