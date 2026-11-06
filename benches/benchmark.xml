@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+    <template name="MsgHeader">
+        <uInt32 id="34" name="MsgSeqNum">
+            <increment/>
+        </uInt32>
+        <uInt64 id="52" name="SendingTime">
+            <delta/>
+        </uInt64>
+    </template>
+
+    <template id="1" name="Message">
+        <templateRef name="MsgHeader"/>
+        <string id="55" name="Symbol">
+            <delta/>
+        </string>
+        <string id="48" name="SecurityID" presence="optional">
+            <copy/>
+        </string>
+        <string id="107" name="SecurityDesc" charset="unicode">
+            <delta/>
+        </string>
+        <string id="58" name="Text" presence="optional">
+            <tail/>
+        </string>
+        <decimal id="202" name="Price1" presence="optional">
+            <exponent>
+                <default value="-2"/>
+            </exponent>
+            <mantissa>
+                <delta/>
+            </mantissa>
+        </decimal>
+        <decimal id="270" name="Price2">
+            <copy/>
+        </decimal>
+        <int64 id="271" name="Size">
+            <delta/>
+        </int64>
+        <string id="15" name="Currency">
+            <constant value="USD"/>
+        </string>
+        <uInt32 id="1023" name="Level" presence="optional">
+            <default value="1"/>
+        </uInt32>
+    </template>
+</templates>
