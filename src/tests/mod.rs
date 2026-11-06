@@ -13,6 +13,7 @@ use crate::model::{ModelFactory, ModelVisitor};
 
 mod base;
 mod base_serde;
+mod dicts;
 mod model;
 mod pmap;
 mod spec;

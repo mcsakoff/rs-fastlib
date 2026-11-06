@@ -133,11 +133,25 @@ impl Instruction {
         if let Some(p) = node.attribute("presence") {
             instruction.presence = Presence::from_str(p)?;
         }
-        if let Some(d) = node.attribute("dictionary") {
-            instruction.dictionary = Dictionary::from_str(d);
+        // Per the template schema, `dictionary` is allowed on <sequence> and <group> only.
+        // Other fields specify `dictionary` and `key` only on their operator element.
+        let tag = node.tag_name().name();
+        if node.attribute("key").is_some() {
+            return Err(Error::Static(format!(
+                "'key' attribute is not allowed in <{tag}/>"
+            )));
         }
-        if let Some(k) = node.attribute("key") {
-            instruction.key = Rc::from(k);
+        if let Some(d) = node.attribute("dictionary") {
+            match instruction.value_type {
+                ValueType::Sequence | ValueType::Group => {
+                    instruction.dictionary = Dictionary::from_str(d);
+                }
+                _ => {
+                    return Err(Error::Static(format!(
+                        "'dictionary' attribute is not allowed in <{tag}/>"
+                    )));
+                }
+            }
         }
 
         match instruction.value_type {
@@ -214,6 +228,8 @@ impl Instruction {
                             if let Some(v) = op_node.attribute("value") {
                                 initial_value = Some(v.to_string());
                             }
+                            // Operator context applies to the decimal field; subcomponent keys are derived from it.
+                            instruction.set_operator_context(op_node)?;
                         }
                     }
                 }
@@ -279,11 +295,35 @@ impl Instruction {
                     if let Some(s) = operator.attribute("value") {
                         instruction.set_initial_value(s)?; // [ERR S3]
                     }
+                    instruction.set_operator_context(operator)?;
                 }
             }
         }
         instruction.check_is_valid()?;
         Ok(instruction)
+    }
+
+    // Reads the operator context: `dictionary` and `key` attributes of an operator element.
+    // Only operators that access dictionaries (copy, increment, delta, tail) can have them.
+    fn set_operator_context(&mut self, operator: Node) -> Result<()> {
+        let dictionary = operator.attribute("dictionary");
+        let key = operator.attribute("key");
+        if dictionary.is_none() && key.is_none() {
+            return Ok(());
+        }
+        let tag = operator.tag_name().name();
+        if !matches!(tag, "copy" | "increment" | "delta" | "tail") {
+            return Err(Error::Static(format!(
+                "<{tag}/> operator cannot have `dictionary` or 'key' attributes"
+            )));
+        }
+        if let Some(d) = dictionary {
+            self.dictionary = Dictionary::from_str(d);
+        }
+        if let Some(k) = key {
+            self.key = Rc::from(k);
+        }
+        Ok(())
     }
 
     pub(crate) fn check_is_valid(&self) -> Result<()> {

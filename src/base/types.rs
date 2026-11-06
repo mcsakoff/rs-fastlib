@@ -21,7 +21,8 @@ pub(crate) struct Template {
 }
 
 impl Template {
-    pub(crate) fn from_node(node: Node) -> Result<Self> {
+    /// `default_dictionary` is the dictionary of the enclosing <template> element.
+    pub(crate) fn from_node(node: Node, default_dictionary: &Dictionary) -> Result<Self> {
         if node.tag_name().name() != "template" {
             return Err(Error::Static(format!(
                 "expected <template/> node, got <{}/>",
@@ -35,7 +36,7 @@ impl Template {
             .to_string();
         let dictionary = node
             .attribute("dictionary")
-            .map_or(Dictionary::Global, Dictionary::from_str);
+            .map_or_else(|| default_dictionary.clone(), Dictionary::from_str);
 
         let mut type_ref = TypeRef::Any;
         let mut instructions = Vec::new();

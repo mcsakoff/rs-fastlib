@@ -67,10 +67,14 @@ impl Definitions {
         if root.tag_name().name() != "templates" {
             return Err(Error::Static("<templates/> node not found".to_string()));
         }
+        // The dictionary for templates that do not specify their own.
+        let dictionary = root
+            .attribute("dictionary")
+            .map_or(Dictionary::Global, Dictionary::from_str);
         let mut templates = Vec::new();
         for child in root.children() {
             if child.is_element() {
-                templates.push(Template::from_node(child)?);
+                templates.push(Template::from_node(child, &dictionary)?);
             }
         }
         Self::new_from_templates(templates)

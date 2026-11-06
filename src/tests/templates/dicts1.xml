@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+    <template name="Message1" id="1">
+        <string name="Value" id="101">
+            <copy dictionary="template"/>
+        </string>
+    </template>
+    <template name="Message2" id="2">
+        <string name="Value" id="102">
+            <copy/>
+        </string>
+    </template>
+
+    <template name="Message3" id="3">
+        <sequence name="Items">
+            <length name="Count" id="103">
+                <copy dictionary="template"/>
+            </length>
+            <uInt32 name="Value" id="104">
+                <copy/>
+            </uInt32>
+        </sequence>
+    </template>
+    <template name="Message4" id="4">
+        <uInt32 name="Count" id="105">
+            <copy/>
+        </uInt32>
+    </template>
+
+    <template name="Message5" id="5">
+        <uInt32 name="Value1" id="106">
+            <copy key="value"/>
+        </uInt32>
+        <uInt32 name="Value2" id="107">
+            <copy key="value"/>
+        </uInt32>
+    </template>
+
+    <template name="Message6" id="6">
+        <decimal name="Value" id="108">
+            <copy dictionary="template" key="px"/>
+        </decimal>
+    </template>
+    <template name="Message7" id="7">
+        <decimal name="Value" id="108">
+            <copy key="px"/>
+        </decimal>
+    </template>
+</templates>

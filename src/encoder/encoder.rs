@@ -274,7 +274,22 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
-        instruction.inject(self, buf, value)
+        self.inject_field(buf, instruction, value)
+    }
+
+    // Injects field value using the field's own dictionary if it has one.
+    fn inject_field(
+        &mut self,
+        buf: &mut impl Writer,
+        instruction: &Instruction,
+        value: Option<Value>,
+    ) -> Result<()> {
+        let has_dict = self.switch_dictionary(&instruction.dictionary);
+        let res = instruction.inject(self, buf, value);
+        if has_dict {
+            self.restore_dictionary();
+        }
+        res
     }
 
     fn encode_segment(&mut self, buf: &mut Vec<u8>, instructions: &[Instruction]) -> Result<()> {
@@ -325,7 +340,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         match length {
             None => {
                 if instruction.is_optional() {
-                    length_instruction.inject(self, buf, None)?;
+                    self.inject_field(buf, length_instruction, None)?;
                 } else {
                     return Err(Error::Dynamic(format!(
                         "Missing mandatory sequence: {}",
@@ -334,7 +349,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                 }
             }
             Some(length) => {
-                length_instruction.inject(self, buf, Some(Value::UInt32(length as u32)))?;
+                self.inject_field(buf, length_instruction, Some(Value::UInt32(length as u32)))?;
                 for idx in 0..length {
                     self.msg.select_sequence_item(idx)?;
                     if instruction.has_pmap.get() {
