@@ -10,7 +10,7 @@ use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
 use crate::model::value::ValueData;
 use crate::model::{ModelFactory, ModelVisitor};
-use crate::{Decimal, Error};
+use crate::{Decimal, Error, TextMessageVisitor};
 
 use super::*;
 
@@ -861,7 +861,7 @@ fn decode_eof() {
     let res = d.decode_stream(&mut r, &mut msg);
     match res {
         Err(Error::Eof) => {}
-        _ => assert!(false, "Expected Eof"),
+        _ => panic!("Expected Eof"),
     }
 }
 
@@ -873,8 +873,8 @@ fn decode_unexpected_eof() {
     let res = d.decode_stream(&mut r, &mut msg);
     match res {
         Err(Error::UnexpectedEof) => {}
-        Err(e) => assert!(false, "Unexpected error: {:?}", e),
-        Ok(_) => assert!(false, "Expected Err(UnexpectedEof)"),
+        Err(e) => panic!("Unexpected error: {e:?}"),
+        Ok(_) => panic!("Expected Err(UnexpectedEof)"),
     }
 }
 
@@ -939,7 +939,23 @@ fn encode_to_buffer_eof() {
     let mut e = Encoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
     match e.encode_buffer(&mut buffer, &mut msg) {
         Err(Error::IoError(_)) => {}
-        Err(e) => assert!(false, "Unexpected error: {:?}", e),
-        Ok(_) => assert!(false, "Expected Err(UnexpectedEof)"),
+        Err(e) => panic!("Unexpected error: {e:?}"),
+        Ok(_) => panic!("Expected Err(UnexpectedEof)"),
     }
+}
+
+#[test]
+fn encode_append() {
+    let mut buffer = vec![0xaa];
+    let mut e = Encoder::new_from_xml(include_str!("templates/base.xml")).unwrap();
+    let mut msg =
+        TextMessageVisitor::from_text("ByteVector=<MandatoryVector=c1|OptionalVector=b3>").unwrap();
+    e.encode_append(&mut buffer, &mut msg).unwrap();
+    assert_eq!(buffer, vec![0xaa, 0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3]);
+
+    // On error the buffer is restored.
+    let mut msg =
+        TextMessageVisitor::from_text("ByteVector=<OptionalVector=b3>").unwrap();
+    assert!(e.encode_append(&mut buffer, &mut msg).is_err());
+    assert_eq!(buffer, vec![0xaa, 0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3]);
 }

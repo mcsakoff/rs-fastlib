@@ -872,14 +872,13 @@ impl Instruction {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn inject<W, M>(
+    pub(crate) fn inject<M>(
         &self,
-        s: &mut EncoderContext<W, M>,
+        s: &mut EncoderContext<M>,
         buf: &mut impl Writer,
         value: Option<Value>,
     ) -> Result<()>
     where
-        W: Writer,
         M: MessageVisitor,
     {
         if value.is_none() && !self.is_optional() {
@@ -995,14 +994,13 @@ impl Instruction {
         }
     }
 
-    fn write<W, M>(
+    fn write<M>(
         &self,
         buf: &mut impl Writer,
-        s: &mut EncoderContext<W, M>,
+        s: &mut EncoderContext<M>,
         value: Option<Value>,
     ) -> Result<()>
     where
-        W: Writer,
         M: MessageVisitor,
     {
         match self.value_type {
@@ -1209,14 +1207,13 @@ impl Instruction {
         }
     }
 
-    fn write_decimal<W, M>(
+    fn write_decimal<M>(
         &self,
         buf: &mut impl Writer,
-        s: &mut EncoderContext<W, M>,
+        s: &mut EncoderContext<M>,
         value: Option<Decimal>,
     ) -> Result<()>
     where
-        W: Writer,
         M: MessageVisitor,
     {
         let (e, m) = match value {

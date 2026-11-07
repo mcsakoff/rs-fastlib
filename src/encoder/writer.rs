@@ -17,6 +17,7 @@ pub trait Writer {
     /// Implement this method for more efficient writing of multiple bytes.
     /// # Errors
     /// Returns error if writer can't handle more bytes.
+    #[inline]
     fn write_buf(&mut self, buf: &[u8]) -> Result<()> {
         for b in buf {
             self.write_u8(*b)?;
@@ -28,30 +29,7 @@ pub trait Writer {
     /// # Errors
     /// Returns error if bitmap is ill-formed or writer can't handle more bytes.
     fn write_presence_map(&mut self, bitmap: u64, size: u8) -> Result<()> {
-        if size == 0 {
-            self.write_u8(0x80)?;
-            return Ok(());
-        }
-        if !size.is_multiple_of(7) {
-            return Err(Error::Runtime(
-                "write_presence_map: size must be multiple of 7".to_string(),
-            ));
-        }
-
-        let trailing_bits = bitmap.trailing_zeros() as usize;
-        // Only if all 7 bits are 0 we treat byte as trailing
-        let trailing_bytes = trailing_bits / 7;
-        let bitmap = bitmap >> (trailing_bytes * 7);
-
-        // Skipping useless bytes.
-        let len = usize::from(size / 7).saturating_sub(trailing_bytes);
-        if len == 0 {
-            self.write_u8(0x80)?;
-            return Ok(());
-        }
-        // For u64 there's only 10 bytes we can write (if number is u64::MAX) and meaning_bits is 64.
-        // Then 64.div_ceil(7) is 10;
-        let buf = encode_number(bitmap, len);
+        let (buf, len) = presence_map_bytes(bitmap, size)?;
         self.write_buf(&buf[..len])
     }
 
@@ -96,8 +74,8 @@ pub trait Writer {
 
         let is_pos = value >= 0;
 
-        // For posititive numbers we ignore 0 in the MSB since we only search for last 1
-        // For negatitive number logic is reversed.
+        // For positive numbers we ignore 0 in the MSB since we only search for last 1
+        // For negative number logic is reversed.
         let useless_bits = if is_pos {
             value.leading_zeros()
         } else {
@@ -215,6 +193,26 @@ pub trait Writer {
     }
 }
 
+/// Encodes presence map into bytes. Returns the buffer and the number of bytes used.
+/// Trailing zero bytes are not encoded.
+pub(crate) fn presence_map_bytes(bitmap: u64, size: u8) -> Result<([u8; 10], usize)> {
+    if !size.is_multiple_of(7) {
+        return Err(Error::Runtime(
+            "write_presence_map: size must be multiple of 7".to_string(),
+        ));
+    }
+    // Only if all 7 bits are 0 we treat byte as trailing
+    let trailing_bytes = bitmap.trailing_zeros() as usize / 7;
+    let len = usize::from(size / 7).saturating_sub(trailing_bytes);
+    if len == 0 {
+        let mut buf = [0; 10];
+        buf[0] = 0x80;
+        return Ok((buf, 1));
+    }
+    Ok((encode_number(bitmap >> (trailing_bytes * 7), len), len))
+}
+
+
 trait ToByte {
     fn to_byte(&self) -> u8;
 }
@@ -235,7 +233,7 @@ fn encode_number<T>(number: T, len: usize) -> [u8; 10]
 where
     T: ToByte + Shr<usize, Output = T> + BitAnd<Output = T> + From<u8> + Copy,
 {
-    // For 64 bit number there's only 10 bytes we can write (if number is T::MAX) and meaning_bits is 64.
+    // For 64 bits number there's only 10 bytes we can write (if number is T::MAX) and meaning_bits is 64.
     // Then 64.div_ceil(7) is 10;
     let mut buf = [0; 10];
     let values = (0..len).map(|i| {
@@ -254,13 +252,29 @@ where
 }
 
 impl Writer for bytes::BytesMut {
+    #[inline]
     fn write_u8(&mut self, value: u8) -> Result<()> {
         self.put_u8(value);
         Ok(())
     }
 
+    #[inline]
     fn write_buf(&mut self, buf: &[u8]) -> Result<()> {
         self.put(buf);
+        Ok(())
+    }
+}
+
+impl Writer for Vec<u8> {
+    #[inline]
+    fn write_u8(&mut self, value: u8) -> Result<()> {
+        self.push(value);
+        Ok(())
+    }
+
+    #[inline]
+    fn write_buf(&mut self, buf: &[u8]) -> Result<()> {
+        self.extend_from_slice(buf);
         Ok(())
     }
 }
@@ -277,11 +291,13 @@ impl<'a> StreamWriter<'a> {
 }
 
 impl Writer for StreamWriter<'_> {
+    #[inline]
     fn write_u8(&mut self, value: u8) -> Result<()> {
         self.stream.write_all(&[value])?;
         Ok(())
     }
 
+    #[inline]
     fn write_buf(&mut self, buf: &[u8]) -> Result<()> {
         self.stream.write_all(buf)?;
         Ok(())

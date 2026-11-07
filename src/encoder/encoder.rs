@@ -1,5 +1,5 @@
 use bytes::BytesMut;
-use std::io::{Cursor, Write};
+use std::io::Write;
 use std::rc::Rc;
 
 use crate::base::instruction::Instruction;
@@ -9,7 +9,7 @@ use crate::base::types::{Dictionary, Template, TypeRef};
 use crate::base::value::{Value, ValueType};
 use crate::common::context::{Context, DictionaryType};
 use crate::common::definitions::Definitions;
-use crate::encoder::writer::{StreamWriter, Writer};
+use crate::encoder::writer::{StreamWriter, Writer, presence_map_bytes};
 use crate::utils::stacked::Stacked;
 use crate::{Error, Result};
 
@@ -17,6 +17,8 @@ use crate::{Error, Result};
 pub struct Encoder {
     pub(crate) definitions: Definitions,
     pub(crate) context: Context,
+    // Reusable buffer for encoding messages into writers.
+    scratch: Vec<u8>,
 }
 
 impl Encoder {
@@ -25,6 +27,7 @@ impl Encoder {
         Ok(Encoder {
             definitions: Definitions::new_from_templates(ts)?,
             context: Context::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -35,6 +38,7 @@ impl Encoder {
         Ok(Encoder {
             definitions: Definitions::new_from_xml(text)?,
             context: Context::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -47,9 +51,27 @@ impl Encoder {
     /// # Errors
     /// Returns error if encoding failed.
     pub fn encode_vec(&mut self, msg: &mut impl MessageVisitor) -> Result<Vec<u8>> {
-        let mut buf = BytesMut::new();
-        self.encode_writer(&mut buf, msg)?;
-        Ok(buf.to_vec())
+        let mut buf = Vec::new();
+        self.encode_append(&mut buf, msg)?;
+        Ok(buf)
+    }
+
+    /// Encodes messages and appends it to the end of `buf`.
+    /// This is the most efficient way to encode messages when `buf` is reused.
+    /// If encoding fails, `buf` is restored to its original lengths.
+    /// # Errors
+    /// Returns error if encoding failed.
+    pub fn encode_append(
+        &mut self,
+        buf: &mut Vec<u8>,
+        msg: &mut impl MessageVisitor,
+    ) -> Result<()> {
+        let len = buf.len();
+        let res = EncoderContext::new(self, msg).encode_template(buf);
+        if res.is_err() {
+            buf.truncate(len);
+        }
+        res
     }
 
     /// Encodes message into a bytes buffer.
@@ -57,9 +79,7 @@ impl Encoder {
     /// # Errors
     /// Returns error if encoding failed.
     pub fn encode_bytes(&mut self, msg: &mut impl MessageVisitor) -> Result<BytesMut> {
-        let mut buf = BytesMut::new();
-        self.encode_writer(&mut buf, msg)?;
-        Ok(buf)
+        Ok(BytesMut::from(self.encode_vec(msg)?.as_slice()))
     }
 
     /// Encodes message into a given stream.
@@ -75,17 +95,26 @@ impl Encoder {
     }
 
     /// Encodes message into a given buffer.
+    /// Returns the number of byres written.
     /// # Errors
-    /// Returns error if encoding failed.
+    /// Returns error if encoding failed or the buffer if too small.
     pub fn encode_buffer(
         &mut self,
         buffer: &mut [u8],
         msg: &mut impl MessageVisitor,
     ) -> Result<usize> {
-        let mut buffer = Cursor::new(buffer);
-        let mut wrt = StreamWriter::new(&mut buffer);
-        self.encode_writer(&mut wrt, msg)?;
-        Ok(buffer.position() as usize)
+        use std::io::{Error, ErrorKind};
+
+        self.with_scratch(msg, |scratch| {
+            let dst = buffer.get_mut(..scratch.len()).ok_or_else(|| {
+                Error::new(
+                    ErrorKind::WriteZero,
+                    "buffer is too small for the encoded message",
+                )
+            })?;
+            dst.copy_from_slice(scratch);
+            Ok(scratch.len())
+        })
     }
 
     /// Encodes message into a given writer.
@@ -96,16 +125,29 @@ impl Encoder {
         wrt: &mut impl Writer,
         msg: &mut impl MessageVisitor,
     ) -> Result<()> {
-        EncoderContext::new(self, wrt, msg).encode_template()
+        self.with_scratch(msg, |scratch| wrt.write_buf(scratch))
+    }
+
+    fn with_scratch<T>(
+        &mut self,
+        msg: &mut impl MessageVisitor,
+        f: impl FnOnce(&[u8]) -> Result<T>,
+    ) -> Result<T> {
+        let mut scratch = std::mem::take(&mut self.scratch);
+        scratch.clear();
+        let res = self
+            .encode_append(&mut scratch, msg)
+            .and_then(|_| f(&scratch));
+        self.scratch = scratch;
+        res
     }
 }
 
 /// Processing context of the encoder. It represents context state during one message encoding.
 /// Created when it starts encoding a new message and destroyed after encoding of a message.
-pub(crate) struct EncoderContext<'a, W, M> {
+pub(crate) struct EncoderContext<'a, M> {
     pub(crate) definitions: &'a mut Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) wrt: &'a mut W,
     pub(crate) msg: &'a mut M,
 
     // The current template id.
@@ -125,22 +167,21 @@ pub(crate) struct EncoderContext<'a, W, M> {
     pub(crate) presence_map: Stacked<PresenceMap>,
 }
 
-impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
-    pub(crate) fn new(d: &'a mut Encoder, w: &'a mut W, m: &'a mut M) -> Self {
+impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
+    pub(crate) fn new(d: &'a mut Encoder, m: &'a mut M) -> Self {
         Self {
             definitions: &mut d.definitions,
             context: &mut d.context,
-            wrt: w,
             msg: m,
             template_id: Stacked::new_empty(),
             dictionary: Stacked::new(Dictionary::Global),
             type_ref: Stacked::new(TypeRef::Any),
-            presence_map: Stacked::new(PresenceMap::new_empty()),
+            presence_map: Stacked::new_empty(),
         }
     }
 
-    // Encode a template to the stream.
-    fn encode_template(&mut self) -> Result<()> {
+    // Encode a template to the buffer.
+    fn encode_template(&mut self, buf: &mut Vec<u8>) -> Result<()> {
         let template_name = self.msg.get_template_name()?;
         let template = self
             .definitions
@@ -148,15 +189,18 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
             .get(&template_name)
             .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))?
             .clone();
+        // presence map + template_id + instructions
+        self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, &template))
+    }
 
-        let mut buf = BytesMut::new();
-        self.encode_template_id(&mut buf, template.id)?;
+    fn encode_template_body(&mut self, buf: &mut Vec<u8>, template: &Template) -> Result<()> {
+        self.encode_template_id(buf, template.id)?;
 
         // Update some context variables
         let has_dictionary = self.switch_dictionary(&template.dictionary);
         let has_type_ref = self.switch_type_ref(&template.type_ref);
 
-        self.encode_instructions(&mut buf, &template.instructions)?;
+        self.encode_instructions(buf, &template.instructions)?;
 
         if has_dictionary {
             self.restore_dictionary();
@@ -166,22 +210,32 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
         }
 
         self.drop_template_id();
-
-        let mut buf2 = BytesMut::new();
-        self.write_presence_map(&mut buf2)?;
-        buf2.write_buf(buf.as_ref())?;
-
-        self.wrt.write_buf(buf2.as_ref()) // presence map + template_id + instructions
+        Ok(())
     }
 
-    // Write presence map to the stream and remove if from the stack.
-    fn write_presence_map(&mut self, buf: &mut impl Writer) -> Result<()> {
+    // Encodes a segment: runs `f` with a new presence map and puts the presence map in front of the encoded data.
+    // One byte is reserved for the presence mup up front; the data is shifted only if the presence map is longer.
+    fn with_segment(
+        &mut self,
+        buf: &mut Vec<u8>,
+        f: impl FnOnce(&mut Self, &mut Vec<u8>) -> Result<()>,
+    ) -> Result<()> {
+        self.presence_map.push(PresenceMap::new_empty());
+        let start = buf.len();
+        buf.push(0x80);
+        f(self, buf)?;
         let presence_map = self.presence_map.pop().unwrap();
-        buf.write_presence_map(presence_map.bitmap, presence_map.size)
+        let (pmap, len) = presence_map_bytes(presence_map.bitmap, presence_map.size)?;
+        if len == 1 {
+            buf[start] = pmap[0]
+        } else {
+            buf.splice(start..=start, pmap[..len].iter().copied());
+        }
+        Ok(())
     }
 
     // Encode template id to the buffer and change the current processing context accordingly.
-    fn encode_template_id(&mut self, buf: &mut impl Writer, template_id: u32) -> Result<()> {
+    fn encode_template_id(&mut self, buf: &mut Vec<u8>, template_id: u32) -> Result<()> {
         self.template_id.push(template_id);
         let instruction = self.definitions.template_id_instruction.clone();
         instruction.inject(self, buf, Some(Value::UInt32(template_id)))
@@ -194,7 +248,7 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
 
     fn encode_instructions(
         &mut self,
-        buf: &mut impl Writer,
+        buf: &mut Vec<u8>,
         instructions: &[Instruction],
     ) -> Result<()> {
         for instruction in instructions {
@@ -216,26 +270,18 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
         Ok(())
     }
 
-    fn encode_field(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_field(&mut self, buf: &mut Vec<u8>, instruction: &Instruction) -> Result<()> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
         instruction.inject(self, buf, value)
     }
 
-    fn encode_segment(
-        &mut self,
-        buf: &mut impl Writer,
-        instructions: &[Instruction],
-    ) -> Result<()> {
-        self.presence_map.push(PresenceMap::new_empty());
-        let mut buf2 = BytesMut::new();
-        self.encode_instructions(&mut buf2, instructions)?;
-        self.write_presence_map(buf)?;
-        buf.write_buf(buf2.as_ref())
+    fn encode_segment(&mut self, buf: &mut Vec<u8>, instructions: &[Instruction]) -> Result<()> {
+        self.with_segment(buf, |ctx, buf| ctx.encode_instructions(buf, instructions))
     }
 
-    fn encode_group(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_group(&mut self, buf: &mut Vec<u8>, instruction: &Instruction) -> Result<()> {
         if !self.msg.select_group(&instruction.name)? {
             return if instruction.is_optional() {
                 self.pmap_set_next_bit(false);
@@ -270,7 +316,7 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
         self.msg.release_group()
     }
 
-    fn encode_sequence(&mut self, buf: &mut impl Writer, instruction: &Instruction) -> Result<()> {
+    fn encode_sequence(&mut self, buf: &mut Vec<u8>, instruction: &Instruction) -> Result<()> {
         let length = self.msg.select_sequence(&instruction.name)?;
         let length_instruction = instruction.instructions.first().unwrap();
 
@@ -313,7 +359,7 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
 
     fn encode_template_reference(
         &mut self,
-        buf: &mut impl Writer,
+        buf: &mut Vec<u8>,
         instruction: &Instruction,
     ) -> Result<()> {
         let is_dynamic = instruction.name.is_empty();
@@ -335,26 +381,7 @@ impl<'a, W: Writer, M: MessageVisitor> EncoderContext<'a, W, M> {
                 .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))? // [ErrD09]
                 .clone();
 
-            let mut buf2 = BytesMut::new();
-            self.presence_map.push(PresenceMap::new_empty());
-            self.encode_template_id(&mut buf2, template.id)?;
-
-            let has_dictionary = self.switch_dictionary(&template.dictionary);
-            let has_type_ref = self.switch_type_ref(&template.type_ref);
-
-            self.encode_instructions(&mut buf2, &template.instructions)?;
-
-            if has_dictionary {
-                self.restore_dictionary();
-            }
-            if has_type_ref {
-                self.restore_type_ref();
-            }
-
-            self.drop_template_id();
-
-            self.write_presence_map(buf)?;
-            buf.write_buf(buf2.as_ref())?;
+            self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, &template))?;
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
             let template = self
