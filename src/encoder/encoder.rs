@@ -1,13 +1,12 @@
 use bytes::BytesMut;
 use std::io::Write;
-use std::rc::Rc;
 
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageVisitor;
 use crate::base::pmap::PresenceMap;
-use crate::base::types::{Dictionary, Template, TypeRef};
+use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::{Context, DictionaryType};
+use crate::common::context::Context;
 use crate::common::definitions::Definitions;
 use crate::encoder::writer::{StreamWriter, Writer, presence_map_bytes};
 use crate::utils::stacked::Stacked;
@@ -155,13 +154,11 @@ pub(crate) struct EncoderContext<'a, M> {
     // the current template as described in the Template Reference Instruction section.
     pub(crate) template_id: Stacked<u32>,
 
-    // The dictionary set and initial value are described in the Operators section.
-    pub(crate) dictionary: Stacked<Dictionary>,
-
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
     // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
-    pub(crate) type_ref: Stacked<TypeRef>,
+    // Holds index of the apllication type (`Definitions::type_index`), 0 is `any`.
+    pub(crate) type_ref: Stacked<u32>,
 
     // The presence map of the current segment.
     pub(crate) presence_map: Stacked<PresenceMap>,
@@ -174,8 +171,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             context: &mut d.context,
             msg: m,
             template_id: Stacked::new_empty(),
-            dictionary: Stacked::new(Dictionary::Global),
-            type_ref: Stacked::new(TypeRef::Any),
+            type_ref: Stacked::new(0),
             presence_map: Stacked::new_empty(),
         }
     }
@@ -184,22 +180,28 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     fn encode_template(&mut self, buf: &mut Vec<u8>) -> Result<()> {
         let template_name = self.msg.get_template_name()?;
         let template = self.definitions.template_by_name(&template_name)?;
+        let tid_instruction = &self.definitions.template_id_instruction;
         // presence map + template_id + instructions
-        self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, template))
+        self.with_segment(buf, |ctx, buf| {
+            ctx.encode_template_body(buf, template, tid_instruction)
+        })
     }
 
-    fn encode_template_body(&mut self, buf: &mut Vec<u8>, template: &Template) -> Result<()> {
-        self.encode_template_id(buf, template.id)?;
+    // Encode template id and template instructions.
+    // `tid_instruction` is the template id instruction of the current place in the template.
+    fn encode_template_body(
+        &mut self,
+        buf: &mut Vec<u8>,
+        template: &Template,
+        tid_instruction: &Instruction,
+    ) -> Result<()> {
+        self.encode_template_id(buf, template.id, tid_instruction)?;
 
         // Update some context variables
-        let has_dictionary = self.switch_dictionary(&template.dictionary);
         let has_type_ref = self.switch_type_ref(&template.type_ref);
 
         self.encode_instructions(buf, &template.instructions)?;
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -230,12 +232,16 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     }
 
     // Encode template id to the buffer and change the current processing context accordingly.
-    fn encode_template_id(&mut self, buf: &mut Vec<u8>, template_id: u32) -> Result<()> {
+    // The template id is stored in the dictionary of the enclosing template.
+    fn encode_template_id(
+        &mut self,
+        buf: &mut Vec<u8>,
+        template_id: u32,
+        instruction: &Instruction,
+    ) -> Result<()> {
+        instruction.inject(self, buf, Some(Value::UInt32(template_id)))?;
         self.template_id.push(template_id);
-        let definitions = self.definitions;
-        definitions
-            .template_id_instruction
-            .inject(self, buf, Some(Value::UInt32(template_id)))
+        Ok(())
     }
 
     // Stop processing the current template id, restore the previous value in the processing context.
@@ -271,22 +277,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
-        self.inject_field(buf, instruction, value)
-    }
-
-    // Injects field value using the field's own dictionary if it has one.
-    fn inject_field(
-        &mut self,
-        buf: &mut impl Writer,
-        instruction: &Instruction,
-        value: Option<Value>,
-    ) -> Result<()> {
-        let has_dict = self.switch_dictionary(&instruction.dictionary);
-        let res = instruction.inject(self, buf, value);
-        if has_dict {
-            self.restore_dictionary();
-        }
-        res
+        instruction.inject(self, buf, value)
     }
 
     fn encode_segment(&mut self, buf: &mut Vec<u8>, instructions: &[Instruction]) -> Result<()> {
@@ -309,7 +300,6 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             self.pmap_set_next_bit(true);
         }
 
-        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
 
         if instruction.has_pmap.get() {
@@ -318,9 +308,6 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             self.encode_instructions(buf, &instruction.instructions)?;
         }
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -332,12 +319,11 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         let length = self.msg.select_sequence(&instruction.name)?;
         let length_instruction = instruction.instructions.first().unwrap();
 
-        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
         match length {
             None => {
                 if instruction.is_optional() {
-                    self.inject_field(buf, length_instruction, None)?;
+                    length_instruction.inject(self, buf, None)?;
                 } else {
                     return Err(Error::Dynamic(format!(
                         "Missing mandatory sequence: {}",
@@ -346,7 +332,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                 }
             }
             Some(length) => {
-                self.inject_field(buf, length_instruction, Some(Value::UInt32(length as u32)))?;
+                length_instruction.inject(self, buf, Some(Value::UInt32(length as u32)))?;
                 for idx in 0..length {
                     self.msg.select_sequence_item(idx)?;
                     if instruction.has_pmap.get() {
@@ -358,9 +344,6 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                 }
                 self.msg.release_sequence()?;
             }
-        }
-        if has_dictionary {
-            self.restore_dictionary();
         }
         if has_type_ref {
             self.restore_type_ref();
@@ -386,24 +369,18 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                         instruction.name
                     ))
                 })?;
-            let template = self
-                .definitions
-                .template_by_name(&template_name)?;
-            self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, &template))?;
+            let template = self.definitions.template_by_name(&template_name)?;
+            self.with_segment(buf, |ctx, buf| {
+                ctx.encode_template_body(buf, &template, &instruction.instructions[0])
+            })?;
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
-            let template = self
-                .definitions
-                .static_template_ref(instruction);
+            let template = self.definitions.static_template_ref(instruction);
 
-            let has_dictionary = self.switch_dictionary(&template.dictionary);
             let has_type_ref = self.switch_type_ref(&template.type_ref);
 
             self.encode_instructions(buf, &template.instructions)?;
 
-            if has_dictionary {
-                self.restore_dictionary();
-            }
             if has_type_ref {
                 self.restore_type_ref();
             }
@@ -412,27 +389,13 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     }
 
     #[inline]
-    fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
-        if *dictionary == Dictionary::Inherit {
-            false
-        } else {
-            self.dictionary.push(dictionary.clone());
-            true
-        }
-    }
-
-    #[inline]
-    fn restore_dictionary(&mut self) {
-        _ = self.dictionary.pop();
-    }
-
-    #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        if *type_ref == TypeRef::Any {
-            false
-        } else {
-            self.type_ref.push(type_ref.clone());
-            true
+        match self.definitions.type_index(type_ref) {
+            None => false,
+            Some(index) => {
+                self.type_ref.push(index);
+                true
+            }
         }
     }
 
@@ -448,13 +411,18 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
-        self.context.set(self.make_dict_type(), i.key.clone(), v);
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        self.context.set(i.dictionary_slot.get(), template_id, type_index, v);
     }
 
     #[inline]
-    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
-        let v = self.context.get(self.make_dict_type(), &i.key);
-        if let Some(Some(ref v)) = v
+    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+
+        let v = self.context.get(i.dictionary_slot.get(), template_id, type_index);
+        if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
@@ -465,22 +433,5 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             ))); // [ERR D4]
         }
         Ok(v)
-    }
-
-    fn make_dict_type(&self) -> DictionaryType {
-        let dictionary = self.dictionary.must_peek();
-        match dictionary {
-            Dictionary::Inherit => unreachable!(),
-            Dictionary::Global => DictionaryType::Global,
-            Dictionary::Template => DictionaryType::Template(*self.template_id.must_peek()),
-            Dictionary::Type => {
-                let name = match self.type_ref.must_peek() {
-                    TypeRef::Any => Rc::from("__any__"),
-                    TypeRef::ApplicationType(name) => name.clone(),
-                };
-                DictionaryType::Type(name)
-            }
-            Dictionary::UserDefined(name) => DictionaryType::UserDefined(name.clone()),
-        }
     }
 }

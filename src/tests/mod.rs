@@ -69,7 +69,10 @@ pub fn test_instructions(iss: &Vec<Instruction>, tis: &Vec<TestField>, name: &st
             "{} has_pmap mismatch",
             tt.name
         );
-        test_instructions(&t.instructions, &tt.instructions, &tt.name);
+        // Dynamic template references hold an internal template id instruction.
+        if t.value_type != ValueType::TemplateReference {
+            test_instructions(&t.instructions, &tt.instructions, &tt.name);
+        }
     }
 }
 

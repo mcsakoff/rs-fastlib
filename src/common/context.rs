@@ -1,15 +1,26 @@
 use rustc_hash::FxHashMap as HashMap;
-use std::rc::Rc;
 
 use crate::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DictionaryType {
-    Global,
+/// Location of an instruction's previous value in the dictionaries.
+/// It is resolved with templates are loaded, so no strings are hashed during processing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DictionaryType {
+    /// The instruction doesn't use dictionaries (not resolved).
+    None,
+    /// Index of the entry in `global` or user-defined dictionary.
+    Static(u32),
+    /// Key index in the dictionary of the current template.
     Template(u32),
-    Type(Rc<str>),
-    UserDefined(Rc<str>),
+    /// Key index in the dictionary of the current application type.
+    Type(u32),
 }
+
+/// The state of the previous value:
+///     - `None` - undefined,
+///     - `Sone(None)` - empty,
+///     - `Some(Some(None))` - value assigned.
+pub(crate) type Entry = Option<Option<Value>>;
 
 /// Decoder state that stores global state during all messages decoding.
 /// Created when decoder is created.
@@ -17,10 +28,13 @@ pub enum DictionaryType {
 /// Can be reset during messages decoding.
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct Context {
-    values: HashMap<(DictionaryType, ValueKey), Option<Value>>,
+    // Entries of `global` and user-defined dictionaries indexed by `DictionaryType::Static`.
+    statics: Vec<Entry>,
+    // Entries of `template` dictionaries keyed by (template id, key index)
+    templates: HashMap<(u32, u32), Entry>,
+    // Entries of `type` dictionaries keyed by (template id, type index)
+    types: HashMap<(u32, u32), Entry>,
 }
-
-type ValueKey = Rc<str>;
 
 impl Context {
     pub(crate) fn new() -> Self {
@@ -28,216 +42,79 @@ impl Context {
     }
 
     pub(crate) fn reset(&mut self) {
-        self.values.clear();
+        self.statics.clear();
+        self.templates.clear();
+        self.types.clear();
     }
 
-    pub(crate) fn set(&mut self, dict: DictionaryType, key: ValueKey, val: Option<Value>) {
-        self.values.insert((dict, key), val);
+    #[inline]
+    pub(crate) fn set(&mut self, dict: DictionaryType, template_id: u32, type_index: u32, val: Option<Value>) {
+        match dict {
+            DictionaryType::Static(i) => {
+                let i = i as usize;
+                if i >= self.statics.len() {
+                    self.statics.resize(i + 1, None);
+                }
+                self.statics[i] = Some(val);
+            }
+            DictionaryType::Template(i) => {
+                self.templates.insert((template_id, i), Some(val));
+            }
+            DictionaryType::Type(i) => {
+                self.types.insert((type_index, i), Some(val));
+            }
+            DictionaryType::None => unreachable!("dictionary is not resolved"),
+        }
     }
 
-    pub(crate) fn get(&self, dict: DictionaryType, key: &ValueKey) -> Option<Option<Value>> {
-        self.values.get(&(dict, key.clone())).cloned()
+    #[inline]
+    pub(crate) fn get(&self, dict: DictionaryType, template_id: u32, type_index: u32) -> Option<&Option<Value>> {
+        match dict {
+            DictionaryType::Static(i) => self.statics.get(i as usize)?.as_ref(),
+            DictionaryType::Template(i) => self.templates.get(&(template_id, i))?.as_ref(),
+            DictionaryType::Type(i) => self.types.get(&(type_index, i))?.as_ref(),
+            DictionaryType::None => unreachable!("dictionary is not resolved"),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
-    use crate::{
-        Value,
-        common::context::{Context, DictionaryType},
-    };
+    use super::*;
 
     #[test]
-    fn global_set_get_some_value() {
-        let mut context = Context::new();
-        let value = Some(Value::Int32(1));
+    fn set_get() {
+        for slot in [
+            DictionaryType::Static(3),
+            DictionaryType::Template(1),
+            DictionaryType::Type(2),
+        ] {
+            let mut context = Context::new();
+            assert_eq!(context.get(slot, 1, 1), None, "{slot:?}");
 
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Global;
+            context.set(slot, 1, 1, Some(Value::Int32(1)));
+            assert_eq!(context.get(slot, 1, 1), Some(&Some(Value::Int32(1))), "{slot:?}");
 
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
+            context.set(slot, 1, 1, None);
+            assert_eq!(context.get(slot, 1, 1), Some(&None), "{slot:?}");
 
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
+            context.reset();
+            assert_eq!(context.get(slot, 1, 1), None, "{slot:?}");
+        }
     }
 
     #[test]
-    fn global_set_get_none() {
+    fn scoped_dicts_are_separate() {
         let mut context = Context::new();
-        let value = None;
+        context.set(DictionaryType::Template(0), 1, 0, Some(Value::Int32(1)));
+        context.set(DictionaryType::Type(0), 0, 1, Some(Value::Int32(2)));
+        context.set(DictionaryType::Static(0), 1, 1, Some(Value::Int32(3)));
 
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Global;
+        assert_eq!(context.get(DictionaryType::Template(0), 2, 0), None);
+        assert_eq!(context.get(DictionaryType::Type(0), 0, 2), None);
 
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn template_set_get_some_value() {
-        let mut context = Context::new();
-        let value = Some(Value::Int32(1));
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Template(2);
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn template_set_get_none() {
-        let mut context = Context::new();
-        let value = None;
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Template(2);
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn type_set_get_some_value() {
-        let mut context = Context::new();
-        let value = Some(Value::Int32(1));
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Type(Rc::from("type"));
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn type_set_get_none() {
-        let mut context = Context::new();
-        let value = None;
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::Type(Rc::from("type"));
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn user_set_get_some_value() {
-        let mut context = Context::new();
-        let value = Some(Value::Int32(1));
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::UserDefined(Rc::from("type"));
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
-    }
-
-    #[test]
-    fn user_set_get_none() {
-        let mut context = Context::new();
-        let value = None;
-
-        let key = Rc::from("aboba");
-        let dict = DictionaryType::UserDefined(Rc::from("type"));
-
-        let before_set = context.get(dict.clone(), &key);
-        assert!(
-            before_set.is_none(),
-            "Value is set before insertion: {before_set:#?}"
-        );
-
-        context.set(dict.clone(), key.clone(), value.clone());
-
-        let after_set = context.get(dict, &key);
-        assert_eq!(
-            after_set,
-            Some(value.clone()),
-            "Values does not match after set: lhs ({after_set:?}) != rhs ({value:?})"
-        );
+        assert_eq!(context.get(DictionaryType::Template(0), 1, 1), Some(&Some(Value::Int32(1))));
+        assert_eq!(context.get(DictionaryType::Type(0), 1, 1), Some(&Some(Value::Int32(2))));
+        assert_eq!(context.get(DictionaryType::Static(0), 2, 2), Some(&Some(Value::Int32(3))));
     }
 }

@@ -6,6 +6,7 @@ use roxmltree::Node;
 
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
 use crate::base::value::{Value, ValueType};
+use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
@@ -60,7 +61,10 @@ pub(crate) struct Instruction {
     pub(crate) has_pmap: Cell<bool>,
 
     // For static ::TemplateReference it is the index of the referenced template in definitions.
-    pub(crate) template_index: Cell<usize>
+    pub(crate) template_index: Cell<usize>,
+
+    // Location of the previous value in dictionaries; resolved when defitions are loaded.
+    pub(crate) dictionary_slot: Cell<DictionaryType>,
 }
 
 impl Instruction {
@@ -90,7 +94,14 @@ impl Instruction {
             key: Rc::from(ky),
             has_pmap: Cell::new(false),
             template_index: Cell::new(usize::MAX),
+            dictionary_slot: Cell::new(DictionaryType::None),
         }
+    }
+
+    pub fn new_template_id() -> Self {
+        let mut instruction = Self::new(0, "__template_id__", ValueType::UInt32);
+        instruction.operator = Operator::Copy;
+        instruction
     }
 
     #[allow(clippy::too_many_lines)]
@@ -489,31 +500,30 @@ impl Instruction {
 
                 // When the value is not present in the stream there are three cases depending
                 // on the state of the previous value:
-                let Some(v) = s.ctx_get(self)? else {
+                match s.ctx_get(self)? {
+                    // Empty: If the field is optional the value is considered absent.
+                    // It is a dynamic error [ERR D6] if the field is mandatory.
+                    Some(None) if !self.is_optional() => Err(Error::Runtime(
+                        "copy operator has no previous value".to_string(),
+                    )), // [ERR D6]
+
+                    // Assigned: The value of the field is the previous value.
+                    Some(v) => Ok(v.clone()),
+
                     // Undefined: The value of the field is the initial value that also becomes the new previous value.
                     // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context has no initial value.
                     // If the field has optional presence and no initial value, the field is considered absent and the state of the previous
                     // value is changed to empty.
-                    if self.initial_value.is_none() && !self.is_optional() {
-                        return Err(Error::Runtime(
-                            "copy operator has no initial value".to_string(),
-                        )); // [ERR D5]
+                    None => {
+                        if self.initial_value.is_none() && !self.is_optional() {
+                            return Err(Error::Runtime(
+                                "copy operator has no initial value".to_string(),
+                            )); // [ERR D5]
+                        }
+                        s.ctx_set(self, self.initial_value.clone());
+                        Ok(self.initial_value.clone())
                     }
-
-                    s.ctx_set(self, self.initial_value.clone());
-                    return Ok(self.initial_value.clone());
-                };
-
-                // Empty: If the field is optional the value is considered absent.
-                // It is a dynamic error [ERR D6] if the field is mandatory.
-                if v.is_none() && !self.is_optional() {
-                    return Err(Error::Runtime(
-                        "copy operator has no previous value".to_string(),
-                    )); // [ERR D6]
                 }
-
-                // Assigned: The value of the field is the previous value.
-                Ok(v)
             }
 
             // The increment operator specifies that the value of a field is optionally present in the stream.
@@ -525,35 +535,36 @@ impl Instruction {
                     return Ok(v);
                 }
                 // When the value is not present in the stream there are three cases depending on the state of the previous value:
-                let Some(v) = s.ctx_get(self)? else {
+                let v = match s.ctx_get(self)? {
+                    // Assigned: the value of the field is the previous value incremented by one.
+                    // The incremented value also becomes the new previous value.
+                    Some(Some(prev)) => Some(prev.apply_increment()?),
+
+                    // Empty: the value of the field is empty.
+                    // If the field is optional, the value is considered absent.
+                    // It is a dynamic error [ERR D6] if the field is mandatory.
+                    Some(None) => {
+                        if !self.is_optional() {
+                            return Err(Error::Runtime(
+                                "increment operator has no previous value".to_string(),
+                            ));
+                        }
+                        return Ok(None);
+                    }
+
                     // Undefined: the value of the field is the initial value that also becomes the new previous value.
                     // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
                     // has no initial value. If the field has optional presence and no initial value, the field is considered
                     // absent and the state of the previous value is changed to empty.
-                    if !self.is_optional() && self.initial_value.is_none() {
-                        return Err(Error::Runtime(
-                            "increment operator has no initial value".to_string(),
-                        )); // [ERR D5]
+                    None => {
+                        if !self.is_optional() && self.initial_value.is_none() {
+                            return Err(Error::Runtime(
+                                "increment operator has no initial value".to_string(),
+                            )); // [ERR D5]
+                        }
+                        self.initial_value.clone()
                     }
-                    s.ctx_set(self, self.initial_value.clone());
-                    return Ok(self.initial_value.clone());
                 };
-
-                // Assigned: the value of the field is the previous value incremented by one.
-                // The incremented value also becomes the new previous value.
-                let Some(prev) = v else {
-                    // Empty: the value of the field is empty.
-                    // If the field is optional, the value is considered absent.
-                    // It is a dynamic error [ERR D6] if the field is mandatory.
-                    if !self.is_optional() {
-                        return Err(Error::Runtime(
-                            "increment operator has no previous value".to_string(),
-                        ));
-                    }
-                    return Ok(None);
-                };
-
-                let v = Some(prev.apply_increment()?);
                 s.ctx_set(self, v.clone());
                 Ok(v)
             }
@@ -567,25 +578,28 @@ impl Instruction {
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
-                let base = match s.ctx_get(self)? {
-                    Some(v) => match v {
-                        // Assigned: the base value is the previous value.
-                        Some(prev) => prev.clone(),
-                        // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
-                        None => {
-                            return Err(Error::Runtime(
-                                "delta operator has no previous value".to_string(),
-                            )); // [ERR D6]
-                        }
-                    },
+                let value = match s.ctx_get(self)? {
+                    // Assigned: the base value is the previous value.
+                    Some(Some(prev)) => prev.apply_delta(&delta, aux)?,
+
+                    // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
+                    Some(None) => {
+                        return Err(Error::Runtime(
+                            "delta operator has no previous value".to_string(),
+                        )); // [ERR D6]
+                    }
+
                     // Undefined: The base value is the initial value if present in the instruction context.
                     // Otherwise, a type dependant default base value is used.
                     None => match &self.initial_value {
-                        Some(v) => v.clone(),
-                        None => self.value_type.to_default_value()?,
+                        Some(v) => v.apply_delta(&delta, aux)?,
+                        None => self
+                            .value_type
+                            .to_default_value()?
+                            .apply_delta(&delta, aux)?,
                     },
                 };
-                let value = Some(base.apply_delta(&delta, aux)?);
+                let value = Some(value);
                 s.ctx_set(self, value.clone());
                 Ok(value)
             }
@@ -606,55 +620,48 @@ impl Instruction {
                     };
                     // Otherwise, if the tail value is present, the value of the field is obtained by combining
                     // the tail value with a base value. The base value depends on the state of the previous value:
-                    #[allow(clippy::collapsible_match)]
-                    let base = match s.ctx_get(self)? {
-                        Some(v) => match v {
-                            // Assigned: the base value is the previous value.
-                            Some(prev) => prev.clone(),
-                            // Empty: the base value is the initial value if present in the instruction context.
-                            // Otherwise, a type dependant default base value is used.
-                            None => match &self.initial_value {
-                                Some(v) => v.clone(),
-                                None => self.value_type.to_default_value()?,
-                            },
-                        },
-                        // Undefined: the base value is the initial value if present in the instruction context.
+                    let value = match s.ctx_get(self)? {
+                        // Assigned: the base value is the previous value.
+                        Some(Some(prev)) => prev.apply_tail(&tail)?,
+
+                        // Empty or Undefined: the base value is the initial value if present in the instruction context.
                         // Otherwise, a type dependant default base value is used.
-                        None => match &self.initial_value {
-                            Some(v) => v.clone(),
-                            None => self.value_type.to_default_value()?,
+                        Some(None) | None => match &self.initial_value {
+                            Some(v) => v.apply_tail(&tail)?,
+                            None => self.value_type.to_default_value()?.apply_tail(&tail)?,
                         },
                     };
-                    let value = Some(base.apply_tail(&tail)?);
                     // The combined value becomes the new previous value.
+                    let value = Some(value);
                     s.ctx_set(self, value.clone());
                     return Ok(value);
                 }
 
                 // If the tail value is not present in the stream, the value of the field depends
                 // on the state of the previous value.
-                let Some(v) = s.ctx_get(self)? else {
+                match s.ctx_get(self)? {
+                    // Empty: the value of the field is empty. If the field is optional the value is considered absent.
+                    // It is a dynamic error [ERR D7] if the field is mandatory.
+                    Some(None) if !self.is_optional() => Err(Error::Runtime(
+                        "tail operator has no previous value".to_string(),
+                    )), // [ERR D7]
+
+                    Some(v) => Ok(v.clone()),
+
                     // Undefined: the value of the field is the initial value that also becomes the new previous value.
                     // Unless the field has optional presence, it is a dynamic error [ERR D6] if the instruction context
                     // has no initial value. If the field has optional presence and no initial value, the field is considered
                     // absent and the state of the previous value is changed to empty.
-                    if self.initial_value.is_none() && !self.is_optional() {
-                        return Err(Error::Runtime(
-                            "tail operator has no initial value".to_string(),
-                        )); // [ERR D6]
+                    None => {
+                        if self.initial_value.is_none() && !self.is_optional() {
+                            return Err(Error::Runtime(
+                                "tail operator has no initial value".to_string(),
+                            )); // [ERR D6]
+                        }
+                        s.ctx_set(self, self.initial_value.clone());
+                        return Ok(self.initial_value.clone());
                     }
-                    s.ctx_set(self, self.initial_value.clone());
-                    return Ok(self.initial_value.clone());
-                };
-
-                // Empty: the value of the field is empty. If the field is optional the value is considered absent.
-                // It is a dynamic error [ERR D7] if the field is mandatory.
-                if v.is_none() && !self.is_optional() {
-                    return Err(Error::Runtime(
-                        "tail operator has no previous value".to_string(),
-                    )); // [ERR D7]
                 }
-                Ok(v)
             }
         }
     }
@@ -955,13 +962,13 @@ impl Instruction {
                 }
             }
             Operator::Copy => {
-                let prev_value = if let Some(v) = s.ctx_get(self)? {
-                    v
+                let same = if let Some(prev) = s.ctx_get(self)? {
+                    *prev == value
                 } else {
                     s.ctx_set(self, self.initial_value.clone());
-                    self.initial_value.clone()
+                    self.initial_value == value
                 };
-                if prev_value == value {
+                if same {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -971,9 +978,7 @@ impl Instruction {
                 }
             }
             Operator::Increment => {
-                let prev_value = s
-                    .ctx_get(self)?
-                    .unwrap_or_else(|| self.initial_value.clone());
+                let prev_value = s.ctx_get(self)?.unwrap_or(&self.initial_value);
                 let next_value = match prev_value {
                     None => None,
                     Some(v) => Some(v.apply_increment()?),
@@ -992,48 +997,38 @@ impl Instruction {
                     return self.write_delta(buf, None);
                 };
 
-                let base = match s.ctx_get(self)? {
-                    Some(v) => match v {
-                        Some(v) => v,
-                        None => {
-                            return Err(Error::Runtime(
-                                "delta operator has empty previous value".to_string(),
-                            )); // [ERR D6]
-                        }
-                    },
+                let delta = match s.ctx_get(self)? {
+                    Some(Some(prev)) => value.find_delta(prev),
+                    Some(None) => {
+                        return Err(Error::Runtime(
+                            "delta operator has empty previous value".to_string(),
+                        )); // [ERR D6]
+                    }
                     None => match &self.initial_value {
-                        Some(v) => v.clone(),
-                        None => self.value_type.to_default_value()?,
+                        Some(v) => value.find_delta(v),
+                        None => value.find_delta(&self.value_type.to_default_value()?),
                     },
                 };
-
-                let delta = value.find_delta(&base);
                 s.ctx_set(self, Some(value));
                 self.write_delta(buf, Some(delta))
             }
             Operator::Tail => {
-                let prev_value = s
-                    .ctx_get(self)?
-                    .unwrap_or_else(|| self.initial_value.clone());
-                if prev_value == value {
+                let prev_value = s.ctx_get(self)?.unwrap_or(&self.initial_value);
+                if *prev_value == value {
                     s.pmap_set_next_bit(false);
                     s.ctx_set(self, value);
-                    Ok(())
-                } else {
-                    let tail = match &value {
-                        None => None,
-                        Some(v) => {
-                            s.ctx_set(self, value.clone());
-                            let prev = match prev_value {
-                                Some(p) => p,
-                                None => self.value_type.to_default_value()?,
-                            };
-                            Some(v.find_tail(&prev)?)
-                        }
-                    };
-                    s.pmap_set_next_bit(true);
-                    self.write_tail(buf, tail)
+                    return Ok(());
                 }
+                let tail = match (&value, prev_value) {
+                    (None, _) => None,
+                    (Some(v), Some(prev)) => Some(v.find_tail(prev)?),
+                    (Some(v), None) => Some(v.find_tail(&self.value_type.to_default_value()?)?),
+                };
+                s.pmap_set_next_bit(true);
+                if value.is_some() {
+                    s.ctx_set(self, value);
+                }
+                self.write_tail(buf, tail)
             }
         }
     }

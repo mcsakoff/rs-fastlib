@@ -1,12 +1,11 @@
 use std::io::Read;
-use std::rc::Rc;
 
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
-use crate::base::types::{Dictionary, Template, TypeRef};
+use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::{Context, DictionaryType};
+use crate::common::context::Context;
 use crate::common::definitions::Definitions;
 use crate::decoder::reader::{Reader, SliceReader, StreamReader};
 use crate::utils::stacked::Stacked;
@@ -134,13 +133,11 @@ pub(crate) struct DecoderContext<'a, R, M> {
     // the current template as described in the Template Reference Instruction section.
     pub(crate) template_id: Stacked<u32>,
 
-    // The dictionary set and initial value are described in the Operators section.
-    pub(crate) dictionary: Stacked<Dictionary>,
-
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
     // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
-    pub(crate) type_ref: Stacked<TypeRef>,
+    // Holds index of the apllication type (`Definitions::type_index`), 0 is `any`.
+    pub(crate) type_ref: Stacked<u32>,
 
     // The presence map of the current segment.
     pub(crate) presence_map: Stacked<PresenceMap>,
@@ -154,16 +151,14 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             rdr: r,
             msg: m,
             template_id: Stacked::new_empty(),
-            dictionary: Stacked::new(Dictionary::Global),
-            type_ref: Stacked::new(TypeRef::Any),
+            type_ref: Stacked::new(0),
             presence_map: Stacked::new_empty(),
         }
     }
 
     // Read template id from the stream.
-    fn read_template_id(&mut self) -> Result<u32> {
-        let definitions = self.definitions;
-        match definitions.template_id_instruction.extract(self)? {
+    fn read_template_id(&mut self, instruction: &Instruction) -> Result<u32> {
+        match instruction.extract(self)? {
             Some(Value::UInt32(id)) => Ok(id),
             Some(_) => Err(Error::Runtime(
                 "Wrong template id type in context storage".to_string(),
@@ -175,8 +170,9 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     }
 
     // Decode template id from the stream and change the current processing context accordingly.
-    fn decode_template_id(&mut self) -> Result<()> {
-        let template_id = self.read_template_id()?;
+    // `instruction` is the template id instruction of the current place in the template.
+    fn decode_template_id(&mut self, instruction: &Instruction) -> Result<()> {
+        let template_id = self.read_template_id(instruction)?;
         self.template_id.push(template_id);
         Ok(())
     }
@@ -202,21 +198,18 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     // Decode a template from the stream.
     pub(crate) fn decode_template(&mut self) -> Result<()> {
         self.decode_presence_map()?;
-        self.decode_template_id()?;
+        let definitions = self.definitions;
+        self.decode_template_id(&definitions.template_id_instruction)?;
         let template = self
             .definitions
             .template_by_id(*self.template_id.must_peek())?;
         self.msg.start_template(template.id, &template.name);
 
         // Update some context variables
-        let has_dictionary = self.switch_dictionary(&template.dictionary);
         let has_type_ref = self.switch_type_ref(&template.type_ref);
 
         self.decode_instructions(&template.instructions)?;
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -255,7 +248,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     }
 
     fn decode_field(&mut self, instruction: &Instruction) -> Result<()> {
-        let value = self.extract_field(instruction)?;
+        let value = instruction.extract(self)?;
         self.msg.set_value(instruction.id, &instruction.name, value);
         Ok(())
     }
@@ -263,14 +256,13 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     // A sequence field instruction specifies that the field in the application type is of sequence type and that
     // the contained group of instructions should be used repeatedly to encode each element.
     fn decode_sequence(&mut self, instruction: &Instruction) -> Result<()> {
-        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
 
         // A sequence has an associated length field containing an unsigned integer indicating the number of encoded
         // elements. When a length field is present in the stream, it must appear directly before the encoded elements.
         // The length field has a name, is of type uInt32 and can have a field operator.
         let length_instruction = instruction.instructions.first().unwrap();
-        match self.extract_field(length_instruction)? {
+        match length_instruction.extract(self)? {
             None => {}
             Some(Value::UInt32(length)) => {
                 self.msg
@@ -291,9 +283,6 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             _ => return Err(Error::Dynamic("Length field must be UInt32".to_string())), // [ErrD10]
         }
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -308,7 +297,6 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             return Ok(());
         }
 
-        let has_dictionary = self.switch_dictionary(&instruction.dictionary);
         let has_type_ref = self.switch_type_ref(&instruction.type_ref);
 
         self.msg.start_group(&instruction.name);
@@ -321,9 +309,6 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         }
         self.msg.stop_group();
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -338,7 +323,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
         let template = if is_dynamic {
             self.decode_presence_map()?;
-            self.decode_template_id()?;
+            self.decode_template_id(&instruction.instructions[0])?;
             self.definitions
                 .template_by_id(*self.template_id.must_peek())?
         } else {
@@ -347,14 +332,10 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         self.msg.start_template_ref(&template.name, is_dynamic);
 
         // Update some context variables
-        let has_dictionary = self.switch_dictionary(&template.dictionary);
         let has_type_ref = self.switch_type_ref(&template.type_ref);
 
         self.decode_instructions(&template.instructions)?;
 
-        if has_dictionary {
-            self.restore_dictionary();
-        }
         if has_type_ref {
             self.restore_type_ref();
         }
@@ -367,37 +348,14 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         Ok(())
     }
 
-    fn extract_field(&mut self, instruction: &Instruction) -> Result<Option<Value>> {
-        let has_dict = self.switch_dictionary(&instruction.dictionary);
-        let value = instruction.extract(self)?;
-        if has_dict {
-            self.restore_dictionary();
-        }
-        Ok(value)
-    }
-
-    #[inline]
-    fn switch_dictionary(&mut self, dictionary: &Dictionary) -> bool {
-        if *dictionary == Dictionary::Inherit {
-            false
-        } else {
-            self.dictionary.push(dictionary.clone());
-            true
-        }
-    }
-
-    #[inline]
-    fn restore_dictionary(&mut self) {
-        _ = self.dictionary.pop();
-    }
-
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        if *type_ref == TypeRef::Any {
-            false
-        } else {
-            self.type_ref.push(type_ref.clone());
-            true
+        match self.definitions.type_index(type_ref) {
+            None => false,
+            Some(index) => {
+                self.type_ref.push(index);
+                true
+            }
         }
     }
 
@@ -413,13 +371,20 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
-        self.context.set(self.make_dict_type(), i.key.clone(), v);
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        self.context
+            .set(i.dictionary_slot.get(), template_id, type_index, v);
     }
 
     #[inline]
-    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<Option<Value>>> {
-        let v = self.context.get(self.make_dict_type(), &i.key);
-        if let Some(Some(ref v)) = v
+    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        let v = self
+            .context
+            .get(i.dictionary_slot.get(), template_id, type_index);
+        if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
@@ -430,22 +395,5 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             ))); // [ERR D4]
         }
         Ok(v)
-    }
-
-    fn make_dict_type(&self) -> DictionaryType {
-        let dictionary = self.dictionary.must_peek();
-        match dictionary {
-            Dictionary::Inherit => unreachable!(),
-            Dictionary::Global => DictionaryType::Global,
-            Dictionary::Template => DictionaryType::Template(*self.template_id.must_peek()),
-            Dictionary::Type => {
-                let name = match self.type_ref.must_peek() {
-                    TypeRef::Any => Rc::from("__any__"),
-                    TypeRef::ApplicationType(name) => name.clone(),
-                };
-                DictionaryType::Type(name)
-            }
-            Dictionary::UserDefined(name) => DictionaryType::UserDefined(name.clone()),
-        }
     }
 }

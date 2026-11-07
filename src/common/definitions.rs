@@ -1,11 +1,11 @@
-use std::cell::Cell;
 use std::rc::Rc;
 
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::base::instruction::Instruction;
-use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
+use crate::base::types::{Dictionary, Operator, Template, TypeRef};
 use crate::base::value::ValueType;
+use crate::common::context::DictionaryType;
 use crate::{Error, Result};
 
 /// Maximum number of bits in a presence map segment.
@@ -17,44 +17,68 @@ pub struct Definitions {
     pub(crate) templates_by_id: HashMap<u32, usize>,
     pub(crate) templates_by_name: HashMap<String, usize>,
     pub(crate) template_id_instruction: Instruction,
+    // Indexes of application types; index 0 is reserved for special type `any`.
+    type_indices: HashMap<Rc<str>, u32>,
 }
 
 impl Definitions {
-    pub(crate) fn new_from_templates(templates: Vec<Template>) -> Result<Self> {
+    pub(crate) fn new_from_templates(mut templates: Vec<Template>) -> Result<Self> {
         let mut templates_by_id = HashMap::default();
         let mut templates_by_name = HashMap::default();
-        for (i, t) in templates.iter().enumerate() {
+        let mut type_indices = HashMap::default();
+        for (i, t) in templates.iter_mut().enumerate() {
             if t.id != 0 {
                 templates_by_id.insert(t.id, i);
             }
             if !t.name.is_empty() {
                 templates_by_name.insert(t.name.clone(), i);
             }
+            Self::index_type_ref(&t.type_ref, &mut type_indices);
+            Self::prepare_instructions(&mut t.instructions, &mut type_indices);
         }
 
-        let template_id_instruction = Instruction {
-            id: 0,
-            name: "__template_id__".to_string(),
-            value_type: ValueType::UInt32,
-            presence: Presence::Mandatory,
-            operator: Operator::Copy,
-            initial_value: None,
-            instructions: Vec::new(),
-            dictionary: Dictionary::Global,
-            key: Rc::from("__template_id__"),
-            type_ref: TypeRef::Any,
-            has_pmap: Cell::new(false),
-            template_index: Cell::new(usize::MAX),
-        };
+        let template_id_instruction = Instruction::new_template_id();
 
         let definitions = Self {
             templates,
             templates_by_id,
             templates_by_name,
             template_id_instruction,
+            type_indices,
         };
         definitions.finalize()?;
         Ok(definitions)
+    }
+
+    fn index_type_ref(type_ref: &TypeRef, type_indices: &mut HashMap<Rc<str>, u32>) {
+        if let TypeRef::ApplicationType(name) = type_ref {
+            let next = u32::try_from(type_indices.len() + 1).unwrap_or(u32::MAX);
+            type_indices.entry(name.clone()).or_insert(next);
+        }
+    }
+
+    // Collects application types and gives each dynamic template reference its own template identifier
+    // instruction, because the identifier uses the dictionary of the place where the reference is.
+    fn prepare_instructions(
+        instructions: &mut [Instruction],
+        type_indices: &mut HashMap<Rc<str>, u32>,
+    ) {
+        for i in instructions {
+            Self::index_type_ref(&i.type_ref, type_indices);
+            if i.value_type == ValueType::TemplateReference && i.name.is_empty() {
+                i.instructions = vec![Instruction::new_template_id()];
+            }
+            Self::prepare_instructions(&mut i.instructions, type_indices);
+        }
+    }
+
+    /// Returns index of application type, or `None` for the special type `any`.
+    #[inline]
+    pub(crate) fn type_index(&self, type_ref: &TypeRef) -> Option<u32> {
+        match type_ref {
+            TypeRef::Any => None,
+            TypeRef::ApplicationType(name) => self.type_indices.get(name).copied(),
+        }
     }
 
     #[inline]
@@ -110,6 +134,13 @@ impl Definitions {
             // The template segment also contains the template identifier bit
             Self::check_segment_size(&tpl.name, bits + 1)?;
             tpl.pmap_bits.set(Some(bits));
+        }
+
+        let mut slots = SlotResolver::default();
+        // The template identifier of a message is in the `global` directory.
+        slots.resolve(&self.template_id_instruction, &Dictionary::Global);
+        for tpl in &self.templates {
+            slots.resolve_all(&tpl.instructions, &tpl.dictionary);
         }
         Ok(())
     }
@@ -196,5 +227,72 @@ impl Definitions {
             Operator::Constant => instr.is_optional(),
         };
         Ok(usize::from(bit))
+    }
+}
+
+// Assigns dictionary slots to instructions.
+//
+// Every template sets its own dictionary (`global` if not specified), so the dictionary of an instruction
+// doesn't depend on the place where the template is used and can be resolved statically.
+// Only the instance of `template` and `type` dictionaries (current template_id / application type) is
+// known at runtime.
+#[derive(Default)]
+struct SlotResolver {
+    // (dictionary name or `None` for global, key) -> static slot
+    statics: HashMap<(Option<Rc<str>>, Rc<str>), u32>,
+    // key -> key index in `templates` and `type` dictionaries
+    keys: HashMap<Rc<str>, u32>,
+}
+
+impl SlotResolver {
+    fn resolve_all(&mut self, instructions: &[Instruction], dictionary: &Dictionary) {
+        for i in instructions {
+            self.resolve(i, dictionary);
+        }
+    }
+
+    // `dictionary` is the dictionary inherited from the enclosing element.
+    fn resolve(&mut self, instr: &Instruction, dictionary: &Dictionary) {
+        let dictionary = if instr.dictionary == Dictionary::Inherit
+            || instr.value_type == ValueType::TemplateReference
+        {
+            dictionary
+        } else {
+            &instr.dictionary
+        };
+        match instr.value_type {
+            ValueType::Group | ValueType::Sequence => {
+                self.resolve_all(&instr.instructions, dictionary);
+            }
+            ValueType::TemplateReference => {
+                // Dynamic reference has the template identifier instruction which uses the current dictionary.
+                // Static reference uses instructions of the referenced template resolved on their own.
+                self.resolve_all(&instr.instructions, dictionary);
+            }
+            ValueType::Decimal => {
+                instr.dictionary_slot.set(self.slot(dictionary, &instr.key));
+                // Subcomponents inherits the dictionary of the decimal field unless their operators set their own.
+                self.resolve_all(&instr.instructions, dictionary);
+            }
+            _ => {
+                instr.dictionary_slot.set(self.slot(dictionary, &instr.key));
+            }
+        }
+    }
+
+    fn slot(&mut self, dictionary: &Dictionary, key: &Rc<str>) -> DictionaryType {
+        let name = match dictionary {
+            Dictionary::Template => return DictionaryType::Template(self.key(key)),
+            Dictionary::Type => return DictionaryType::Type(self.key(key)),
+            Dictionary::Inherit | Dictionary::Global => None,
+            Dictionary::UserDefined(name) => Some(name.clone()),
+        };
+        let next = u32::try_from(self.statics.len()).unwrap_or(u32::MAX);
+        DictionaryType::Static(*self.statics.entry((name, key.clone())).or_insert(next))
+    }
+
+    fn key(&mut self, key: &Rc<str>) -> u32 {
+        let next = u32::try_from(self.statics.len()).unwrap_or(u32::MAX);
+        *self.keys.entry(key.clone()).or_insert(next)
     }
 }
