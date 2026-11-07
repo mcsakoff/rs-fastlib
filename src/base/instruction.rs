@@ -58,6 +58,9 @@ pub(crate) struct Instruction {
     // For ::Sequence it shows if the instruction needs a pmap.
     // For ::Decimal it shows if any of its subcomponent needs a pmap.
     pub(crate) has_pmap: Cell<bool>,
+
+    // For static ::TemplateReference it is the index of the referenced template in definitions.
+    pub(crate) template_index: Cell<usize>
 }
 
 impl Instruction {
@@ -86,6 +89,7 @@ impl Instruction {
             type_ref: TypeRef::Any,
             key: Rc::from(ky),
             has_pmap: Cell::new(false),
+            template_index: Cell::new(usize::MAX),
         }
     }
 

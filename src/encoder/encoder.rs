@@ -146,7 +146,7 @@ impl Encoder {
 /// Processing context of the encoder. It represents context state during one message encoding.
 /// Created when it starts encoding a new message and destroyed after encoding of a message.
 pub(crate) struct EncoderContext<'a, M> {
-    pub(crate) definitions: &'a mut Definitions,
+    pub(crate) definitions: &'a Definitions,
     pub(crate) context: &'a mut Context,
     pub(crate) msg: &'a mut M,
 
@@ -170,7 +170,7 @@ pub(crate) struct EncoderContext<'a, M> {
 impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     pub(crate) fn new(d: &'a mut Encoder, m: &'a mut M) -> Self {
         Self {
-            definitions: &mut d.definitions,
+            definitions: &d.definitions,
             context: &mut d.context,
             msg: m,
             template_id: Stacked::new_empty(),
@@ -183,14 +183,9 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     // Encode a template to the buffer.
     fn encode_template(&mut self, buf: &mut Vec<u8>) -> Result<()> {
         let template_name = self.msg.get_template_name()?;
-        let template = self
-            .definitions
-            .templates_by_name
-            .get(&template_name)
-            .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))?
-            .clone();
+        let template = self.definitions.template_by_name(&template_name)?;
         // presence map + template_id + instructions
-        self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, &template))
+        self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, template))
     }
 
     fn encode_template_body(&mut self, buf: &mut Vec<u8>, template: &Template) -> Result<()> {
@@ -237,8 +232,10 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     // Encode template id to the buffer and change the current processing context accordingly.
     fn encode_template_id(&mut self, buf: &mut Vec<u8>, template_id: u32) -> Result<()> {
         self.template_id.push(template_id);
-        let instruction = self.definitions.template_id_instruction.clone();
-        instruction.inject(self, buf, Some(Value::UInt32(template_id)))
+        let definitions = self.definitions;
+        definitions
+            .template_id_instruction
+            .inject(self, buf, Some(Value::UInt32(template_id)))
     }
 
     // Stop processing the current template id, restore the previous value in the processing context.
@@ -391,20 +388,13 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                 })?;
             let template = self
                 .definitions
-                .templates_by_name
-                .get(&template_name)
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template name: {template_name}")))? // [ErrD09]
-                .clone();
-
+                .template_by_name(&template_name)?;
             self.with_segment(buf, |ctx, buf| ctx.encode_template_body(buf, &template))?;
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
             let template = self
                 .definitions
-                .templates_by_name
-                .get(&instruction.name)
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template: {}", instruction.name)))? // [ErrD09]
-                .clone();
+                .static_template_ref(instruction);
 
             let has_dictionary = self.switch_dictionary(&template.dictionary);
             let has_type_ref = self.switch_type_ref(&template.type_ref);

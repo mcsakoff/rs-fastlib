@@ -123,7 +123,7 @@ fn default_templates_dictionary() {
 #[test]
 fn decimal_operator_context() {
     let d = Decoder::new_from_xml(DEFINITION1).unwrap();
-    let i = &d.definitions.templates_by_id[&6].instructions[0];
+    let i = &d.definitions.template_by_id(6).unwrap().instructions[0];
     assert_eq!(i.dictionary, Dictionary::Template);
     assert_eq!(i.key.as_ref(), "px");
     assert_eq!(i.instructions[0].key.as_ref(), "px:exponent");

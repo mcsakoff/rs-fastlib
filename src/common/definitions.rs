@@ -1,6 +1,7 @@
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use rustc_hash::FxHashMap as HashMap;
 
 use crate::base::instruction::Instruction;
 use crate::base::types::{Dictionary, Operator, Presence, Template, TypeRef};
@@ -12,29 +13,26 @@ pub const MAX_PMAP_BITS: usize = 63;
 
 /// Stores template definitions and global processing context.
 pub struct Definitions {
-    pub(crate) templates: Vec<Rc<Template>>,
-    pub(crate) templates_by_id: HashMap<u32, Rc<Template>>,
-    pub(crate) templates_by_name: HashMap<String, Rc<Template>>,
-    pub(crate) template_id_instruction: Rc<Instruction>,
+    pub(crate) templates: Vec<Template>,
+    pub(crate) templates_by_id: HashMap<u32, usize>,
+    pub(crate) templates_by_name: HashMap<String, usize>,
+    pub(crate) template_id_instruction: Instruction,
 }
 
 impl Definitions {
-    pub(crate) fn new_from_templates(ts: Vec<Template>) -> Result<Self> {
-        let mut templates = Vec::with_capacity(ts.len());
-        let mut templates_by_id = HashMap::with_capacity(ts.len());
-        let mut templates_by_name = HashMap::with_capacity(ts.len());
-        for t in ts {
-            let t = Rc::new(t);
+    pub(crate) fn new_from_templates(templates: Vec<Template>) -> Result<Self> {
+        let mut templates_by_id = HashMap::default();
+        let mut templates_by_name = HashMap::default();
+        for (i, t) in templates.iter().enumerate() {
             if t.id != 0 {
-                templates_by_id.insert(t.id, t.clone());
+                templates_by_id.insert(t.id, i);
             }
             if !t.name.is_empty() {
-                templates_by_name.insert(t.name.clone(), t.clone());
+                templates_by_name.insert(t.name.clone(), i);
             }
-            templates.push(t);
         }
 
-        let template_id_instruction = Rc::new(Instruction {
+        let template_id_instruction = Instruction {
             id: 0,
             name: "__template_id__".to_string(),
             value_type: ValueType::UInt32,
@@ -46,7 +44,8 @@ impl Definitions {
             key: Rc::from("__template_id__"),
             type_ref: TypeRef::Any,
             has_pmap: Cell::new(false),
-        });
+            template_index: Cell::new(usize::MAX),
+        };
 
         let definitions = Self {
             templates,
@@ -56,6 +55,28 @@ impl Definitions {
         };
         definitions.finalize()?;
         Ok(definitions)
+    }
+
+    #[inline]
+    pub(crate) fn template_by_id(&self, id: u32) -> Result<&Template> {
+        match self.templates_by_id.get(&id) {
+            Some(&i) => Ok(&self.templates[i]),
+            None => Err(Error::Dynamic(format!("Unknown template id: {id}"))), // [ErrD09]
+        }
+    }
+
+    #[inline]
+    pub(crate) fn template_by_name(&self, name: &str) -> Result<&Template> {
+        match self.templates_by_name.get(name) {
+            Some(&i) => Ok(&self.templates[i]),
+            None => Err(Error::Dynamic(format!("Unknown template: {name}"))), // [ErrD09]
+        }
+    }
+
+    // Returns the template of a static template reference instruction (resolved at load time).
+    #[inline]
+    pub(crate) fn static_template_ref(&self, instr: &Instruction) -> &Template {
+        &self.templates[instr.template_index.get()]
     }
 
     pub fn new_from_xml(text: &str) -> Result<Self> {
@@ -140,10 +161,12 @@ impl Definitions {
                     return Ok(0);
                 }
                 // Static template ref occupies the same bits as the corresponding template.
-                let template = self
+                let index = *self
                     .templates_by_name
                     .get(&instr.name)
                     .ok_or_else(|| Error::Static(format!("template '{}' not found", instr.name)))?;
+                instr.template_index.set(index);
+                let template = &self.templates[index];
                 return template.pmap_bits.get().ok_or_else(|| {
                     Error::Static(format!(
                         "template '{}' not initialized yet; consider reordering templates",

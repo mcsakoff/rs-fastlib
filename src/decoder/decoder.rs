@@ -124,7 +124,7 @@ impl Decoder {
 /// Processing context of the decoder. It represents context state during one message decoding.
 /// Created when it starts decoding a new message and destroyed after decoding of a message.
 pub(crate) struct DecoderContext<'a, R, M> {
-    pub(crate) definitions: &'a mut Definitions,
+    pub(crate) definitions: &'a Definitions,
     pub(crate) context: &'a mut Context,
     pub(crate) rdr: &'a mut R,
     pub(crate) msg: &'a mut M,
@@ -149,7 +149,7 @@ pub(crate) struct DecoderContext<'a, R, M> {
 impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     pub(crate) fn new(d: &'a mut Decoder, r: &'a mut R, m: &'a mut M) -> Self {
         Self {
-            definitions: &mut d.definitions,
+            definitions: &d.definitions,
             context: &mut d.context,
             rdr: r,
             msg: m,
@@ -162,8 +162,8 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     // Read template id from the stream.
     fn read_template_id(&mut self) -> Result<u32> {
-        let instruction = self.definitions.template_id_instruction.clone();
-        match instruction.extract(self)? {
+        let definitions = self.definitions;
+        match definitions.template_id_instruction.extract(self)? {
             Some(Value::UInt32(id)) => Ok(id),
             Some(_) => Err(Error::Runtime(
                 "Wrong template id type in context storage".to_string(),
@@ -205,15 +205,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         self.decode_template_id()?;
         let template = self
             .definitions
-            .templates_by_id
-            .get(self.template_id.peek().unwrap())
-            .ok_or_else(|| {
-                Error::Dynamic(format!(
-                    "Unknown template id: {}",
-                    self.template_id.peek().unwrap()
-                ))
-            })? // [ErrD09]
-            .clone(); //
+            .template_by_id(*self.template_id.must_peek())?;
         self.msg.start_template(template.id, &template.name);
 
         // Update some context variables
@@ -344,25 +336,13 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     fn decode_template_ref(&mut self, instruction: &Instruction) -> Result<()> {
         let is_dynamic = instruction.name.is_empty();
 
-        let template: Rc<Template> = if is_dynamic {
+        let template = if is_dynamic {
             self.decode_presence_map()?;
             self.decode_template_id()?;
             self.definitions
-                .templates_by_id
-                .get(self.template_id.peek().unwrap())
-                .ok_or_else(|| {
-                    Error::Dynamic(format!(
-                        "Unknown template id: {}",
-                        self.template_id.peek().unwrap()
-                    ))
-                })? // [ErrD09]
-                .clone()
+                .template_by_id(*self.template_id.must_peek())?
         } else {
-            self.definitions
-                .templates_by_name
-                .get(&instruction.name)
-                .ok_or_else(|| Error::Dynamic(format!("Unknown template: {}", instruction.name)))? // [ErrD09]
-                .clone()
+            self.definitions.static_template_ref(instruction)
         };
         self.msg.start_template_ref(&template.name, is_dynamic);
 
