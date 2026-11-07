@@ -5,7 +5,7 @@ use std::rc::Rc;
 use roxmltree::Node;
 
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
-use crate::base::value::{Value, ValueType};
+use crate::base::value::{DeltaRef, TailRef, Value, ValueType};
 use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
@@ -578,30 +578,34 @@ impl Instruction {
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
-                let value = match s.ctx_get(self)? {
+                match s.ctx_get_mut(self)? {
                     // Assigned: the base value is the previous value.
-                    Some(Some(prev)) => prev.apply_delta(&delta, aux)?,
+                    // The combined value becomes the new previous value.
+                    Some(Some(prev)) => {
+                        prev.apply_delta_in_place(&delta, aux)?;
+                        Ok(Some(prev.clone()))
+                    }
 
                     // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
-                    Some(None) => {
-                        return Err(Error::Runtime(
-                            "delta operator has no previous value".to_string(),
-                        )); // [ERR D6]
-                    }
+                    Some(None) => Err(Error::Runtime(
+                        "delta operator has no previous value".to_string(),
+                    )), // [ERR D6]
 
                     // Undefined: The base value is the initial value if present in the instruction context.
                     // Otherwise, a type dependant default base value is used.
-                    None => match &self.initial_value {
-                        Some(v) => v.apply_delta(&delta, aux)?,
-                        None => self
-                            .value_type
-                            .to_default_value()?
-                            .apply_delta(&delta, aux)?,
-                    },
-                };
-                let value = Some(value);
-                s.ctx_set(self, value.clone());
-                Ok(value)
+                    None => {
+                        let value = match &self.initial_value {
+                            Some(v) => v.apply_delta(&delta, aux)?,
+                            None => self
+                                .value_type
+                                .to_default_value()?
+                                .apply_delta(&delta, aux)?,
+                        };
+                        let value = Some(value);
+                        s.ctx_set(self, value.clone());
+                        Ok(value)
+                    }
+                }
             }
 
             // The tail operator specifies that a tail value is optionally present in the stream.
@@ -619,19 +623,19 @@ impl Instruction {
                         };
                     };
                     // Otherwise, if the tail value is present, the value of the field is obtained by combining
-                    // the tail value with a base value. The base value depends on the state of the previous value:
-                    let value = match s.ctx_get(self)? {
-                        // Assigned: the base value is the previous value.
-                        Some(Some(prev)) => prev.apply_tail(&tail)?,
-
-                        // Empty or Undefined: the base value is the initial value if present in the instruction context.
-                        // Otherwise, a type dependant default base value is used.
-                        Some(None) | None => match &self.initial_value {
-                            Some(v) => v.apply_tail(&tail)?,
-                            None => self.value_type.to_default_value()?.apply_tail(&tail)?,
-                        },
-                    };
+                    // the tail value with a base value. The base value depends on the state of the previous value.
                     // The combined value becomes the new previous value.
+                    if let Some(Some(prev)) = s.ctx_get_mut(self)? {
+                        // Assigned: the base value is the previous value.
+                        prev.apply_tail_in_place(&tail)?;
+                        return Ok(Some(prev.clone()));
+                    }
+                    // Empty or Undefined: the base value is the initial value if present in the instruction context.
+                    // Otherwise, a type dependant default base value is used.
+                    let value = match &self.initial_value {
+                        Some(v) => v.apply_tail(&tail)?,
+                        None => self.value_type.to_default_value()?.apply_tail(&tail)?,
+                    };
                     let value = Some(value);
                     s.ctx_set(self, value.clone());
                     return Ok(value);
@@ -932,6 +936,8 @@ impl Instruction {
     where
         M: MessageVisitor,
     {
+        use std::borrow::Cow;
+
         if value.is_none() && !self.is_optional() {
             return Err(Error::Runtime(format!(
                 "mandatory field {} has no value",
@@ -962,13 +968,13 @@ impl Instruction {
                 }
             }
             Operator::Copy => {
-                let same = if let Some(prev) = s.ctx_get(self)? {
-                    *prev == value
-                } else {
-                    s.ctx_set(self, self.initial_value.clone());
-                    self.initial_value == value
-                };
-                if same {
+                // Undefined previous value is the initial value.
+                let prev = s.ctx_get(self)?;
+                let defined = prev.is_some();
+                if *prev.unwrap_or(&self.initial_value) == value {
+                    if !defined {
+                        s.ctx_set(self, value);
+                    }
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -997,20 +1003,27 @@ impl Instruction {
                     return self.write_delta(buf, None);
                 };
 
-                let delta = match s.ctx_get(self)? {
-                    Some(Some(prev)) => value.find_delta(prev),
+                let base = match s.ctx_get(self)? {
+                    Some(Some(prev)) => Cow::Borrowed(prev),
                     Some(None) => {
                         return Err(Error::Runtime(
                             "delta operator has empty previous value".to_string(),
                         )); // [ERR D6]
                     }
                     None => match &self.initial_value {
-                        Some(v) => value.find_delta(v),
-                        None => value.find_delta(&self.value_type.to_default_value()?),
+                        Some(v) => Cow::Borrowed(v),
+                        None => Cow::Owned(self.value_type.to_default_value()?),
                     },
                 };
+                let delta = value.find_delta_ref(&base).ok_or_else(|| {
+                    Error::Runtime(format!(
+                        "Cannot find delta of {value:?} from {base:?} for field {}",
+                        self.name,
+                    ))
+                })?;
+                self.write_delta(buf, Some(delta))?;
                 s.ctx_set(self, Some(value));
-                self.write_delta(buf, Some(delta))
+                Ok(())
             }
             Operator::Tail => {
                 let prev_value = s.ctx_get(self)?.unwrap_or(&self.initial_value);
@@ -1019,16 +1032,19 @@ impl Instruction {
                     s.ctx_set(self, value);
                     return Ok(());
                 }
-                let tail = match (&value, prev_value) {
-                    (None, _) => None,
-                    (Some(v), Some(prev)) => Some(v.find_tail(prev)?),
-                    (Some(v), None) => Some(v.find_tail(&self.value_type.to_default_value()?)?),
+                match (&value, prev_value) {
+                    (None, _) => self.write_tail(buf, None)?,
+                    (Some(v), Some(prev)) => self.write_tail(buf, Some(v.find_tail_ref(prev)?))?,
+                    (Some(v), None) => {
+                        let prev = self.value_type.to_default_value()?;
+                        self.write_tail(buf, Some(v.find_tail_ref(&prev)?))?;
+                    }
                 };
                 s.pmap_set_next_bit(true);
                 if value.is_some() {
                     s.ctx_set(self, value);
                 }
-                self.write_tail(buf, tail)
+                Ok(())
             }
         }
     }
@@ -1189,60 +1205,59 @@ impl Instruction {
         }
     }
 
-    fn write_delta(&self, buf: &mut impl Writer, value: Option<(Value, i32)>) -> Result<()> {
-        match self.value_type {
-            ValueType::UInt32
-            | ValueType::Int32
-            | ValueType::UInt64
-            | ValueType::Int64
-            | ValueType::Length
-            | ValueType::Exponent
-            | ValueType::Mantissa => match value {
-                None => self.write_int::<i64>(buf, None),
-                Some((Value::Int64(v), _)) => self.write_int(buf, Some(v)),
-                Some((v, _)) => Err(Error::Runtime(format!(
-                    "{} field's delta must be Int64, got: {:?} instead",
-                    self.name, v
-                ))),
-            },
-            ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => match value {
-                None => self.write_int::<i32>(buf, None),
-                Some((delta, sub)) => {
-                    self.write_int(buf, Some(sub))?;
-                    match (&self.value_type, delta) {
-                        (ValueType::ASCIIString, Value::ASCIIString(s)) => {
-                            self.write_ascii_string(buf, Some(&s))
-                        }
-                        (ValueType::UnicodeString | ValueType::Bytes, Value::Bytes(b)) => {
-                            self.write_bytes(buf, Some(&b))
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            },
-            _ => unreachable!(),
+    fn write_delta(&self, buf: &mut impl Writer, delta: Option<DeltaRef>) -> Result<()> {
+        match (&self.value_type, delta) {
+            (
+                ValueType::UInt32
+                | ValueType::Int32
+                | ValueType::UInt64
+                | ValueType::Int64
+                | ValueType::Length
+                | ValueType::Exponent
+                | ValueType::Mantissa,
+                None,
+            ) => {
+                self.write_int::<i64>(buf, None)
+            }
+
+            (
+                ValueType::UInt32
+                | ValueType::Int32
+                | ValueType::UInt64
+                | ValueType::Int64
+                | ValueType::Length
+                | ValueType::Exponent
+                | ValueType::Mantissa,
+                Some(DeltaRef::Int(v)),
+            ) => {
+                self.write_int(buf, Some(v))
+            }
+
+            (ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes, None) => {
+                self.write_int::<i32>(buf, None)
+            }
+
+            (ValueType::ASCIIString, Some(DeltaRef::ASCII(s, sub))) => {
+                self.write_int(buf, Some(sub))?;
+                self.write_ascii_string(buf, Some(s))
+            }
+
+            (ValueType::UnicodeString | ValueType::Bytes, Some(DeltaRef::Bytes(b, sub))) => {
+                self.write_int(buf, Some(sub))?;
+                self.write_bytes(buf, Some(b))
+            }
+
+            (_, delta) => Err(Error::Runtime(format!("{} field has wrong delta: {delta:?}", self.name)))
         }
     }
 
-    fn write_tail(&self, buf: &mut impl Writer, tail: Option<Value>) -> Result<()> {
-        match self.value_type {
-            ValueType::ASCIIString => match tail {
-                None => self.write_ascii_string(buf, None),
-                Some(Value::ASCIIString(s)) => self.write_ascii_string(buf, Some(&s)),
-                Some(v) => Err(Error::Runtime(format!(
-                    "{} field's tail must be ASCIIString, got: {:?} instead",
-                    self.name, v
-                ))),
-            },
-            ValueType::UnicodeString | ValueType::Bytes => match tail {
-                None => self.write_bytes(buf, None),
-                Some(Value::Bytes(b)) => self.write_bytes(buf, Some(&b)),
-                Some(v) => Err(Error::Runtime(format!(
-                    "{} field's tail must be Bytes, got: {:?} instead",
-                    self.name, v
-                ))),
-            },
-            _ => unreachable!(),
+    fn write_tail(&self, buf: &mut impl Writer, tail: Option<TailRef>) -> Result<()> {
+        match (&self.value_type, tail) {
+            (ValueType::ASCIIString, None) => self.write_ascii_string(buf, None),
+            (ValueType::ASCIIString, Some(TailRef::ASCII(s))) => self.write_ascii_string(buf, Some(s)),
+            (ValueType::UnicodeString | ValueType::Bytes, None) => self.write_bytes(buf, None),
+            (ValueType::UnicodeString | ValueType::Bytes, Some(TailRef::Bytes(b))) => self.write_bytes(buf, Some(b)),
+            (_, tail) => Err(Error::Runtime(format!("{} field has wrong tail: {tail:?}", self.name)))
         }
     }
 

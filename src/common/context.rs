@@ -76,6 +76,16 @@ impl Context {
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
     }
+
+    #[inline]
+    pub(crate) fn get_mut(&mut self, dict: DictionaryType, template_id: u32, type_index: u32) -> Option<&mut Option<Value>> {
+        match dict {
+            DictionaryType::Static(i) => self.statics.get_mut(i as usize)?.as_mut(),
+            DictionaryType::Template(i) => self.templates.get_mut(&(template_id, i))?.as_mut(),
+            DictionaryType::Type(i) => self.types.get_mut(&(type_index, i))?.as_mut(),
+            DictionaryType::None => unreachable!("dictionary is not resolved"),
+        }
+    }
 }
 
 #[cfg(test)]

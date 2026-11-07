@@ -396,4 +396,24 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         }
         Ok(v)
     }
+
+    #[inline]
+    pub(crate) fn ctx_get_mut(&mut self, i: &Instruction) -> Result<Option<&mut Option<Value>>> {
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        let v = self
+            .context
+            .get_mut(i.dictionary_slot.get(), template_id, type_index);
+        if let Some(Some(v)) = v
+            && !i.value_type.matches_type(v)
+        {
+            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+            // the same type as the value of the entry.
+            return Err(Error::Runtime(format!(
+                "field {} has wrong value type in context",
+                i.name
+            ))); // [ERR D4]
+        }
+        Ok(v)
+    }
 }
