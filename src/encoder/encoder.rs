@@ -66,7 +66,7 @@ impl Encoder {
         msg: &mut impl MessageVisitor,
     ) -> Result<()> {
         let len = buf.len();
-        let res = EncoderContext::new(self, msg).encode_template(buf);
+        let res = MessageEncoder::new(self, msg).encode_template(buf);
         if res.is_err() {
             buf.truncate(len);
         }
@@ -136,7 +136,7 @@ impl Encoder {
         scratch.clear();
         let res = self
             .encode_append(&mut scratch, msg)
-            .and_then(|_| f(&scratch));
+            .and_then(|()| f(&scratch));
         self.scratch = scratch;
         res
     }
@@ -144,10 +144,9 @@ impl Encoder {
 
 /// Processing context of the encoder. It represents context state during one message encoding.
 /// Created when it starts encoding a new message and destroyed after encoding of a message.
-pub(crate) struct EncoderContext<'a, M> {
+pub(crate) struct EncoderContext<'a> {
     pub(crate) definitions: &'a Definitions,
     pub(crate) context: &'a mut Context,
-    pub(crate) msg: &'a mut M,
 
     // The current template id.
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
@@ -164,26 +163,133 @@ pub(crate) struct EncoderContext<'a, M> {
     pub(crate) presence_map: Stacked<PresenceMap>,
 }
 
-impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
-    pub(crate) fn new(d: &'a mut Encoder, m: &'a mut M) -> Self {
+impl<'a> EncoderContext<'a> {
+    pub(crate) fn new(d: &'a mut Encoder) -> Self {
         Self {
             definitions: &d.definitions,
             context: &mut d.context,
-            msg: m,
             template_id: Stacked::new_empty(),
             type_ref: Stacked::new(0),
             presence_map: Stacked::new_empty(),
         }
     }
 
+    // Encodes a segment: runs `f` with a new presence map and puts the presence map in front of the encoded data.
+    // One byte is reserved for the presence mup up front; the data is shifted only if the presence map is longer.
+    fn with_segment<T>(
+        state: &mut T,
+        ctx: impl Fn(&mut T) -> &mut Self,
+        buf: &mut Vec<u8>,
+        f: impl FnOnce(&mut T, &mut Vec<u8>) -> Result<()>,
+    ) -> Result<()> {
+        ctx(state).presence_map.push(PresenceMap::new_empty());
+        let start = buf.len();
+        buf.push(0x80);
+        f(state, buf)?;
+        let presence_map = ctx(state).presence_map.pop().unwrap();
+        let (pmap, len) = presence_map_bytes(presence_map.bitmap, presence_map.size)?;
+        if len == 1 {
+            buf[start] = pmap[0];
+        } else {
+            buf.splice(start..=start, pmap[..len].iter().copied());
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
+        match self.definitions.type_index(type_ref) {
+            None => false,
+            Some(index) => {
+                self.type_ref.push(index);
+                true
+            }
+        }
+    }
+
+    #[inline]
+    fn restore_type_ref(&mut self) {
+        _ = self.type_ref.pop();
+    }
+
+    #[inline]
+    pub(crate) fn pmap_set_next_bit(&mut self, value: bool) {
+        self.presence_map.must_peek_mut().set_next_bit(value);
+    }
+
+    #[inline]
+    fn entry(&mut self, i: &Instruction) -> Option<&mut Option<Value>> {
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        self.context
+            .get_mut(i.dictionary_slot.get(), template_id, type_index)
+    }
+
+    #[inline]
+    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<&Value>) {
+        if let Some(entry) = self.entry(i) {
+            match (entry, v) {
+                (Some(dst), Some(src)) => dst.assign(src),
+                (entry, v) => *entry = v.cloned(),
+            }
+            return;
+        }
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+        self.context
+            .set(i.dictionary_slot.get(), template_id, type_index, v.cloned());
+    }
+
+    #[inline]
+    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
+        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let type_index = *self.type_ref.must_peek();
+
+        let v = self
+            .context
+            .get(i.dictionary_slot.get(), template_id, type_index);
+        if let Some(Some(v)) = v
+            && !i.value_type.matches_type(v)
+        {
+            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+            // the same type as the value of the entry.
+            return Err(Error::Runtime(format!(
+                "field {} has wrong value type in context",
+                i.name
+            ))); // [ERR D4]
+        }
+        Ok(v)
+    }
+}
+
+struct MessageEncoder<'a, M> {
+    ctx: EncoderContext<'a>,
+    msg: &'a mut M,
+}
+
+impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
+    fn new(e: &'a mut Encoder, msg: &'a mut M) -> Self {
+        Self {
+            ctx: EncoderContext::new(e),
+            msg,
+        }
+    }
+
+    fn with_segment(
+        &mut self,
+        buf: &mut Vec<u8>,
+        f: impl FnOnce(&mut Self, &mut Vec<u8>) -> Result<()>,
+    ) -> Result<()> {
+        EncoderContext::with_segment(self, |s| &mut s.ctx, buf, f)
+    }
+
     // Encode a template to the buffer.
     fn encode_template(&mut self, buf: &mut Vec<u8>) -> Result<()> {
-        let template_name = self.msg.get_template_name()?;
-        let template = self.definitions.template_by_name(&template_name)?;
-        let tid_instruction = &self.definitions.template_id_instruction;
+        let definitions = self.ctx.definitions;
+        let template = definitions.template_by_name(&self.msg.get_template_name()?)?;
         // presence map + template_id + instructions
         self.with_segment(buf, |ctx, buf| {
-            ctx.encode_template_body(buf, template, tid_instruction)
+            ctx.encode_template_body(buf, template, &definitions.template_id_instruction)
         })
     }
 
@@ -195,58 +301,20 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         template: &Template,
         tid_instruction: &Instruction,
     ) -> Result<()> {
-        self.encode_template_id(buf, template.id, tid_instruction)?;
+        // The template id is stored in the dictionary of the enclosing template.
+        tid_instruction.inject(&mut self.ctx, buf, Some(&Value::UInt32(template.id)))?;
+        self.ctx.template_id.push(template.id);
 
-        // Update some context variables
-        let has_type_ref = self.switch_type_ref(&template.type_ref);
+        let has_type_ref = self.ctx.switch_type_ref(&template.type_ref);
 
         self.encode_instructions(buf, &template.instructions)?;
 
         if has_type_ref {
-            self.restore_type_ref();
+            self.ctx.restore_type_ref();
         }
 
-        self.drop_template_id();
+        self.ctx.template_id.pop();
         Ok(())
-    }
-
-    // Encodes a segment: runs `f` with a new presence map and puts the presence map in front of the encoded data.
-    // One byte is reserved for the presence mup up front; the data is shifted only if the presence map is longer.
-    fn with_segment(
-        &mut self,
-        buf: &mut Vec<u8>,
-        f: impl FnOnce(&mut Self, &mut Vec<u8>) -> Result<()>,
-    ) -> Result<()> {
-        self.presence_map.push(PresenceMap::new_empty());
-        let start = buf.len();
-        buf.push(0x80);
-        f(self, buf)?;
-        let presence_map = self.presence_map.pop().unwrap();
-        let (pmap, len) = presence_map_bytes(presence_map.bitmap, presence_map.size)?;
-        if len == 1 {
-            buf[start] = pmap[0]
-        } else {
-            buf.splice(start..=start, pmap[..len].iter().copied());
-        }
-        Ok(())
-    }
-
-    // Encode template id to the buffer and change the current processing context accordingly.
-    // The template id is stored in the dictionary of the enclosing template.
-    fn encode_template_id(
-        &mut self,
-        buf: &mut Vec<u8>,
-        template_id: u32,
-        instruction: &Instruction,
-    ) -> Result<()> {
-        instruction.inject(self, buf, Some(Value::UInt32(template_id)))?;
-        self.template_id.push(template_id);
-        Ok(())
-    }
-
-    // Stop processing the current template id, restore the previous value in the processing context.
-    fn drop_template_id(&mut self) {
-        self.template_id.pop();
     }
 
     fn encode_instructions(
@@ -277,7 +345,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         let value = self
             .msg
             .get_value(&instruction.name, &instruction.value_type)?;
-        instruction.inject(self, buf, value)
+        instruction.inject(&mut self.ctx, buf, value.as_deref())
     }
 
     fn encode_segment(&mut self, buf: &mut Vec<u8>, instructions: &[Instruction]) -> Result<()> {
@@ -287,7 +355,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
     fn encode_group(&mut self, buf: &mut Vec<u8>, instruction: &Instruction) -> Result<()> {
         if !self.msg.select_group(&instruction.name)? {
             return if instruction.is_optional() {
-                self.pmap_set_next_bit(false);
+                self.ctx.pmap_set_next_bit(false);
                 Ok(())
             } else {
                 Err(Error::Dynamic(format!(
@@ -297,10 +365,10 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             };
         }
         if instruction.is_optional() {
-            self.pmap_set_next_bit(true);
+            self.ctx.pmap_set_next_bit(true);
         }
 
-        let has_type_ref = self.switch_type_ref(&instruction.type_ref);
+        let has_type_ref = self.ctx.switch_type_ref(&instruction.type_ref);
 
         if instruction.has_pmap.get() {
             self.encode_segment(buf, &instruction.instructions)?;
@@ -309,7 +377,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         }
 
         if has_type_ref {
-            self.restore_type_ref();
+            self.ctx.restore_type_ref();
         }
 
         self.msg.release_group()
@@ -319,11 +387,11 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         let length = self.msg.select_sequence(&instruction.name)?;
         let length_instruction = instruction.instructions.first().unwrap();
 
-        let has_type_ref = self.switch_type_ref(&instruction.type_ref);
+        let has_type_ref = self.ctx.switch_type_ref(&instruction.type_ref);
         match length {
             None => {
                 if instruction.is_optional() {
-                    length_instruction.inject(self, buf, None)?;
+                    length_instruction.inject(&mut self.ctx, buf, None)?;
                 } else {
                     return Err(Error::Dynamic(format!(
                         "Missing mandatory sequence: {}",
@@ -332,7 +400,10 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
                 }
             }
             Some(length) => {
-                length_instruction.inject(self, buf, Some(Value::UInt32(length as u32)))?;
+                let length_value = Value::UInt32(u32::try_from(length).map_err(|_| {
+                    Error::Dynamic(format!("Sequence {} is too long", instruction.name))
+                })?);
+                length_instruction.inject(&mut self.ctx, buf, Some(&length_value))?;
                 for idx in 0..length {
                     self.msg.select_sequence_item(idx)?;
                     if instruction.has_pmap.get() {
@@ -346,7 +417,7 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
             }
         }
         if has_type_ref {
-            self.restore_type_ref();
+            self.ctx.restore_type_ref();
         }
 
         Ok(())
@@ -357,81 +428,32 @@ impl<'a, M: MessageVisitor> EncoderContext<'a, M> {
         buf: &mut Vec<u8>,
         instruction: &Instruction,
     ) -> Result<()> {
-        let is_dynamic = instruction.name.is_empty();
+        let definitions = self.ctx.definitions;
 
-        if is_dynamic {
+        if instruction.name.is_empty() {
+            // is dynamic?
             let template_name = self
                 .msg
                 .select_template_ref(&instruction.name, true)?
                 .ok_or_else(|| {
-                    Error::Dynamic(format!(
-                        "Missing mandatory template reference: {}",
-                        instruction.name
-                    ))
+                    Error::Dynamic("Missing mandatory dynamic template reference".to_string())
                 })?;
-            let template = self.definitions.template_by_name(&template_name)?;
+            let template = definitions.template_by_name(&template_name)?;
             self.with_segment(buf, |ctx, buf| {
-                ctx.encode_template_body(buf, &template, &instruction.instructions[0])
+                ctx.encode_template_body(buf, template, &instruction.instructions[0])
             })?;
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
-            let template = self.definitions.static_template_ref(instruction);
+            let template = definitions.static_template_ref(instruction);
 
-            let has_type_ref = self.switch_type_ref(&template.type_ref);
+            let has_type_ref = self.ctx.switch_type_ref(&template.type_ref);
 
             self.encode_instructions(buf, &template.instructions)?;
 
             if has_type_ref {
-                self.restore_type_ref();
+                self.ctx.restore_type_ref();
             }
         }
         self.msg.release_template_ref()
-    }
-
-    #[inline]
-    fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        match self.definitions.type_index(type_ref) {
-            None => false,
-            Some(index) => {
-                self.type_ref.push(index);
-                true
-            }
-        }
-    }
-
-    #[inline]
-    fn restore_type_ref(&mut self) {
-        _ = self.type_ref.pop();
-    }
-
-    #[inline]
-    pub(crate) fn pmap_set_next_bit(&mut self, value: bool) {
-        self.presence_map.must_peek_mut().set_next_bit(value);
-    }
-
-    #[inline]
-    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
-        self.context.set(i.dictionary_slot.get(), template_id, type_index, v);
-    }
-
-    #[inline]
-    pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
-
-        let v = self.context.get(i.dictionary_slot.get(), template_id, type_index);
-        if let Some(Some(v)) = v
-            && !i.value_type.matches_type(v)
-        {
-            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
-            // the same type as the value of the entry.
-            return Err(Error::Runtime(format!(
-                "field {} has wrong value type in context",
-                i.name
-            ))); // [ERR D4]
-        }
-        Ok(v)
     }
 }

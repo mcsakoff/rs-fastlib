@@ -10,7 +10,7 @@ use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
-use crate::{Decimal, Error, MessageFactory, MessageVisitor, Reader, Result};
+use crate::{Decimal, Error, MessageFactory, Reader, Result};
 
 const MAX_EXPONENT: i32 = 63;
 const MIN_EXPONENT: i32 = -63;
@@ -663,7 +663,7 @@ impl Instruction {
                             )); // [ERR D6]
                         }
                         s.ctx_set(self, self.initial_value.clone());
-                        return Ok(self.initial_value.clone());
+                        Ok(self.initial_value.clone())
                     }
                 }
             }
@@ -927,15 +927,12 @@ impl Instruction {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn inject<M>(
+    pub(crate) fn inject(
         &self,
-        s: &mut EncoderContext<M>,
+        s: &mut EncoderContext,
         buf: &mut impl Writer,
-        value: Option<Value>,
-    ) -> Result<()>
-    where
-        M: MessageVisitor,
-    {
+        value: Option<&Value>,
+    ) -> Result<()> {
         use std::borrow::Cow;
 
         if value.is_none() && !self.is_optional() {
@@ -947,7 +944,7 @@ impl Instruction {
         match self.operator {
             Operator::None => self.write(buf, s, value),
             Operator::Constant => {
-                if value.is_some() && self.initial_value != value {
+                if value.is_some() && self.initial_value.as_ref() != value {
                     return Err(Error::Runtime(format!(
                         "constant field {} has wrong value",
                         self.name
@@ -959,7 +956,7 @@ impl Instruction {
                 Ok(())
             }
             Operator::Default => {
-                if self.initial_value == value {
+                if self.initial_value.as_ref() == value {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -971,7 +968,7 @@ impl Instruction {
                 // Undefined previous value is the initial value.
                 let prev = s.ctx_get(self)?;
                 let defined = prev.is_some();
-                if *prev.unwrap_or(&self.initial_value) == value {
+                if prev.unwrap_or(&self.initial_value).as_ref() == value {
                     if !defined {
                         s.ctx_set(self, value);
                     }
@@ -979,7 +976,7 @@ impl Instruction {
                     Ok(())
                 } else {
                     s.pmap_set_next_bit(true);
-                    s.ctx_set(self, value.clone());
+                    s.ctx_set(self, value);
                     self.write(buf, s, value)
                 }
             }
@@ -989,8 +986,8 @@ impl Instruction {
                     None => None,
                     Some(v) => Some(v.apply_increment()?),
                 };
-                s.ctx_set(self, value.clone());
-                if next_value == value {
+                s.ctx_set(self, value);
+                if next_value.as_ref() == value {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -1026,20 +1023,24 @@ impl Instruction {
                 Ok(())
             }
             Operator::Tail => {
-                let prev_value = s.ctx_get(self)?.unwrap_or(&self.initial_value);
-                if *prev_value == value {
+                let prev = s.ctx_get(self)?;
+                let defined = prev.is_some();
+                let prev_value = prev.unwrap_or(&self.initial_value);
+                if prev_value.as_ref() == value {
+                    if !defined {
+                        s.ctx_set(self, value);
+                    }
                     s.pmap_set_next_bit(false);
-                    s.ctx_set(self, value);
                     return Ok(());
                 }
-                match (&value, prev_value) {
+                match (value, prev_value) {
                     (None, _) => self.write_tail(buf, None)?,
                     (Some(v), Some(prev)) => self.write_tail(buf, Some(v.find_tail_ref(prev)?))?,
                     (Some(v), None) => {
                         let prev = self.value_type.to_default_value()?;
                         self.write_tail(buf, Some(v.find_tail_ref(&prev)?))?;
                     }
-                };
+                }
                 s.pmap_set_next_bit(true);
                 if value.is_some() {
                     s.ctx_set(self, value);
@@ -1049,101 +1050,65 @@ impl Instruction {
         }
     }
 
-    fn write<M>(
+    fn write(
         &self,
         buf: &mut impl Writer,
-        s: &mut EncoderContext<M>,
-        value: Option<Value>,
-    ) -> Result<()>
-    where
-        M: MessageVisitor,
-    {
-        match self.value_type {
-            ValueType::UInt32 | ValueType::Length => match value {
-                None => self.write_uint::<u32>(buf, None),
-                Some(Value::UInt32(v)) => self.write_uint(buf, Some(v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have UInt32 value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::Int32 => match value {
-                None => self.write_int::<i32>(buf, None),
-                Some(Value::Int32(v)) => self.write_int(buf, Some(v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have Int32 value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::UInt64 => match value {
-                None => self.write_uint::<u64>(buf, None),
-                Some(Value::UInt64(v)) => self.write_uint(buf, Some(v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have UInt64 value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::Int64 | ValueType::Mantissa => match value {
-                None => self.write_int::<i64>(buf, None),
-                Some(Value::Int64(v)) => self.write_int(buf, Some(v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {}:mantissa must have Int64 value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::Exponent => match value {
-                None => self.write_exponent(buf, None),
-                Some(Value::Int32(v)) => self.write_exponent(buf, Some(v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {}:exponent must have Int32 value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::Decimal => match value {
-                None => self.write_decimal(buf, s, None),
-                Some(Value::Decimal(d)) => self.write_decimal(buf, s, Some(d)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have Decimal value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::ASCIIString => match value {
-                None => self.write_ascii_string(buf, None),
-                Some(Value::ASCIIString(v)) => self.write_ascii_string(buf, Some(&v)),
-                Some(Value::UnicodeString(v)) => {
-                    if v.is_ascii() {
-                        self.write_ascii_string(buf, Some(&v))
-                    } else {
-                        Err(Error::Runtime(format!(
-                            "Field {} must be valid ASCII string",
-                            self.name
-                        )))
-                    }
+        s: &mut EncoderContext,
+        value: Option<&Value>,
+    ) -> Result<()> {
+        match (&self.value_type, value) {
+            (ValueType::UInt32 | ValueType::Length, None) => self.write_uint::<u32>(buf, None),
+            (ValueType::UInt32 | ValueType::Length, Some(Value::UInt32(v))) => {
+                self.write_uint(buf, Some(*v))
+            }
+
+            (ValueType::Int32, None) => self.write_int::<i32>(buf, None),
+            (ValueType::Int32, Some(Value::Int32(v))) => self.write_int(buf, Some(*v)),
+
+            (ValueType::UInt64, None) => self.write_uint::<u64>(buf, None),
+            (ValueType::UInt64, Some(Value::UInt64(v))) => self.write_uint(buf, Some(*v)),
+
+            (ValueType::Int64 | ValueType::Mantissa, None) => self.write_int::<i64>(buf, None),
+            (ValueType::Int64 | ValueType::Mantissa, Some(Value::Int64(v))) => {
+                self.write_int(buf, Some(*v))
+            }
+
+            (ValueType::Exponent, None) => self.write_exponent(buf, None),
+            (ValueType::Exponent, Some(Value::Int32(v))) => self.write_exponent(buf, Some(*v)),
+
+            (ValueType::Decimal, None) => self.write_decimal(buf, s, None),
+            (ValueType::Decimal, Some(Value::Decimal(d))) => self.write_decimal(buf, s, Some(d)),
+
+            (ValueType::ASCIIString, None) => self.write_ascii_string(buf, None),
+            (ValueType::ASCIIString, Some(Value::ASCIIString(s))) => {
+                self.write_ascii_string(buf, Some(s))
+            }
+            (ValueType::ASCIIString, Some(Value::UnicodeString(s))) => {
+                if s.is_ascii() {
+                    self.write_ascii_string(buf, Some(s))
+                } else {
+                    Err(Error::Runtime(format!(
+                        "Field {} must be valid ASCII string",
+                        self.name
+                    )))
                 }
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have ASCIIString value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::UnicodeString => match value {
-                None => self.write_unicode_string(buf, None),
-                Some(Value::UnicodeString(v) | Value::ASCIIString(v)) => {
-                    self.write_unicode_string(buf, Some(&v))
-                }
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have UnicodeString value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            ValueType::Bytes => match value {
-                None => self.write_bytes(buf, None),
-                Some(Value::Bytes(v)) => self.write_bytes(buf, Some(&v)),
-                _ => Err(Error::Runtime(format!(
-                    "Field {} must have Bytes value, got: {:?} instead",
-                    self.name, value
-                ))),
-            },
-            _ => unreachable!(),
+            }
+
+            (ValueType::UnicodeString, None) => self.write_unicode_string(buf, None),
+            (ValueType::UnicodeString, Some(Value::UnicodeString(s) | Value::ASCIIString(s))) => {
+                self.write_unicode_string(buf, Some(s))
+            }
+
+            (ValueType::Bytes, None) => self.write_bytes(buf, None),
+            (ValueType::Bytes, Some(Value::Bytes(b))) => self.write_bytes(buf, Some(b)),
+            (ValueType::Sequence | ValueType::Group | ValueType::TemplateReference, _) => {
+                unreachable!()
+            }
+            (type_, Some(value)) => Err(Error::Runtime(format!(
+                "Field {} must have {} value, got {value:?} instead",
+                self.name,
+                type_.type_str()
+            ))),
         }
     }
 
@@ -1151,7 +1116,7 @@ impl Instruction {
     where
         T: Into<u64>,
     {
-        let value = value.map(std::convert::Into::into);
+        let value = value.map(Into::into);
         if self.is_nullable() {
             buf.write_uint_nullable(value)
         } else {
@@ -1165,7 +1130,7 @@ impl Instruction {
     where
         T: Into<i64>,
     {
-        let value = value.map(std::convert::Into::into);
+        let value = value.map(Into::into);
         if self.is_nullable() {
             buf.write_int_nullable(value)
         } else {
@@ -1216,9 +1181,7 @@ impl Instruction {
                 | ValueType::Exponent
                 | ValueType::Mantissa,
                 None,
-            ) => {
-                self.write_int::<i64>(buf, None)
-            }
+            ) => self.write_int::<i64>(buf, None),
 
             (
                 ValueType::UInt32
@@ -1229,15 +1192,13 @@ impl Instruction {
                 | ValueType::Exponent
                 | ValueType::Mantissa,
                 Some(DeltaRef::Int(v)),
-            ) => {
-                self.write_int(buf, Some(v))
-            }
+            ) => self.write_int(buf, Some(v)),
 
             (ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes, None) => {
                 self.write_int::<i32>(buf, None)
             }
 
-            (ValueType::ASCIIString, Some(DeltaRef::ASCII(s, sub))) => {
+            (ValueType::ASCIIString, Some(DeltaRef::Ascii(s, sub))) => {
                 self.write_int(buf, Some(sub))?;
                 self.write_ascii_string(buf, Some(s))
             }
@@ -1247,49 +1208,55 @@ impl Instruction {
                 self.write_bytes(buf, Some(b))
             }
 
-            (_, delta) => Err(Error::Runtime(format!("{} field has wrong delta: {delta:?}", self.name)))
+            (_, delta) => Err(Error::Runtime(format!(
+                "{} field has wrong delta: {delta:?}",
+                self.name
+            ))),
         }
     }
 
     fn write_tail(&self, buf: &mut impl Writer, tail: Option<TailRef>) -> Result<()> {
         match (&self.value_type, tail) {
             (ValueType::ASCIIString, None) => self.write_ascii_string(buf, None),
-            (ValueType::ASCIIString, Some(TailRef::ASCII(s))) => self.write_ascii_string(buf, Some(s)),
+            (ValueType::ASCIIString, Some(TailRef::Ascii(s))) => {
+                self.write_ascii_string(buf, Some(s))
+            }
             (ValueType::UnicodeString | ValueType::Bytes, None) => self.write_bytes(buf, None),
-            (ValueType::UnicodeString | ValueType::Bytes, Some(TailRef::Bytes(b))) => self.write_bytes(buf, Some(b)),
-            (_, tail) => Err(Error::Runtime(format!("{} field has wrong tail: {tail:?}", self.name)))
+            (ValueType::UnicodeString | ValueType::Bytes, Some(TailRef::Bytes(b))) => {
+                self.write_bytes(buf, Some(b))
+            }
+            (_, tail) => Err(Error::Runtime(format!(
+                "{} field has wrong tail: {tail:?}",
+                self.name
+            ))),
         }
     }
 
-    fn write_decimal<M>(
+    fn write_decimal(
         &self,
         buf: &mut impl Writer,
-        s: &mut EncoderContext<M>,
-        value: Option<Decimal>,
-    ) -> Result<()>
-    where
-        M: MessageVisitor,
-    {
-        let (e, m) = match value {
+        s: &mut EncoderContext,
+        value: Option<&Decimal>,
+    ) -> Result<()> {
+        let (exponent, mantissa) = match value {
             None => (None, Value::Int64(0)),
             Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa)),
         };
 
-        let without_exponent = e.is_none();
         // write exponent
         self.instructions
             .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
-            .inject(s, buf, e)?;
+            .inject(s, buf, exponent.as_ref())?;
 
-        if without_exponent {
+        if exponent.is_none() {
             return Ok(());
         }
         // write mantissa
         self.instructions
             .get(1)
             .ok_or_else(|| Error::Runtime("mantissa field not found".to_string()))?
-            .inject(s, buf, Some(m))
+            .inject(s, buf, Some(&mantissa))
     }
 
     fn write_exponent(&self, buf: &mut impl Writer, value: Option<i32>) -> Result<()> {

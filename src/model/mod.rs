@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::Result;
@@ -188,11 +189,11 @@ impl ModelVisitor {
 }
 
 impl MessageVisitor for ModelVisitor {
-    fn get_template_name(&mut self) -> Result<String> {
+    fn get_template_name(&mut self) -> Result<Cow<'_, str>> {
         match self.data.value {
             ValueData::Group(_) => {
                 self.context.push(&raw const self.data.value);
-                Ok(self.data.name.clone())
+                Ok(Cow::Borrowed(&self.data.name))
             }
             _ => Err(Error::Runtime(format!(
                 "Template {} data expected to be ValueData::Group, got {:?}",
@@ -201,14 +202,14 @@ impl MessageVisitor for ModelVisitor {
         }
     }
 
-    fn get_value(&mut self, name: &str, _type_: &ValueType) -> Result<Option<Value>> {
+    fn get_value(&mut self, name: &str, _type_: &ValueType) -> Result<Option<Cow<'_, Value>>> {
         // SAFETY: the reference to context is always valid because we never modify `self.data`
         let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
             ValueData::Group(context) => {
                 if let Some(v) = context.get(name) {
                     match v {
-                        ValueData::Value(v) => Ok(v.clone()),
+                        ValueData::Value(v) => Ok(v.as_ref().map(Cow::Borrowed)),
                         _ => Err(Error::Runtime(format!(
                             "Field {name} expected to be ValueData::Value, got {v:?}"
                         ))),
@@ -312,7 +313,7 @@ impl MessageVisitor for ModelVisitor {
         Ok(())
     }
 
-    fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<String>> {
+    fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<Cow<'_, str>>> {
         self.ref_dynamic.push(dynamic);
         if dynamic {
             let rc = self.ref_num.must_peek_mut();
@@ -329,9 +330,8 @@ impl MessageVisitor for ModelVisitor {
                             ValueData::None => Ok(None),
                             ValueData::DynamicTemplateRef(t) => match t.value {
                                 ValueData::Group(_) => {
-                                    let template_name = t.name.clone();
                                     self.context.push(&raw const t.value);
-                                    Ok(Some(template_name))
+                                    Ok(Some(Cow::Borrowed(&t.name)))
                                 }
                                 _ => Err(Error::Runtime(format!(
                                     "Field {name} value expected to be ValueData::Group, got {:?}",

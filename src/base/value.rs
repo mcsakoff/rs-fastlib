@@ -297,6 +297,16 @@ impl Value {
         self.apply_delta(tail, len as i32)
     }
 
+    /// Assigns `src` to the value reusing allocated buffer when possible.
+    pub fn assign(&mut self, src: &Value) {
+        match (self, src) {
+            (Value::ASCIIString(d), Value::ASCIIString(s)) |
+            (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
+            (Value::Bytes(d), Value::Bytes(s)) => d.clone_from(s),
+            (d, s) => *d = s.clone(),
+        }
+    }
+
     /// Same as [`Value::apply_tail`] but modifies the value in place.
     /// # Errors
     /// Returns error if types are not bytes/string or previous and current types mismatch.
@@ -346,7 +356,7 @@ impl Value {
             }
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let (delta, sub) = string_delta(p, v);
-                DeltaRef::ASCII(delta, sub)
+                DeltaRef::Ascii(delta, sub)
             }
             (Value::UnicodeString(v), Value::UnicodeString(p)) => {
                 let (delta, sub) = bytes_delta(p.as_bytes(), v.as_bytes());
@@ -365,7 +375,7 @@ impl Value {
     pub fn find_delta(&self, prev: &Value) -> (Value, i32) {
         match self.find_delta_ref(prev) {
             Some(DeltaRef::Int(d)) => (Value::Int64(d), 0),
-            Some(DeltaRef::ASCII(s, sub)) => (Value::ASCIIString(s.to_string()), sub),
+            Some(DeltaRef::Ascii(s, sub)) => (Value::ASCIIString(s.to_string()), sub),
             Some(DeltaRef::Bytes(b, sub)) => (Value::Bytes(b.to_vec()), sub),
             None => unimplemented!()
         }
@@ -378,7 +388,7 @@ impl Value {
         match (self, prev) {
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let tail = string_tail(p, v)?;
-                Ok(TailRef::ASCII(tail))
+                Ok(TailRef::Ascii(tail))
             }
             (Value::UnicodeString(v), Value::UnicodeString(p)) => {
                 let tail = bytes_tail(p.as_bytes(), v.as_bytes())?;
@@ -397,7 +407,7 @@ impl Value {
     /// Returns error if current len is less than previous.
     pub fn find_tail(&self, prev: &Value) -> Result<Value> {
         Ok(match self.find_tail_ref(prev)? {
-            TailRef::ASCII(s) => Value::ASCIIString(s.to_string()),
+            TailRef::Ascii(s) => Value::ASCIIString(s.to_string()),
             TailRef::Bytes(b) => Value::Bytes(b.to_vec()),
         })
     }
@@ -431,14 +441,14 @@ fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
 #[derive(Debug, PartialEq)]
 pub enum DeltaRef<'a> {
     Int(i64),
-    ASCII(&'a str, i32),
+    Ascii(&'a str, i32),
     Bytes(&'a [u8], i32),
 }
 
 /// Borrowed tail of a value.
 #[derive(Debug, PartialEq)]
 pub enum TailRef<'a> {
-    ASCII(&'a str),
+    Ascii(&'a str),
     Bytes(&'a [u8]),
 }
 

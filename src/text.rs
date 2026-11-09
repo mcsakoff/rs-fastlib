@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt::Write;
 
 use rustc_hash::FxHashMap as HashMap;
@@ -262,13 +263,13 @@ impl TextMessageVisitor {
 }
 
 impl MessageVisitor for TextMessageVisitor {
-    fn get_template_name(&mut self) -> Result<String> {
+    fn get_template_name(&mut self) -> Result<Cow<'_, str>> {
         match &self.data {
             TextMessageValue::Group(h) => match h.iter().next() {
                 None => Err(Error::Runtime("Template name not fount".to_string())),
                 Some((name, value)) => {
                     self.context.push(value);
-                    Ok(name.clone())
+                    Ok(Cow::Borrowed(name))
                 }
             },
             _ => Err(Error::Runtime(format!(
@@ -278,7 +279,7 @@ impl MessageVisitor for TextMessageVisitor {
         }
     }
 
-    fn get_value(&mut self, name: &str, type_: &ValueType) -> Result<Option<Value>> {
+    fn get_value(&mut self, name: &str, type_: &ValueType) -> Result<Option<Cow<'_, Value>>> {
         // SAFETY: the reference to context is always valid because we never modify `self.data`
         let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
         match ctx {
@@ -288,7 +289,7 @@ impl MessageVisitor for TextMessageVisitor {
                         TextMessageValue::Value(s) => {
                             let mut value = type_.to_default_value()?;
                             value.set_from_string(s)?;
-                            Ok(Some(value))
+                            Ok(Some(Cow::Owned(value)))
                         }
                         _ => Err(Error::Runtime(format!(
                             "Field {name} expected to be TextMessageValue::Value, got {v:?}"
@@ -403,7 +404,7 @@ impl MessageVisitor for TextMessageVisitor {
         Ok(())
     }
 
-    fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<String>> {
+    fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<Cow<'_, str>>> {
         if dynamic {
             todo!()
         }

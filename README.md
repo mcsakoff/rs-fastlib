@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fastlib = "0.3"
+fastlib = "0.4"
 ```
 
 ### Serialize/Deserialize using serde

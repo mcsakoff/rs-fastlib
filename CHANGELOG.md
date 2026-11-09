@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+- **Breaking:** `MessageVisitor::get_template_name`, `MessageVisitor::get_value` and
+  `MessageVisitor::select_template_ref` returns `Cow`, so visitors can lend data to the encoder without copying it.
+- **Breaking:** following the template schema, `dictionary` and `key` are read from operator elements
+  (`<copy>`, `<increment>`, `<delta>`, `<tail>`), including decimal `<exponent>`/`<mantissa>` operators.
+  Both attributes are rejected on filed elements and other operators. `dictionary` remains valid on
+  `<templates>`, `<template>`, `<sequence>` and `<group>`.
+- Performance improvements and fixes.
+- Add benchmarks.
+
 ## 0.3.8
 - Fix for processing `typeRef` element.
 

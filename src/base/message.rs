@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::Value;
 use crate::{Result, ValueType};
 
@@ -55,12 +57,13 @@ pub trait MessageFactory {
 /// Defines the interface for message visitors.
 ///
 /// The callback functions are called when the specific information required during message processing.
+/// Methods return [`Cow`] so that a visitor can lend its data without copying it.
 ///
 #[allow(clippy::missing_errors_doc)]
 pub trait MessageVisitor {
-    fn get_template_name(&mut self) -> Result<String>;
+    fn get_template_name(&mut self) -> Result<Cow<'_, str>>;
 
-    fn get_value(&mut self, name: &str, type_: &ValueType) -> Result<Option<Value>>;
+    fn get_value(&mut self, name: &str, type_: &ValueType) -> Result<Option<Cow<'_, Value>>>;
 
     fn select_group(&mut self, name: &str) -> Result<bool>;
 
@@ -74,7 +77,7 @@ pub trait MessageVisitor {
 
     fn release_sequence(&mut self) -> Result<()>;
 
-    fn select_template_ref(&mut self, name: &str, dynamic: bool) -> Result<Option<String>>;
+    fn select_template_ref(&mut self, name: &str, dynamic: bool) -> Result<Option<Cow<'_, str>>>;
 
     fn release_template_ref(&mut self) -> Result<()>;
 }
