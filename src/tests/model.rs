@@ -1,6 +1,8 @@
-use rustc_hash::FxHashMap as HashMap;
-
-use crate::model::{ModelFactory, template::TemplateData, value::ValueData};
+use crate::model::{
+    ModelFactory,
+    template::TemplateData,
+    value::{Fields, ValueData},
+};
 use crate::{Decoder, Value};
 
 struct TestCase {
@@ -27,7 +29,7 @@ fn test_model_data() {
             ],
             result: TemplateData {
                 name: "String".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "MandatoryAscii".to_string(),
                         ValueData::Value(Some(Value::ASCIIString("abc".to_string()))),
@@ -51,7 +53,7 @@ fn test_model_data() {
             input: vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3],
             result: TemplateData {
                 name: "ByteVector".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "MandatoryVector".to_string(),
                         ValueData::Value(Some(Value::Bytes(vec![193]))),
@@ -69,14 +71,14 @@ fn test_model_data() {
             ],
             result: TemplateData {
                 name: "Sequence".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "TestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(1))),
                     ),
                     (
                         "OuterSequence".to_string(),
-                        ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([
+                        ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([
                             (
                                 "OuterTestData".to_string(),
                                 ValueData::Value(Some(Value::UInt32(2))),
@@ -84,11 +86,11 @@ fn test_model_data() {
                             (
                                 "InnerSequence".to_string(),
                                 ValueData::Sequence(vec![
-                                    ValueData::Group(HashMap::from_iter([(
+                                    ValueData::Group(Fields::from_iter([(
                                         "InnerTestData".to_string(),
                                         ValueData::Value(Some(Value::UInt32(3))),
                                     )])),
-                                    ValueData::Group(HashMap::from_iter([(
+                                    ValueData::Group(Fields::from_iter([(
                                         "InnerTestData".to_string(),
                                         ValueData::Value(Some(Value::UInt32(4))),
                                     )])),
@@ -98,7 +100,7 @@ fn test_model_data() {
                     ),
                     (
                         "NextOuterSequence".to_string(),
-                        ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([(
+                        ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([(
                             "NextOuterTestData".to_string(),
                             ValueData::Value(Some(Value::UInt32(2))),
                         )]))]),
@@ -110,21 +112,21 @@ fn test_model_data() {
             input: vec![0xc0, 0x86, 0x81, 0xc0, 0x82, 0x83],
             result: TemplateData {
                 name: "Group".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "TestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(1))),
                     ),
                     (
                         "OuterGroup".to_string(),
-                        ValueData::Group(HashMap::from_iter([
+                        ValueData::Group(Fields::from_iter([
                             (
                                 "OuterTestData".to_string(),
                                 ValueData::Value(Some(Value::UInt32(2))),
                             ),
                             (
                                 "InnerGroup".to_string(),
-                                ValueData::Group(HashMap::from_iter([(
+                                ValueData::Group(Fields::from_iter([(
                                     "InnerTestData".to_string(),
                                     ValueData::Value(Some(Value::UInt32(3))),
                                 )])),
@@ -138,7 +140,7 @@ fn test_model_data() {
             input: vec![0xe0, 0x88, 0x86, 0x87],
             result: TemplateData {
                 name: "StaticReference".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "PreRefData".to_string(),
                         ValueData::Value(Some(Value::UInt32(6))),
@@ -154,7 +156,7 @@ fn test_model_data() {
             input: vec![0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85],
             result: TemplateData {
                 name: "DynamicReference".to_string(),
-                value: ValueData::Group(HashMap::from_iter([
+                value: ValueData::Group(Fields::from_iter([
                     (
                         "PreRefData".to_string(),
                         ValueData::Value(Some(Value::UInt32(6))),
@@ -163,7 +165,7 @@ fn test_model_data() {
                         "templateRef:0".to_string(),
                         ValueData::DynamicTemplateRef(Box::new(TemplateData {
                             name: "RefData".to_string(),
-                            value: ValueData::Group(HashMap::from_iter([(
+                            value: ValueData::Group(Fields::from_iter([(
                                 "TestData".to_string(),
                                 ValueData::Value(Some(Value::UInt32(5))),
                             )])),

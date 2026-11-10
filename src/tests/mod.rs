@@ -1,5 +1,3 @@
-use rustc_hash::FxHashMap as HashMap;
-
 use crate::Value;
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
@@ -8,7 +6,7 @@ use crate::base::value::ValueType;
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
 use crate::model::template::TemplateData;
-use crate::model::value::ValueData;
+use crate::model::value::{ValueData, Fields};
 use crate::model::{ModelFactory, ModelVisitor};
 
 mod base;
@@ -162,10 +160,10 @@ fn extract_value(msg: ModelFactory, name: &str, test_name: &str) -> Option<Value
     }
 }
 
-fn pack_value(templaet_name: &str, name: &str, value: Option<Value>) -> TemplateData {
+fn pack_value(template_name: &str, name: &str, value: Option<Value>) -> TemplateData {
     TemplateData {
-        name: templaet_name.to_string(),
-        value: ValueData::Group(HashMap::from_iter([(
+        name: template_name.to_string(),
+        value: ValueData::Group(Fields::from_iter([(
             name.to_string(),
             ValueData::Value(value),
         )])),

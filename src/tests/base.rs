@@ -4,11 +4,9 @@
 //!
 use std::io::Cursor;
 
-use rustc_hash::FxHashMap as HashMap;
-
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
-use crate::model::value::ValueData;
+use crate::model::value::{Fields, ValueData};
 use crate::model::{ModelFactory, ModelVisitor};
 use crate::{Decimal, Error, TextMessageVisitor};
 
@@ -529,7 +527,7 @@ fn decode_encode_integers() {
         ],
         TemplateData {
             name: "Integer".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "MandatoryUint32".to_string(),
                     ValueData::Value(Some(Value::UInt32(3))),
@@ -576,7 +574,7 @@ fn decode_encode_strings() {
         ],
         TemplateData {
             name: "String".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "MandatoryAscii".to_string(),
                     ValueData::Value(Some(Value::ASCIIString("abc".to_string()))),
@@ -604,7 +602,7 @@ fn decode_encode_bytes() {
         vec![0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3],
         TemplateData {
             name: "ByteVector".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "MandatoryVector".to_string(),
                     ValueData::Value(Some(Value::Bytes(vec![193]))),
@@ -626,7 +624,7 @@ fn decode_encode_decimals_1() {
         ],
         TemplateData {
             name: "Decimal".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "CopyDecimal".to_string(),
                     ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515)))),
@@ -656,7 +654,7 @@ fn decode_encode_decimals_2() {
         ],
         TemplateData {
             name: "Decimal".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "CopyDecimal".to_string(),
                     ValueData::Value(Some(Value::Decimal(Decimal::new(-2, 515)))),
@@ -683,14 +681,14 @@ fn decode_encode_sequence_1() {
         ],
         TemplateData {
             name: "Sequence".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "TestData".to_string(),
                     ValueData::Value(Some(Value::UInt32(1))),
                 ),
                 (
                     "OuterSequence".to_string(),
-                    ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([
+                    ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([
                         (
                             "OuterTestData".to_string(),
                             ValueData::Value(Some(Value::UInt32(2))),
@@ -698,11 +696,11 @@ fn decode_encode_sequence_1() {
                         (
                             "InnerSequence".to_string(),
                             ValueData::Sequence(vec![
-                                ValueData::Group(HashMap::from_iter([(
+                                ValueData::Group(Fields::from_iter([(
                                     "InnerTestData".to_string(),
                                     ValueData::Value(Some(Value::UInt32(3))),
                                 )])),
-                                ValueData::Group(HashMap::from_iter([(
+                                ValueData::Group(Fields::from_iter([(
                                     "InnerTestData".to_string(),
                                     ValueData::Value(Some(Value::UInt32(4))),
                                 )])),
@@ -712,7 +710,7 @@ fn decode_encode_sequence_1() {
                 ),
                 (
                     "NextOuterSequence".to_string(),
-                    ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([(
+                    ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([(
                         "NextOuterTestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(2))),
                     )]))]),
@@ -728,21 +726,21 @@ fn decode_encode_sequence_2() {
         vec![0xc0, 0x85, 0x81, 0x81, 0x82, 0x80, 0x81, 0xc0, 0x82],
         TemplateData {
             name: "Sequence".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "TestData".to_string(),
                     ValueData::Value(Some(Value::UInt32(1))),
                 ),
                 (
                     "OuterSequence".to_string(),
-                    ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([(
+                    ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([(
                         "OuterTestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(2))),
                     )]))]),
                 ),
                 (
                     "NextOuterSequence".to_string(),
-                    ValueData::Sequence(vec![ValueData::Group(HashMap::from_iter([(
+                    ValueData::Sequence(vec![ValueData::Group(Fields::from_iter([(
                         "NextOuterTestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(2))),
                     )]))]),
@@ -758,21 +756,21 @@ fn decode_encode_group_1() {
         vec![0xc0, 0x86, 0x81, 0xc0, 0x82, 0x83],
         TemplateData {
             name: "Group".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "TestData".to_string(),
                     ValueData::Value(Some(Value::UInt32(1))),
                 ),
                 (
                     "OuterGroup".to_string(),
-                    ValueData::Group(HashMap::from_iter([
+                    ValueData::Group(Fields::from_iter([
                         (
                             "OuterTestData".to_string(),
                             ValueData::Value(Some(Value::UInt32(2))),
                         ),
                         (
                             "InnerGroup".to_string(),
-                            ValueData::Group(HashMap::from_iter([(
+                            ValueData::Group(Fields::from_iter([(
                                 "InnerTestData".to_string(),
                                 ValueData::Value(Some(Value::UInt32(3))),
                             )])),
@@ -790,14 +788,14 @@ fn decode_encode_group_2() {
         vec![0xc0, 0x86, 0x81, 0x80, 0x82],
         TemplateData {
             name: "Group".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "TestData".to_string(),
                     ValueData::Value(Some(Value::UInt32(1))),
                 ),
                 (
                     "OuterGroup".to_string(),
-                    ValueData::Group(HashMap::from_iter([(
+                    ValueData::Group(Fields::from_iter([(
                         "OuterTestData".to_string(),
                         ValueData::Value(Some(Value::UInt32(2))),
                     )])),
@@ -813,7 +811,7 @@ fn decode_static_reference() {
         vec![0xe0, 0x88, 0x86, 0x87],
         TemplateData {
             name: "StaticReference".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "PreRefData".to_string(),
                     ValueData::Value(Some(Value::UInt32(6))),
@@ -833,7 +831,7 @@ fn decode_dynamic_reference() {
         vec![0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85],
         TemplateData {
             name: "DynamicReference".to_string(),
-            value: ValueData::Group(HashMap::from_iter([
+            value: ValueData::Group(Fields::from_iter([
                 (
                     "PreRefData".to_string(),
                     ValueData::Value(Some(Value::UInt32(6))),
@@ -842,7 +840,7 @@ fn decode_dynamic_reference() {
                     "templateRef:0".to_string(),
                     ValueData::DynamicTemplateRef(Box::new(TemplateData {
                         name: "RefData".to_string(),
-                        value: ValueData::Group(HashMap::from_iter([(
+                        value: ValueData::Group(Fields::from_iter([(
                             "TestData".to_string(),
                             ValueData::Value(Some(Value::UInt32(5))),
                         )])),
@@ -883,7 +881,7 @@ fn encode_to_buffer() {
     // user data
     let data = TemplateData {
         name: "String".to_string(),
-        value: ValueData::Group(HashMap::from_iter([
+        value: ValueData::Group(Fields::from_iter([
             (
                 "MandatoryAscii".to_string(),
                 ValueData::Value(Some(Value::ASCIIString("abc".to_string()))),
@@ -922,7 +920,7 @@ fn encode_to_buffer_eof() {
     // try to encode user data to buffer with not enough space
     let data = TemplateData {
         name: "ByteVector".to_string(),
-        value: ValueData::Group(HashMap::from_iter([
+        value: ValueData::Group(Fields::from_iter([
             (
                 "MandatoryVector".to_string(),
                 ValueData::Value(Some(Value::Bytes(vec![193]))),
@@ -954,8 +952,7 @@ fn encode_append() {
     assert_eq!(buffer, vec![0xaa, 0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3]);
 
     // On error the buffer is restored.
-    let mut msg =
-        TextMessageVisitor::from_text("ByteVector=<OptionalVector=b3>").unwrap();
+    let mut msg = TextMessageVisitor::from_text("ByteVector=<OptionalVector=b3>").unwrap();
     assert!(e.encode_append(&mut buffer, &mut msg).is_err());
     assert_eq!(buffer, vec![0xaa, 0xc0, 0x83, 0x81, 0xc1, 0x82, 0xb3]);
 }

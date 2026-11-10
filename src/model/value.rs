@@ -1,22 +1,140 @@
-use rustc_hash::{FxBuildHasher, FxHashMap as HashMap};
+use crate::model::template::TemplateData;
+use crate::{Decimal, Error, Value};
 use serde::Serialize;
 use serde::de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
     SerializeTupleStruct, SerializeTupleVariant,
 };
-
-use crate::model::template::TemplateData;
-use crate::{Decimal, Error, Value};
+use std::borrow::Cow;
+use std::cell::Cell;
+use std::vec::IntoIter;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValueData {
     None, // For optional groups and sequences
     Value(Option<Value>),
-    Group(HashMap<String, ValueData>),
+    Group(Fields),
     Sequence(Vec<ValueData>),                  // Always Vec of Value::Group
     StaticTemplateRef(String, Box<ValueData>), // Always Value::Group
     DynamicTemplateRef(Box<TemplateData>),
+}
+
+/// Name of a field in a group.
+pub type Key = Cow<'static, str>;
+
+pub(crate) fn template_ref_key(n: u32) -> Key {
+    const NAMES: [&str; 16] = [
+        "templateRef:0",
+        "templateRef:1",
+        "templateRef:2",
+        "templateRef:3",
+        "templateRef:4",
+        "templateRef:5",
+        "templateRef:6",
+        "templateRef:7",
+        "templateRef:8",
+        "templateRef:9",
+        "templateRef:10",
+        "templateRef:11",
+        "templateRef:12",
+        "templateRef:13",
+        "templateRef:14",
+        "templateRef:15",
+    ];
+    match NAMES.get(n as usize) {
+        Some(name) => Cow::Borrowed(name),
+        None => Cow::Owned(format!("templateRef:{n}")),
+    }
+}
+
+/// Fields of a group in insertion order.
+///
+/// Vector with a search hit is faster than a map?
+///
+#[derive(Debug, Clone, Default)]
+pub struct Fields {
+    items: Vec<(Key, ValueData)>,
+    hint: Cell<usize>,
+}
+
+impl Fields {
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+            hint: Cell::new(0),
+        }
+    }
+
+    pub fn push(&mut self, key: impl Into<Key>, value: ValueData) {
+        self.items.push((key.into(), value));
+    }
+
+    pub fn insert(&mut self, key: impl Into<Key>, value: ValueData) {
+        let key = key.into();
+        match self.position(&key) {
+            Some(i) => self.items[i].1 = value,
+            None => self.items.push((key, value)),
+        }
+    }
+
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&ValueData> {
+        self.position(name).map(|i| &self.items[i].1)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    fn position(&self, name: &str) -> Option<usize> {
+        let start = self.hint.get().min(self.items.len());
+        let (head, tail) = self.items.split_at(start);
+        let i = match tail.iter().position(|(k, _)| k == name) {
+            Some(i) => start + i,
+            None => head.iter().position(|(k, _)| k == name)?,
+        };
+        self.hint.set(i + 1);
+        Some(i)
+    }
+}
+
+impl PartialEq for Fields {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.items.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
+
+impl<K: Into<Key>> FromIterator<(K, ValueData)> for Fields {
+    fn from_iter<T: IntoIterator<Item = (K, ValueData)>>(iter: T) -> Self {
+        let mut fields = Fields::default();
+        fields.extend(iter);
+        fields
+    }
+}
+
+impl<K: Into<Key>> Extend<(K, ValueData)> for Fields {
+    fn extend<T: IntoIterator<Item = (K, ValueData)>>(&mut self, iter: T) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
+impl IntoIterator for Fields {
+    type Item = (Key, ValueData);
+    type IntoIter = IntoIter<(Key, ValueData)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.into_iter()
+    }
 }
 
 impl<'de> serde::Deserializer<'de> for ValueData {
@@ -417,12 +535,12 @@ impl<'de> serde::Deserializer<'de> for ValueData {
 }
 
 struct GroupDeserializer {
-    items: <HashMap<String, ValueData> as IntoIterator>::IntoIter,
+    items: <Fields as IntoIterator>::IntoIter,
     value: Option<ValueData>,
 }
 
 impl GroupDeserializer {
-    fn new(values: HashMap<String, ValueData>) -> Self {
+    fn new(values: Fields) -> Self {
         Self {
             items: values.into_iter(),
             value: None,
@@ -754,16 +872,13 @@ impl SerializeStructVariant for ValueDataSerializer {
 }
 
 pub(crate) struct ValueDataMapSerializer {
-    data: HashMap<String, ValueData>,
+    data: Fields,
 }
 
 impl ValueDataMapSerializer {
     fn new(len: Option<usize>) -> Self {
         Self {
-            data: match len {
-                Some(len) => HashMap::with_capacity_and_hasher(len, FxBuildHasher),
-                None => HashMap::default(),
-            },
+            data: Fields::with_capacity(len.unwrap_or_default()),
         }
     }
 }
@@ -799,7 +914,7 @@ impl SerializeMap for ValueDataMapSerializer {
             ));
         };
         let value = value.serialize(ValueDataSerializer)?;
-        self.data.insert(s, value);
+        self.data.push(s, value);
         Ok(())
     }
 
@@ -809,13 +924,13 @@ impl SerializeMap for ValueDataMapSerializer {
 }
 
 pub(crate) struct ValueDataGroupSerializer {
-    data: HashMap<String, ValueData>,
+    data: Fields,
 }
 
 impl ValueDataGroupSerializer {
     fn new(len: usize) -> Self {
         Self {
-            data: HashMap::with_capacity_and_hasher(len, FxBuildHasher),
+            data: Fields::with_capacity(len),
         }
     }
 }
@@ -828,8 +943,7 @@ impl SerializeStruct for ValueDataGroupSerializer {
     where
         T: ?Sized + Serialize,
     {
-        self.data
-            .insert(key.to_string(), value.serialize(ValueDataSerializer)?);
+        self.data.push(key, value.serialize(ValueDataSerializer)?);
         Ok(())
     }
 
@@ -895,5 +1009,49 @@ impl SerializeTupleStruct for ValueDataDecimalSerializer {
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
         Ok(ValueData::Value(Some(Value::Decimal(self.data))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(n: u32) -> ValueData {
+        ValueData::Value(Some(Value::UInt32(n)))
+    }
+
+    #[test]
+    fn fields() {
+        let mut f = Fields::default();
+        f.push("a", v(1));
+        f.push("b", v(2));
+        f.push("c".to_string(), v(3));
+        for name in ["c", "a", "b", "b", "a", "c"] {
+            assert!(f.get(name).is_some(), "{name}");
+        }
+        assert_eq!(f.get("d"), None);
+
+        f.insert("b", v(20));
+        f.insert("d", v(4));
+        assert_eq!(f.len(), 4);
+        assert_eq!(f.get("b"), Some(&v(20)));
+        assert_eq!(f.get("d"), Some(&v(4)));
+
+        let other: Fields = [("d", v(4)), ("c", v(3)), ("b", v(20)), ("a", v(1))]
+            .into_iter()
+            .collect();
+        assert_eq!(f, other);
+
+        let other: Fields = [("d", v(4)), ("c", v(3)), ("b", v(2)), ("a", v(1))]
+            .into_iter()
+            .collect();
+        assert_ne!(f, other);
+    }
+
+    #[test]
+    fn template_ref_keys() {
+        for n in [0, 15, 16, 123] {
+            assert_eq!(template_ref_key(n), format!("templateRef:{n}"))
+        }
     }
 }

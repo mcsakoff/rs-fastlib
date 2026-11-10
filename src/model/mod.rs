@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use rustc_hash::FxHashMap as HashMap;
 
 use crate::Result;
 use crate::base::message::MessageVisitor;
@@ -7,7 +6,7 @@ use crate::utils::stacked::Stacked;
 use crate::{Error, MessageFactory, Value, ValueType};
 
 use self::template::TemplateData;
-use self::value::ValueData;
+use self::value::{Fields, Key, ValueData, template_ref_key};
 
 mod decimal;
 pub(crate) mod template;
@@ -21,7 +20,7 @@ pub struct ModelFactory {
 
     /// Stores current context name and value.
     /// Here context value can be `ValueData::Group` or `ValueData::Sequence`.
-    context: Stacked<(String, ValueData)>,
+    context: Stacked<(Key, ValueData)>,
 
     // Counter for dynamic references.
     // Used to generate unique names for dynamic references within one context.
@@ -40,35 +39,41 @@ impl ModelFactory {
 
 impl MessageFactory for ModelFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
-        self.context
-            .push((name.to_string(), ValueData::Group(HashMap::default())));
+        self.context.push((
+            Key::Owned(name.to_string()),
+            ValueData::Group(Fields::default()),
+        ));
     }
 
     fn stop_template(&mut self) {
         let (name, value) = self.context.pop().unwrap();
-        self.data = Some(TemplateData { name, value });
+        self.data = Some(TemplateData {
+            name: name.into_owned(),
+            value,
+        });
     }
 
     fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
         let (_, context) = self.context.must_peek_mut();
         match context {
             ValueData::Group(group) => {
-                group.insert(name.to_string(), ValueData::Value(value));
+                group.push(name.to_string(), ValueData::Value(value));
             }
             _ => unreachable!(),
         }
     }
 
     fn start_sequence(&mut self, _id: u32, name: &str, length: u32) {
+        // Do not trust `length` for pre-allocation: it comes from the stream.
         self.context.push((
-            name.to_string(),
+            Key::Owned(name.to_string()),
             ValueData::Sequence(Vec::with_capacity(length as usize)),
         ));
     }
 
     fn start_sequence_item(&mut self, _index: u32) {
         self.context
-            .push((String::new(), ValueData::Group(HashMap::default())));
+            .push((Key::Borrowed(""), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 
@@ -89,7 +94,7 @@ impl MessageFactory for ModelFactory {
         let (_, context) = self.context.must_peek_mut();
         match context {
             ValueData::Group(group) => {
-                group.insert(n, s);
+                group.push(n, s);
             }
             _ => unreachable!(),
         }
@@ -97,7 +102,7 @@ impl MessageFactory for ModelFactory {
 
     fn start_group(&mut self, name: &str) {
         self.context
-            .push((name.to_string(), ValueData::Group(HashMap::default())));
+            .push((Key::Owned(name.to_string()), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 
@@ -107,7 +112,7 @@ impl MessageFactory for ModelFactory {
         let (_, context) = self.context.must_peek_mut();
         match context {
             ValueData::Group(group) => {
-                group.insert(n, g);
+                group.push(n, g);
             }
             _ => unreachable!(),
         }
@@ -120,14 +125,14 @@ impl MessageFactory for ModelFactory {
                 value: ValueData::None,
             }));
             let rc = self.ref_num.must_peek_mut();
-            self.context.push((format!("templateRef:{rc}"), tpl_ref));
+            self.context.push((template_ref_key(*rc), tpl_ref));
             *rc += 1;
         } else {
             let tpl_ref = ValueData::StaticTemplateRef(name.to_string(), Box::new(ValueData::None));
-            self.context.push((name.to_string(), tpl_ref));
+            self.context.push((Key::Owned(name.to_string()), tpl_ref));
         }
         self.context
-            .push((String::new(), ValueData::Group(HashMap::default())));
+            .push((Key::Borrowed(""), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 
@@ -149,7 +154,7 @@ impl MessageFactory for ModelFactory {
                     }
                     ValueData::DynamicTemplateRef(mut t) => {
                         t.value = vg;
-                        group.insert(n, ValueData::DynamicTemplateRef(t));
+                        group.push(n, ValueData::DynamicTemplateRef(t));
                     }
                     _ => unreachable!(),
                 }
@@ -317,7 +322,7 @@ impl MessageVisitor for ModelVisitor {
         self.ref_dynamic.push(dynamic);
         if dynamic {
             let rc = self.ref_num.must_peek_mut();
-            let name = format!("templateRef:{rc}");
+            let name = template_ref_key(*rc);
             *rc += 1;
             self.ref_num.push(0);
 
