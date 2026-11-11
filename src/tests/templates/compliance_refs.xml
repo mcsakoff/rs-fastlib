@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" dictionary="template">
+
+    <!-- Static references to a template defined later. -->
+    <template id="1" name="Outer">
+        <templateRef name="Header"/>
+    </template>
+
+    <template id="2" name="Other">
+        <templateRef name="Header"/>
+    </template>
+
+    <template id="3" name="Third">
+        <templateRef name="Header2"/>
+    </template>
+
+    <!-- Templates without id have their own `template` dictionaries. -->
+    <template name="Header">
+        <uInt32 id="1" name="Value"><copy/></uInt32>
+    </template>
+
+    <template name="Header2">
+        <uInt32 id="1" name="Value"><copy/></uInt32>
+    </template>
+
+    <template id="4" name="DynamicOuter">
+        <templateRef/>
+    </template>
+
+    <template id="5" name="DynamicInner">
+        <uInt32 id="1" name="Value"/>
+    </template>
+
+    <template id="6" name="DecimalExponent">
+        <decimal id="1" name="Value"><exponent><copy value="-2"/></exponent></decimal>
+    </template>
+
+    <template id="7" name="DecimalMantissa">
+        <decimal id="1" name="Value"><mantissa><delta/></mantissa></decimal>
+    </template>
+
+    <template id="8" name="TwoKeys">
+        <uInt32 id="1" name="A" presence="optional"><copy/></uInt32>
+        <uInt32 id="2" name="B" presence="optional"><copy/></uInt32>
+    </template>
+
+</templates>

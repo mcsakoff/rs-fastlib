@@ -3,6 +3,9 @@
 //! See: https://fixtrading.org/packages/fast-specification-version-1-1/
 //!
 use super::*;
+
+use crate::model::template::TemplateData;
+use crate::model::value::{Fields, ValueData};
 use crate::{Decimal, Error};
 
 const DEFINITION: &str = include_str!("templates/compliance.xml");
@@ -455,4 +458,157 @@ fn nullable_integer_max_values() {
             "{raw:x?}"
         );
     }
+}
+
+const DEFINITION_REFS: &str = include_str!("templates/compliance_refs.xml");
+
+// Encodes and decodes messages in order, comparing with raw data, then compares contexts.
+fn roundtrip_seq(definitions: &str, msgs: Vec<(TemplateData, Vec<u8>)>) {
+    let mut d = Decoder::new_from_xml(definitions).unwrap();
+    let mut e = Encoder::new_from_xml(definitions).unwrap();
+    for (i, (data, raw)) in msgs.into_iter().enumerate() {
+        let mut visitor = ModelVisitor::new(data.clone());
+        assert_eq!(
+            e.encode_vec(&mut visitor).unwrap(),
+            raw,
+            "#{} encode",
+            i + 1
+        );
+        let mut factory = ModelFactory::new();
+        d.decode_slice(&raw, &mut factory).unwrap();
+        assert_eq!(factory.data.unwrap(), data, "#{} decode", i + 1);
+    }
+    assert_eq!(d.context, e.context, "context mismatch");
+}
+
+fn group(fields: Vec<(&str, ValueData)>) -> ValueData {
+    ValueData::Group(Fields::from_iter(
+        fields.into_iter().map(|(k, v)| (k.to_string(), v)),
+    ))
+}
+
+fn uint32(v: u32) -> ValueData {
+    ValueData::Value(Some(Value::UInt32(v)))
+}
+
+#[test]
+fn static_reference_changes_current_template() {
+    // `Header` is defined after the referring templates. Its `template` dictionary is shared by
+    // all the references, and differs from the dictionary of `Header2`.
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION_REFS,
+        TestCaseSeq {
+            name: "static reference",
+            raw: vec![
+                vec![0xe0, 0x81, 0x85],
+                vec![0xc0, 0x82],
+                vec![0xc0, 0x81],
+                vec![0xe0, 0x83, 0x85],
+            ],
+            data: vec![
+                msg("Outer", Some(Value::UInt32(5))),
+                msg("Other", Some(Value::UInt32(5))),
+                msg("Outer", Some(Value::UInt32(5))),
+                msg("Third", Some(Value::UInt32(5))),
+            ],
+        },
+    );
+}
+
+#[test]
+fn cyclic_static_reference() {
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="A"><templateRef name="B"/></template>
+        <template id="2" name="B"><templateRef name="A"/></template>
+    </templates>"#;
+    assert!(matches!(Decoder::new_from_xml(xml), Err(Error::Static(_))));
+}
+
+#[test]
+fn dynamic_reference_template_id_is_global() {
+    // All template identifiers share the copy operator entry in the `global` dictionary.
+    let data = TemplateData {
+        name: "DynamicOuter".to_string(),
+        value: group(vec![(
+            "templateRef:0",
+            ValueData::DynamicTemplateRef(Box::new(TemplateData {
+                name: "DynamicInner".to_string(),
+                value: group(vec![("Value", uint32(5))]),
+            })),
+        )]),
+    };
+    roundtrip_seq(
+        DEFINITION_REFS,
+        vec![
+            (data.clone(), vec![0xc0, 0x84, 0xc0, 0x85, 0x85]),
+            (data, vec![0xc0, 0x84, 0xc0, 0x85, 0x85]),
+        ],
+    );
+}
+
+#[test]
+fn template_dictionary_keys() {
+    let data = TemplateData {
+        name: "TwoKeys".to_string(),
+        value: group(vec![("A", uint32(1)), ("B", uint32(2))]),
+    };
+    roundtrip_seq(
+        DEFINITION_REFS,
+        vec![
+            (data.clone(), vec![0xf0, 0x88, 0x82, 0x83]),
+            (data, vec![0x80]),
+        ],
+    );
+}
+
+#[test]
+fn decimal_single_component_operator() {
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION_REFS,
+        TestCaseSeq {
+            name: "decimal exponent operator",
+            raw: vec![vec![0xc0, 0x86, 0x00, 0xfb], vec![0xa0, 0xff, 0x85]],
+            data: vec![
+                msg(
+                    "DecimalExponent",
+                    Some(Value::Decimal(Decimal::new(-2, 123))),
+                ),
+                msg("DecimalExponent", Some(Value::Decimal(Decimal::new(-1, 5)))),
+            ],
+        },
+    );
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION_REFS,
+        TestCaseSeq {
+            name: "decimal mantissa operator",
+            raw: vec![vec![0xc0, 0x87, 0xfe, 0x00, 0xe4], vec![0x80, 0xfe, 0x81]],
+            data: vec![
+                msg(
+                    "DecimalMantissa",
+                    Some(Value::Decimal(Decimal::new(-2, 100))),
+                ),
+                msg(
+                    "DecimalMantissa",
+                    Some(Value::Decimal(Decimal::new(-2, 101))),
+                ),
+            ],
+        },
+    );
+}
+
+#[test]
+fn decimal_increment_is_rejected() {
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="A"><decimal id="1" name="Value"><increment/></decimal></template>
+    </templates>"#;
+    assert!(matches!(Decoder::new_from_xml(xml), Err(Error::Static(_))));
 }
