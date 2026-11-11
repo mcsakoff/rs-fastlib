@@ -61,7 +61,7 @@ impl Decoder {
         let mut rdr = SliceReader::new(bytes);
         self.decode_reader(&mut rdr, msg)?;
         if !rdr.remaining().is_empty() {
-            return Err(Error::Runtime(format!(
+            return Err(Error::Dynamic(format!(
                 "Bytes left in the buffer after decoding: {}",
                 rdr.remaining().len()
             )));
@@ -77,7 +77,7 @@ impl Decoder {
         let mut raw = bytes::Bytes::from(bytes);
         self.decode_reader(&mut raw, msg)?;
         if !raw.is_empty() {
-            return Err(Error::Runtime(format!(
+            return Err(Error::Dynamic(format!(
                 "Bytes left in the buffer after decoding: {}",
                 raw.len()
             )));
@@ -161,10 +161,10 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         let definitions = self.definitions;
         match definitions.template_id_instruction.extract(self)? {
             Some(Value::UInt32(id)) => Ok(id),
-            Some(_) => Err(Error::Runtime(
+            Some(_) => Err(Error::Dynamic(
                 "Wrong template id type in context storage".to_string(),
             )),
-            None => Err(Error::Runtime(
+            None => Err(Error::Dynamic(
                 "No template id in context storage".to_string(),
             )),
         }
@@ -184,21 +184,55 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     }
 
     // Decode presence map from the stream and change the current processing context accordingly.
-    fn decode_presence_map(&mut self) -> Result<()> {
-        let (bitmap, size) = self.rdr.read_presence_map()?;
-        let presence_map = PresenceMap::new(bitmap, size);
+    // `long` is `true` if the segment can have a presence map longer than `MAX_PMAP_BITS`.
+    fn decode_presence_map(&mut self, long: bool) -> Result<()> {
+        let presence_map = if long {
+            self.read_long_presence_map()?
+        } else {
+            let (bitmap, size) = self.rdr.read_presence_map()?;
+            // A presence map is overlong if it has more than seven bits and ends in seven or more bits that are all zero.
+            if size > 7 && bitmap.trailing_zeros() >= 7 {
+                return Err(overlong_presence_map()); // [ERR R7]
+            }
+            PresenceMap::new(bitmap, size)
+        };
         self.presence_map.push(presence_map);
         Ok(())
     }
 
+    #[cold]
+    fn read_long_presence_map(&mut self) -> Result<PresenceMap> {
+        let mut groups = Vec::new();
+        match self.rdr.read_stop_bit_run(&mut groups) {
+            Ok(()) => {}
+            // The stream ends cleanly at the first byte of the presence map.
+            Err(Error::UnexpectedEof) if groups.is_empty() => return Err(Error::Eof),
+            Err(e) => return Err(e),
+        }
+        if let Some(last) = groups.last_mut() {
+            *last &= 0x7f;
+        }
+        if groups.len() > 1 && groups.last() == Some(&0) {
+            return Err(overlong_presence_map()); // [ERR R7]
+        }
+        Ok(PresenceMap::from_groups(groups))
+    }
+
     // Restore the previous value for presence map in the processing context.
-    fn drop_presence_map(&mut self) {
-        _ = self.presence_map.pop();
+    fn drop_presence_map(&mut self) -> Result<()> {
+        let presence_map = self.presence_map.pop();
+        // It is a reportable error [ERR R8] if a presence map contains more bits than required by the instructions.
+        if presence_map.is_some_and(|p| p.has_unread_bits_set()) {
+            return Err(Error::Dynamic(
+                "presence map has more bits than required".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     // Decode a template from the stream.
     pub(crate) fn decode_template(&mut self) -> Result<()> {
-        self.decode_presence_map()?;
+        self.decode_presence_map(self.definitions.long_template_pmap)?;
         let template = self.decode_template_id()?;
         self.msg.start_template(template.id, &template.name);
 
@@ -213,8 +247,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
         self.msg.stop_template();
         self.drop_template();
-        self.drop_presence_map();
-        Ok(())
+        self.drop_presence_map()
     }
 
     fn decode_instructions(&mut self, instructions: &[Instruction]) -> Result<()> {
@@ -237,11 +270,11 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         Ok(())
     }
 
-    fn decode_segment(&mut self, instructions: &[Instruction]) -> Result<()> {
-        self.decode_presence_map()?;
+    // `long` is `true` if the segment can have a presence map longer than `MAX_PMAP_BITS`.
+    fn decode_segment(&mut self, instructions: &[Instruction], long: bool) -> Result<()> {
+        self.decode_presence_map(long)?;
         self.decode_instructions(instructions)?;
-        self.drop_presence_map();
-        Ok(())
+        self.drop_presence_map()
     }
 
     fn decode_field(&mut self, instruction: &Instruction) -> Result<()> {
@@ -282,7 +315,10 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
                     // If any instruction of the sequence needs to allocate a bit in a presence map, each element is represented
                     // as a segment in the transfer encoding.
                     if instruction.has_pmap.get() {
-                        self.decode_segment(&instruction.instructions[1..])?;
+                        self.decode_segment(
+                            &instruction.instructions[1..],
+                            instruction.long_pmap.get(),
+                        )?;
                     } else {
                         self.decode_instructions(&instruction.instructions[1..])?;
                     }
@@ -313,7 +349,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         // If any instruction of the group needs to allocate a bit in a presence map, each element is represented
         // as a segment in the transfer encoding.
         if instruction.has_pmap.get() {
-            self.decode_segment(&instruction.instructions)?;
+            self.decode_segment(&instruction.instructions, instruction.long_pmap.get())?;
         } else {
             self.decode_instructions(&instruction.instructions)?;
         }
@@ -332,7 +368,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         let is_dynamic = instruction.name.is_empty();
 
         let template = if is_dynamic {
-            self.decode_presence_map()?;
+            self.decode_presence_map(self.definitions.long_template_pmap)?;
             self.decode_template_id()?
         } else {
             // A static reference continues with the referred template as the current template.
@@ -354,7 +390,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         self.msg.stop_template_ref();
         self.drop_template();
         if is_dynamic {
-            self.drop_presence_map();
+            self.drop_presence_map()?;
         }
         Ok(())
     }
@@ -400,7 +436,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
             // the same type as the value of the entry.
-            return Err(Error::Runtime(format!(
+            return Err(Error::Dynamic(format!(
                 "field {} has wrong value type in context",
                 i.name
             ))); // [ERR D4]
@@ -420,11 +456,16 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
             // the same type as the value of the entry.
-            return Err(Error::Runtime(format!(
+            return Err(Error::Dynamic(format!(
                 "field {} has wrong value type in context",
                 i.name
             ))); // [ERR D4]
         }
         Ok(v)
     }
+}
+
+#[cold]
+fn overlong_presence_map() -> Error {
+    Error::Dynamic("overlong presence map".to_string()) // [ERR R7]
 }

@@ -81,8 +81,11 @@ pub trait Reader {
     /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_uint(&mut self) -> Result<u64> {
         let mut value: u64 = 0;
+        let mut byte = self.read_u8()?;
+        if byte == 0x00 {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         loop {
-            let byte = self.read_u8()?;
             if value > u64::MAX >> 7 {
                 return Err(integer_overflow()); // [ERR D2]
             }
@@ -91,6 +94,7 @@ pub trait Reader {
             if byte & 0x80 == 0x80 {
                 return Ok(value);
             }
+            byte = self.read_u8()?;
         }
     }
 
@@ -99,8 +103,11 @@ pub trait Reader {
     /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
         let mut value: u64 = 0;
+        let mut byte = self.read_u8()?;
+        if byte == 0x00 {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         loop {
-            let byte = self.read_u8()?;
             if value > u64::MAX >> 7 {
                 return uint_nullable_max(value, byte);
             }
@@ -109,6 +116,7 @@ pub trait Reader {
             if byte & 0x80 == 0x80 {
                 return Ok(value.checked_sub(1));
             }
+            byte = self.read_u8()?;
         }
     }
 
@@ -119,6 +127,14 @@ pub trait Reader {
         let mut byte = self.read_u8()?;
         // Negative integers are sign-extended.
         let mut value: i64 = if byte & 0x40 != 0 { -1 } else { 0 };
+        if byte == 0x00 || byte == 0x7f {
+            // The byte only extends the sign, so it doesn't change the value.
+            let next = self.read_u8()?;
+            if is_overlong_signed(byte, next) {
+                return Err(overlong_integer()); // [ERR R6]
+            }
+            byte = next;
+        }
         loop {
             if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
                 return Err(integer_overflow()); // [ERR D2]
@@ -140,6 +156,14 @@ pub trait Reader {
         let mut byte = self.read_u8()?;
         // Negative integers are sign-extended.
         let mut value: i64 = if byte & 0x40 != 0 { -1 } else { 0 };
+        if byte == 0x00 || byte == 0x7f {
+            // The byte only extends the sign, so it doesn't change the value.
+            let next = self.read_u8()?;
+            if is_overlong_signed(byte, next) {
+                return Err(overlong_integer()); // [ERR R6]
+            }
+            byte = next;
+        }
         loop {
             if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
                 return int_nullable_max(value, byte);
@@ -176,7 +200,7 @@ pub trait Reader {
     /// # Errors
     /// Returns error if it can not read bytes len or bytes len mismatch.
     fn read_unicode_string(&mut self) -> Result<String> {
-        Ok(String::from_utf8(self.read_bytes()?)?)
+        String::from_utf8(self.read_bytes()?).map_err(|e| invalid_utf8(&e))
     }
 
     /// Returns decoded nullable unicode encoded string.
@@ -185,7 +209,9 @@ pub trait Reader {
     fn read_unicode_string_nullable(&mut self) -> Result<Option<String>> {
         match self.read_bytes_nullable()? {
             None => Ok(None),
-            Some(bytes) => Ok(Some(String::from_utf8(bytes)?)),
+            Some(bytes) => Ok(Some(
+                String::from_utf8(bytes).map_err(|e| invalid_utf8(&e))?,
+            )),
         }
     }
 
@@ -220,6 +246,25 @@ fn pmap_overflow() -> Error {
     Error::Dynamic(format!("presence map is longer that {MAX_PMAP_BITS} bits"))
 }
 
+// It is a reportable error [ERR R2] if a Unicode string is not a valid UTF-8 sequence.
+#[cold]
+pub(crate) fn invalid_utf8(e: &std::string::FromUtf8Error) -> Error {
+    Error::Dynamic(format!("invalid UTF-8 string: {e}"))
+}
+
+// An integer is overlong if the entity value still represents the same integer after removing seven
+// or more of the most significant bits.
+#[cold]
+fn overlong_integer() -> Error {
+    Error::Dynamic("overlong integer".to_string()) // [ERR R6]
+}
+
+// A signed integer starting with 0x00 or 0x7f is overlong if the next byte has the same sign bit.
+#[inline]
+fn is_overlong_signed(first: u8, second: u8) -> bool {
+    (first == 0x00 && second & 0x40 == 0) || (first == 0x7f && second & 0x40 != 0)
+}
+
 #[cold]
 fn integer_overflow() -> Error {
     Error::Dynamic("integer value does not fit into 64 bits".to_string())
@@ -245,8 +290,7 @@ fn int_nullable_max(value: i64, byte: u8) -> Result<Option<i64>> {
     Err(integer_overflow()) // [ERR D2]
 }
 
-// Every non-negative nullable integer is incremented by 1 before it is encoded.
-// Zero in `null`.
+// Every non-negative nullable integer is incremented by 1 before it is encoded. Zero is NULL.
 #[inline]
 fn int_from_nullable(value: i64) -> Option<i64> {
     match value {
@@ -262,7 +306,6 @@ fn overlong_string() -> Error {
 }
 
 // Converts a stop bit encoded run into a non-nullable ASCII string.
-//
 // A string that starts with a zero-preamble (seven zero bits) consists of the bits that remain after removing the preamble.
 // If there are no bits left, it is the empty string. If the first seven of the remaining bits are not all zero,
 // the string is overlong.
@@ -274,9 +317,8 @@ fn ascii_from_run(mut buf: Vec<u8>) -> Result<String> {
 }
 
 // Converts a stop bit encoded run into a nullable ASCII string.
-//
 // An additional zero-preamble is allowed at the start of the string. The bits that follow are interpreted as
-// a non-nullable string. If there are no remaining bits after removing the preamble, the value is `null`.
+// a non-nullable string. If there are no remaining bits after removing the preamble the value is NULL.
 fn ascii_from_run_nullable(mut buf: Vec<u8>) -> Result<Option<String>> {
     if let Some(last) = buf.last_mut() {
         *last &= 0x7f;
@@ -292,7 +334,7 @@ fn ascii_from_run_nullable(mut buf: Vec<u8>) -> Result<Option<String>> {
     }
 }
 
-// Converts an entity value (stop bit is cleared) into a non-nullable ASCII string.
+// Converts an entity value (stop bit cleared) into a non-nullable ASCII string.
 fn ascii_from_entity(mut buf: Vec<u8>) -> Result<String> {
     match buf.as_slice() {
         [0x00, 0x00, ..] | [0x00] => {
@@ -309,8 +351,8 @@ fn ascii_from_entity(mut buf: Vec<u8>) -> Result<String> {
 // Helpers that parse values from contiguous memory. Each returns the value and the number of consumed bytes.
 mod slice {
     use super::{
-        MAX_PMAP_BITS, int_from_nullable, int_nullable_max, integer_overflow, pmap_overflow,
-        uint_nullable_max,
+        MAX_PMAP_BITS, int_from_nullable, int_nullable_max, integer_overflow, is_overlong_signed,
+        overlong_integer, pmap_overflow, uint_nullable_max,
     };
     use crate::{Error, Result};
 
@@ -324,6 +366,9 @@ mod slice {
 
     #[inline]
     pub(super) fn uint(buf: &[u8]) -> Result<(u64, usize)> {
+        if buf.first() == Some(&0x00) {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         let mut value: u64 = 0;
         for (i, &byte) in buf.iter().enumerate() {
             if value > u64::MAX >> 7 {
@@ -339,6 +384,9 @@ mod slice {
 
     #[inline]
     pub(super) fn uint_nullable(buf: &[u8]) -> Result<(Option<u64>, usize)> {
+        if buf.first() == Some(&0x00) {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         let mut value: u64 = 0;
         for (i, &byte) in buf.iter().enumerate() {
             if value > u64::MAX >> 7 {
@@ -357,6 +405,11 @@ mod slice {
         let Some(&first) = buf.first() else {
             return Err(Error::UnexpectedEof);
         };
+        if let [f, second, ..] = buf
+            && is_overlong_signed(*f, *second)
+        {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         // Negative integers are sign-extended.
         let mut value: i64 = if first & 0x40 != 0 { -1 } else { 0 };
         for (i, &byte) in buf.iter().enumerate() {
@@ -376,6 +429,11 @@ mod slice {
         let Some(&first) = buf.first() else {
             return Err(Error::UnexpectedEof);
         };
+        if let [f, second, ..] = buf
+            && is_overlong_signed(*f, *second)
+        {
+            return Err(overlong_integer()); // [ERR R6]
+        }
         // Negative integers are sign-extended.
         let mut value: i64 = if first & 0x40 != 0 { -1 } else { 0 };
         for (i, &byte) in buf.iter().enumerate() {
@@ -464,15 +522,15 @@ macro_rules! impl_contiguous_reader {
         }
 
         #[inline]
-        fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
-            let (v, n) = slice::uint_nullable(Contiguous::rest(self))?;
+        fn read_int(&mut self) -> Result<i64> {
+            let (v, n) = slice::int(Contiguous::rest(self))?;
             Contiguous::consume(self, n);
             Ok(v)
         }
 
         #[inline]
-        fn read_int(&mut self) -> Result<i64> {
-            let (v, n) = slice::int(Contiguous::rest(self))?;
+        fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
+            let (v, n) = slice::uint_nullable(Contiguous::rest(self))?;
             Contiguous::consume(self, n);
             Ok(v)
         }
@@ -793,7 +851,10 @@ mod tests {
         // Overlong
         for input in [vec![0x00, 0xc1], vec![0x00, 0x00, 0xc1]] {
             let mut buf = bytes::Bytes::from(input);
-            assert!(matches!(buf.read_ascii_string_nullable(), Err(Error::Dynamic(_))));
+            assert!(matches!(
+                buf.read_ascii_string_nullable(),
+                Err(Error::Dynamic(_))
+            ));
         }
     }
 
@@ -915,6 +976,40 @@ mod tests {
     }
 
     #[test]
+    fn read_overlong_integer() {
+        for input in [vec![0x00, 0x81], vec![0x00, 0x00, 0x81]] {
+            let mut buf = bytes::Bytes::from(input.clone());
+            assert!(
+                matches!(buf.read_uint(), Err(Error::Dynamic(_))),
+                "{input:x?}"
+            );
+            let mut buf = bytes::Bytes::from(input.clone());
+            assert!(
+                matches!(buf.read_uint_nullable(), Err(Error::Dynamic(_))),
+                "{input:x?}"
+            );
+        }
+        for input in [vec![0x00, 0x81], vec![0x7f, 0xff], vec![0x00, 0x3f, 0xff]] {
+            let mut buf = bytes::Bytes::from(input.clone());
+            assert!(
+                matches!(buf.read_int(), Err(Error::Dynamic(_))),
+                "{input:x?}"
+            );
+            let mut buf = bytes::Bytes::from(input.clone());
+            assert!(
+                matches!(buf.read_int_nullable(), Err(Error::Dynamic(_))),
+                "{input:x?}"
+            );
+        }
+        // Sign extension bytes are not overlong.
+        assert_eq!(bytes::Bytes::from(vec![0x00, 0xc0]).read_int().unwrap(), 64);
+        assert_eq!(
+            bytes::Bytes::from(vec![0x7f, 0xbf]).read_int().unwrap(),
+            -65
+        );
+    }
+
+    #[test]
     fn read_integer_overflow() {
         // 2^64 doesn't fit into u64
         let mut buf = bytes::Bytes::from(vec![0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80]);
@@ -996,7 +1091,16 @@ mod tests {
             vec![0x80, 0x81, 0x81, 0x00, 0xc1],
             // overlong string
             vec![0x80, 0x81, 0x81, 0x80, 0x00, 0xc1],
-            // nullable integers above MAX
+            // overlong integers
+            vec![0x80, 0x00, 0x81],
+            vec![0x80, 0x81, 0x7f, 0xff],
+            vec![
+                0x80, 0x81, 0x00, 0x40, 0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x81,
+            ],
+            vec![
+                0x80, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x81,
+            ],
+            // nullable integers above max
             vec![
                 0x80, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x81,
             ],
@@ -1008,11 +1112,7 @@ mod tests {
             let mut cursor = Cursor::new(input.clone());
             let expected = run(&mut StreamReader::new(&mut cursor));
             assert_eq!(run(&mut SliceReader::new(&input)), expected, "{input:x?}");
-            assert_eq!(
-                run(&mut bytes::Bytes::from(input.clone())),
-                expected,
-                "{input:x?}"
-            );
+            assert_eq!(run(&mut bytes::Bytes::from(input.clone())), expected, "{input:x?}");
         }
     }
 }

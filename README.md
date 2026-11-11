@@ -215,6 +215,12 @@ let mut msg = MyMessageFactory{};
 decoder.decode_vec(raw_data, &mut msg)?;
 ```
 
+## Limitations
+
+* Block streams (messages prefixed with a block size) are not supported. Read the block size and decode
+  the messages of the block with `Decoder::decode_buffer` until the block is consumed.
+* Dynamic and reportable errors found while decoding are reported as `Error::Dynamic`.
+
 ## Examples
 
 - [fast-tools](https://github.com/mcsakoff/rs-fast-tools)

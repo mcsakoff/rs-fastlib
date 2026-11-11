@@ -82,8 +82,8 @@
 //! * static template reference can be plain fields from the template or flattened `struct`,
 //! * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
 //!   is a 0-based index of the `<templateRef>` in its group.
-//! * a named `<length>` of `<byteVector>` or unicode `<string>` is decoded as an extra `u32` field
-//!   (`Option<u32>` if the field is optional); declaring it is optional and it is ignored when encoding;
+//! * a named `<length>` of `<byteVector>` or unicode `<string>` is decoded as an extra `u32` field (`Option<u32>`
+//!   if the field is optional); declaring it is optional and it is ignored when encoding;
 //! * templates are selected by the local name; if the same name is used in several `templateNs`
 //!   namespaces, such templates can't be selected by name.
 //!
@@ -181,6 +181,12 @@
 //!
 //! For message factory implementation examples see [`TextMessageFactory`] and [`JsonMessageFactory`].
 //!
+//! ## Limitations
+//!
+//! * Block streams (messages prefixed with a block size) are not supported. Read the block size and decode
+//!   the messages of the block with [`Decoder::decode_buffer`] until the block is consumed.
+//! * Dynamic and reportable errors found while decoding are reported as [`Error::Dynamic`].
+//!
 //! ## Features
 //!
 //! Name           | Default?
@@ -241,11 +247,12 @@ pub enum Error {
     #[error("Static Error: {0}")]
     Static(String),
 
-    /// Errors happened due to malformed binary data.
+    /// Errors happened due to malformed binary data: dynamic and reportable errors found while decoding,
+    /// and values that can't be represented in the stream.
     #[error("Dynamic Error: {0}")]
     Dynamic(String),
 
-    /// Errors happened due to decoding algorithm.
+    /// Errors happened while processing, e.g. invalid message data passed to the encoder.
     #[error("Runtime Error: {0}")]
     Runtime(String),
 

@@ -101,34 +101,62 @@ impl Decimal {
     #[allow(clippy::inherent_to_string_shadow_display)]
     #[must_use]
     pub fn to_string(&self) -> String {
-        if self.exponent >= 0 {
-            (self.mantissa * 10i64.pow(self.exponent as u32)).to_string()
-        } else {
-            let divisor = 10i64.pow(-self.exponent as u32);
-            if self.mantissa % divisor == 0 {
-                (self.mantissa / divisor).to_string()
-            } else {
-                format!("{:.*}", -self.exponent as usize, self.to_float())
+        let (sign, integer, fraction) = self.parts();
+        if fraction.bytes().all(|b| b == b'0') {
+            if integer == "0" {
+                return integer;
             }
+            return format!("{sign}{integer}");
+        }
+        format!("{sign}{integer}.{fraction}")
+    }
+
+    // Splits the number into the sign, the integer part and the decimal part (`exponent` digits if negative).
+    fn parts(&self) -> (&'static str, String, String) {
+        let sign = if self.mantissa < 0 { "-" } else { "" };
+        let digits = self.mantissa.unsigned_abs().to_string();
+        if self.mantissa == 0 {
+            return ("", "0".to_string(), "0".repeat(self.scale()));
+        }
+        if self.exponent >= 0 {
+            let zeroes = "0".repeat(self.exponent.unsigned_abs() as usize);
+            return (sign, format!("{digits}{zeroes}"), String::new());
+        }
+        let scale = self.scale();
+        if digits.len() > scale {
+            let (integer, fraction) = digits.split_at(digits.len() - scale);
+            (sign, integer.to_string(), fraction.to_string())
+        } else {
+            let zeroes = "0".repeat(scale - digits.len());
+            (sign, "0".to_string(), format!("{zeroes}{digits}"))
+        }
+    }
+
+    // Number of digits after the decimal point.
+    fn scale(&self) -> usize {
+        if self.exponent < 0 {
+            self.exponent.unsigned_abs() as usize
+        } else {
+            0
         }
     }
 
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn to_float(&self) -> f64 {
-        // self.mantissa as f64 * 10_f64.powf(self.exponent as f64)
-
-        // This is pretty ugly but gives MUCH better results than the implementation above!
+        let mantissa = self.mantissa as f64;
         match self.exponent {
-            0 => self.mantissa as f64,
-            exponent if exponent > 0 => {
-                let multiplier = 10i64.pow(exponent as u32);
-                (self.mantissa * multiplier) as f64
-            }
-            exponent => {
-                let divisor = 10u64.pow(-exponent as u32);
-                self.mantissa as f64 / divisor as f64
-            }
+            0 => mantissa,
+            // Use exact integer arithmetic when possible: it gives MUCH better results.
+            exponent if exponent > 0 => match 10i64
+                .checked_pow(exponent.unsigned_abs())
+                .and_then(|m| self.mantissa.checked_mul(m))
+            {
+                Some(v) => v as f64,
+                None => mantissa * 10f64.powi(exponent),
+            },
+            // Powers of ten up to 10^22 are exact in f64.
+            exponent => mantissa / 10f64.powi(-exponent),
         }
     }
 }
@@ -136,11 +164,12 @@ impl Decimal {
 /// Format the decimal as number with specific number of digits after the decimal point.
 impl Display for Decimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.exponent >= 0 {
+        let (sign, integer, fraction) = self.parts();
+        if fraction.is_empty() {
             // keep .0 at the end even if the number is integer
-            write!(f, "{}.0", self.mantissa * 10i64.pow(self.exponent as u32))
+            write!(f, "{sign}{integer}.0")
         } else {
-            write!(f, "{:.*}", -self.exponent as usize, self.to_float())
+            write!(f, "{sign}{integer}.{fraction}")
         }
     }
 }
@@ -279,6 +308,42 @@ mod test {
                 float: -0.03,
             },
         ]);
+    }
+
+    #[test]
+    fn decimal_to_string_exact() {
+        for (components, string, display) in [
+            (
+                (-2, 1_234_567_890_123_456_789),
+                "12345678901234567.89",
+                "12345678901234567.89",
+            ),
+            (
+                (-2, i64::MIN),
+                "-92233720368547758.08",
+                "-92233720368547758.08",
+            ),
+            (
+                (63, 1),
+                "1000000000000000000000000000000000000000000000000000000000000000",
+                "1000000000000000000000000000000000000000000000000000000000000000.0",
+            ),
+            (
+                (-63, 1),
+                "0.000000000000000000000000000000000000000000000000000000000000001",
+                "0.000000000000000000000000000000000000000000000000000000000000001",
+            ),
+        ] {
+            let d = Decimal::new(components.0, components.1);
+            assert_eq!(d.to_string(), string, "{components:?}");
+            assert_eq!(format!("{d}"), display, "{components:?}");
+        }
+        assert_eq!(Decimal::new(63, 1).to_float(), 1e63);
+        assert_eq!(Decimal::new(-30, 5).to_float(), 5e-30);
+        assert_eq!(
+            Decimal::new(20, i64::MAX).to_float(),
+            i64::MAX as f64 * 1e20
+        );
     }
 
     #[test]

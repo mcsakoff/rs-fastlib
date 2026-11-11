@@ -187,6 +187,10 @@ impl<'a> EncoderContext<'a> {
         buf.push(0x80);
         f(state, buf)?;
         let presence_map = ctx(state).presence_map.pop().unwrap();
+        if presence_map.is_long() {
+            buf.splice(start..=start, presence_map.to_bytes());
+            return Ok(());
+        }
         let (pmap, len) = presence_map_bytes(presence_map.bitmap, presence_map.size)?;
         if len == 1 {
             buf[start] = pmap[0];

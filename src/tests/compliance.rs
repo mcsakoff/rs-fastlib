@@ -928,3 +928,100 @@ fn string_conversions() {
     let mut v = Value::ASCIIString(String::new());
     assert!(matches!(v.set_from_string("é"), Err(Error::Dynamic(_))));
 }
+
+fn decode_seq_result(xml: &str, raw: &[&[u8]]) -> crate::Result<()> {
+    let mut d = Decoder::new_from_xml(xml).unwrap();
+    let (last, init) = raw.split_last().unwrap();
+    for r in init {
+        d.decode_slice(r, &mut ModelFactory::new()).unwrap();
+    }
+    d.decode_slice(last, &mut ModelFactory::new())
+}
+
+fn is_dynamic(r: crate::Result<()>, text: &str) -> bool {
+    matches!(r, Err(Error::Dynamic(m)) if m.contains(text))
+}
+
+#[test]
+fn exponent_range_after_operators() {
+    // [ERR R1] the exponent is out of range after the delta is applied.
+    let xml = template_xml(
+        r#"<decimal id="1" name="Value"><exponent><delta/></exponent><mantissa><delta/></mantissa></decimal>"#,
+    );
+    assert!(decode_seq_result(&xml, &[&[0xc0, 0x81, 0xbf, 0x81]]).is_ok());
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81, 0xbf, 0x81], &[0x80, 0x81, 0x81]]),
+        "exponent value is out of range"
+    ));
+
+    // The encoder rejects such values too.
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    let mut m = ModelVisitor::new(pack_value(
+        "T",
+        "Value",
+        Some(Value::Decimal(Decimal::new(64, 1))),
+    ));
+    assert!(matches!(e.encode_vec(&mut m), Err(Error::Dynamic(_))));
+}
+
+#[test]
+fn overlong_integers() {
+    let xml = template_xml(r#"<uInt32 id="1" name="A"/><int32 id="2" name="B"/>"#);
+    // 64 needs the sign extension byte.
+    assert!(decode_seq_result(&xml, &[&[0xc0, 0x81, 0x81, 0x00, 0xc0]]).is_ok());
+    // [ERR R6]
+    for raw in [
+        &[0xc0, 0x00, 0x81, 0x81, 0x81][..],
+        &[0xc0, 0x81, 0x00, 0x81, 0x81],
+        &[0xc0, 0x81, 0x81, 0x00, 0x81],
+        &[0xc0, 0x81, 0x81, 0x7f, 0xff],
+    ] {
+        assert!(
+            is_dynamic(decode_seq_result(&xml, &[raw]), "overlong integer"),
+            "{raw:x?}"
+        );
+    }
+}
+
+#[test]
+fn presence_map_reportable_errors() {
+    let xml = template_xml(r#"<uInt32 id="1" name="Value"/>"#);
+    assert!(decode_seq_result(&xml, &[&[0xc0, 0x81, 0x81]]).is_ok());
+    // [ERR R7] overlong presence map.
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0x40, 0x80, 0x81, 0x81]]),
+        "overlong presence map"
+    ));
+    // [ERR R8] a bit not used by the template is set.
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xe0, 0x81, 0x81]]),
+        "more bits than required"
+    ));
+}
+
+#[test]
+fn decoder_error_categories() {
+    // [ERR D5] mandatory copy without initial value.
+    let xml = template_xml(r#"<uInt32 id="1" name="Value"><copy/></uInt32>"#);
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81]]),
+        "no initial value"
+    ));
+    // [ERR D2] uInt32 out of range.
+    let xml = template_xml(r#"<uInt32 id="1" name="Value"/>"#);
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81, 0x10, 0x00, 0x00, 0x00, 0x80]]),
+        "out of range"
+    ));
+    // Bytes left after the message.
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81, 0x81, 0x81]]),
+        "Bytes left"
+    ));
+    // [ERR R2] invalid UTF-8.
+    let xml = template_xml(r#"<string id="1" name="Value" charset="unicode"/>"#);
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81, 0x81, 0xff]]),
+        "invalid UTF-8"
+    ));
+}

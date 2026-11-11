@@ -4,6 +4,7 @@ use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
 use crate::base::decimal::Decimal;
+use crate::decoder::reader::invalid_utf8;
 use crate::utils::bytes::{
     bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes, trim_whitespace,
 };
@@ -228,7 +229,7 @@ impl Value {
             (Value::Bytes(v), Value::Bytes(d)) => Ok(Value::Bytes(bytes_delta(v, d, sub)?)),
             (Value::UnicodeString(v), Value::Bytes(d)) => {
                 let b = bytes_delta(v.as_bytes(), d, sub)?;
-                let s = String::from_utf8(b)?; // [ERR R2]
+                let s = String::from_utf8(b).map_err(|e| invalid_utf8(&e))?; // [ERR R2]
                 Ok(Value::UnicodeString(s))
             }
             _ => Err(Error::Runtime(format!(

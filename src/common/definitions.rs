@@ -9,7 +9,7 @@ use crate::common::context::DictionaryType;
 use crate::utils::xml::td_children;
 use crate::{Error, Result};
 
-/// Maximum number of bits in a presence map segment.
+/// Number of presence map bits that fit into the `u64` bitmap; longer presence maps take a slower path.
 pub const MAX_PMAP_BITS: usize = 63;
 
 /// Stores template definitions and global processing context.
@@ -21,6 +21,8 @@ pub struct Definitions {
     // Templates by (namespace URI, local name).
     qualified_templates: HashMap<(Rc<str>, String), usize>,
     pub(crate) template_id_instruction: Instruction,
+    // Message segments (and dynamic template references) may need presence maps longer than `MAX_PMAP_BITS`.
+    pub(crate) long_template_pmap: bool,
     // Indexes of application types by (namespace URI, local name); index 0 is reserved for special type `any`.
     type_indices: HashMap<(Rc<str>, Rc<str>), u32>,
 }
@@ -56,15 +58,16 @@ impl Definitions {
 
         let template_id_instruction = Instruction::new_template_id();
 
-        let definitions = Self {
+        let mut definitions = Self {
             templates,
             templates_by_id,
             templates_by_name,
             qualified_templates,
             template_id_instruction,
+            long_template_pmap: false,
             type_indices,
         };
-        definitions.finalize()?;
+        definitions.long_template_pmap = definitions.finalize()?;
         Ok(definitions)
     }
 
@@ -151,11 +154,14 @@ impl Definitions {
     // After generating the templates we have to go through all the instructions and set flags
     // for structures that must have a presence map. That can only be done when whole
     // templates structure is generated.
-    fn finalize(&self) -> Result<()> {
+    // Returns `true` if any template segment needs a presence map longer than `MAX_PMAP_BITS`.
+    fn finalize(&self) -> Result<bool> {
         // Templates being processed, to detect cyclic static template references.
         let mut visiting = vec![false; self.templates.len()];
+        let mut long_pmap = false;
         for index in 0..self.templates.len() {
-            self.template_pmap_bits(index, &mut visiting)?;
+            // The template segment also contains the template identifier bit.
+            long_pmap |= self.template_pmap_bits(index, &mut visiting)? + 1 > MAX_PMAP_BITS;
         }
 
         let mut slots = SlotResolver::default();
@@ -164,7 +170,7 @@ impl Definitions {
         for tpl in &self.templates {
             slots.resolve_all(&tpl.instructions, &tpl.dictionary);
         }
-        Ok(())
+        Ok(long_pmap)
     }
 
     // Returns the number of presence map bits the template instructions occupy (without the template
@@ -183,20 +189,8 @@ impl Definitions {
         visiting[index] = true;
         let bits = self.count_presence_map_bits(&tpl.instructions, visiting)?;
         visiting[index] = false;
-        // The template segment also contains the template identifier bit
-        Self::check_segment_size(&tpl.name, bits + 1)?;
         tpl.pmap_bits.set(Some(bits));
         Ok(bits)
-    }
-
-    // Presence map is stored in `u64`, so a segment can't use more than 63 bits.
-    fn check_segment_size(name: &str, bits: usize) -> Result<()> {
-        if bits > MAX_PMAP_BITS {
-            return Err(Error::Static(format!(
-                "'{name}' requires {bits} presence map, at most {MAX_PMAP_BITS} supported"
-            )));
-        }
-        Ok(())
     }
 
     // Count presence map bits the instruction occupy in the enclosing segment.
@@ -219,8 +213,8 @@ impl Definitions {
         match instr.value_type {
             ValueType::Group => {
                 let inner = self.count_presence_map_bits(&instr.instructions, visiting)?;
-                Self::check_segment_size(&instr.name, inner)?;
                 instr.has_pmap.set(inner > 0);
+                instr.long_pmap.set(inner > MAX_PMAP_BITS);
                 // If a ::Group field is optional, it will occupy a single bit in the presence map.
                 return Ok(usize::from(instr.is_optional()));
             }
@@ -229,8 +223,8 @@ impl Definitions {
                     Error::Static(format!("sequence '{}' has no length field", instr.name))
                 })?;
                 let inner = self.count_presence_map_bits(&instr.instructions[1..], visiting)?;
-                Self::check_segment_size(&instr.name, inner)?;
                 instr.has_pmap.set(inner > 0);
+                instr.long_pmap.set(inner > MAX_PMAP_BITS);
                 // For ::Sequence its length field show if the sequence has a bit in the presence map.
                 return self.presence_map_bits(length, visiting);
             }

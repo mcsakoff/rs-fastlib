@@ -63,6 +63,9 @@ pub(crate) struct Instruction {
     // For ::Decimal it shows if any of its subcomponent needs a pmap.
     pub(crate) has_pmap: Cell<bool>,
 
+    // For ::Sequence and ::Group it shows if the presence map can be longer than `MAX_PMAP_BITS`.
+    pub(crate) long_pmap: Cell<bool>,
+
     // For static ::TemplateReference it is the index of the referenced template in definitions.
     pub(crate) template_index: Cell<usize>,
 
@@ -97,6 +100,7 @@ impl Instruction {
             key: Rc::from(ky),
             ns: Rc::from(""),
             has_pmap: Cell::new(false),
+            long_pmap: Cell::new(false),
             template_index: Cell::new(usize::MAX),
             dictionary_slot: Cell::new(DictionaryType::None),
         }
@@ -562,11 +566,6 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     Ok(self.read(s)?)
                 } else {
-                    if self.is_nullable() && !self.is_optional() {
-                        return Err(Error::Runtime(
-                            "default operator has no default value".to_string(),
-                        )); // [ERR D6])
-                    }
                     Ok(self.initial_value.clone())
                 }
             }
@@ -585,7 +584,7 @@ impl Instruction {
                 match s.ctx_get(self)? {
                     // Empty: If the field is optional the value is considered absent.
                     // It is a dynamic error [ERR D6] if the field is mandatory.
-                    Some(None) if !self.is_optional() => Err(Error::Runtime(
+                    Some(None) if !self.is_optional() => Err(Error::Dynamic(
                         "copy operator has no previous value".to_string(),
                     )), // [ERR D6]
 
@@ -598,7 +597,7 @@ impl Instruction {
                     // value is changed to empty.
                     None => {
                         if self.initial_value.is_none() && !self.is_optional() {
-                            return Err(Error::Runtime(
+                            return Err(Error::Dynamic(
                                 "copy operator has no initial value".to_string(),
                             )); // [ERR D5]
                         }
@@ -627,7 +626,7 @@ impl Instruction {
                     // It is a dynamic error [ERR D6] if the field is mandatory.
                     Some(None) => {
                         if !self.is_optional() {
-                            return Err(Error::Runtime(
+                            return Err(Error::Dynamic(
                                 "increment operator has no previous value".to_string(),
                             ));
                         }
@@ -640,7 +639,7 @@ impl Instruction {
                     // absent and the state of the previous value is changed to empty.
                     None => {
                         if !self.is_optional() && self.initial_value.is_none() {
-                            return Err(Error::Runtime(
+                            return Err(Error::Dynamic(
                                 "increment operator has no initial value".to_string(),
                             )); // [ERR D5]
                         }
@@ -669,7 +668,7 @@ impl Instruction {
                     }
 
                     // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
-                    Some(None) => Err(Error::Runtime(
+                    Some(None) => Err(Error::Dynamic(
                         "delta operator has no previous value".to_string(),
                     )), // [ERR D6]
 
@@ -701,7 +700,7 @@ impl Instruction {
                             s.ctx_set(self, None);
                             Ok(None)
                         } else {
-                            Err(Error::Runtime(
+                            Err(Error::Dynamic(
                                 "tail operator has no previous value".to_string(),
                             )) // [ERR D7]
                         };
@@ -730,7 +729,7 @@ impl Instruction {
                 match s.ctx_get(self)? {
                     // Empty: the value of the field is empty. If the field is optional the value is considered absent.
                     // It is a dynamic error [ERR D7] if the field is mandatory.
-                    Some(None) if !self.is_optional() => Err(Error::Runtime(
+                    Some(None) if !self.is_optional() => Err(Error::Dynamic(
                         "tail operator has no previous value".to_string(),
                     )), // [ERR D7]
 
@@ -742,7 +741,7 @@ impl Instruction {
                     // absent and the state of the previous value is changed to empty.
                     None => {
                         if self.initial_value.is_none() && !self.is_optional() {
-                            return Err(Error::Runtime(
+                            return Err(Error::Dynamic(
                                 "tail operator has no initial value".to_string(),
                             )); // [ERR D6]
                         }
@@ -813,7 +812,7 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => {
                     if v > u64::from(u32::MAX) {
-                        return Err(Error::Runtime(format!("uInt32 value is out of range: {v}")));
+                        return Err(Error::Dynamic(format!("uInt32 value is out of range: {v}"))); // [ERR D2]
                     }
                     Ok(Some(v as u32))
                 }
@@ -821,7 +820,7 @@ impl Instruction {
         } else {
             let v = s.rdr.read_uint()?;
             if v > u64::from(u32::MAX) {
-                return Err(Error::Runtime(format!("uInt32 value is out of range: {v}")));
+                return Err(Error::Dynamic(format!("uInt32 value is out of range: {v}"))); // [ERR D2]
             }
             Ok(Some(v as u32))
         }
@@ -850,7 +849,7 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => {
                     if !INT32_RANGE.contains(&v) {
-                        return Err(Error::Runtime(format!("Int32 value is out of range: {v}"))); // [ERR D2]
+                        return Err(Error::Dynamic(format!("Int32 value is out of range: {v}"))); // [ERR D2]
                     }
                     Ok(Some(v as i32))
                 }
@@ -858,7 +857,7 @@ impl Instruction {
         } else {
             let v = s.rdr.read_int()?;
             if !INT32_RANGE.contains(&v) {
-                return Err(Error::Runtime(format!("Int32 value is out of range: {v}"))); // [ERR D2]
+                return Err(Error::Dynamic(format!("Int32 value is out of range: {v}"))); // [ERR D2]
             }
             Ok(Some(v as i32))
         }
@@ -989,6 +988,8 @@ impl Instruction {
             .extract(s)?;
 
         if let (Some(Value::Int32(e)), Some(Value::Int64(m))) = (exponent, mantissa) {
+            // The exponent must be in range after any operator has been applied.
+            check_exponent(e)?; // [ERR R1]
             Ok(Some((e, m)))
         } else {
             Err(Error::Runtime("exponent or mantissa not found".to_string()))
@@ -1003,11 +1004,7 @@ impl Instruction {
         let Some(e) = self.read_int32(s)? else {
             return Ok(None);
         };
-        if !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
-            return Err(Error::Dynamic(format!(
-                "exponent value is out of range: {e}"
-            ))); // [ERR R1]
-        }
+        check_exponent(e)?; // [ERR R1]
         Ok(Some(e))
     }
 
@@ -1332,7 +1329,10 @@ impl Instruction {
     ) -> Result<()> {
         let (exponent, mantissa) = match value {
             None => (None, Value::Int64(0)),
-            Some(d) => (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa)),
+            Some(d) => {
+                check_exponent(d.exponent)?; // [ERR R1]
+                (Some(Value::Int32(d.exponent)), Value::Int64(d.mantissa))
+            }
         };
 
         // write exponent
@@ -1352,13 +1352,21 @@ impl Instruction {
     }
 
     fn write_exponent(&self, buf: &mut impl Writer, value: Option<i32>) -> Result<()> {
-        if let Some(e) = value
-            && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e)
-        {
-            return Err(Error::Dynamic(format!(
-                "exponent value is out of range: {e}"
-            ))); // [ERR R1]
+        if let Some(e) = value {
+            check_exponent(e)?; // [ERR R1]
         }
         self.write_int(buf, value)
+    }
+}
+
+// It is a reportable error [ERR R1] if the exponent falls outside of [-63 … 63].
+#[inline]
+fn check_exponent(e: i32) -> Result<()> {
+    if (MIN_EXPONENT..=MAX_EXPONENT).contains(&e) {
+        Ok(())
+    } else {
+        Err(Error::Dynamic(format!(
+            "exponent value is out of range: {e}"
+        )))
     }
 }
