@@ -7,6 +7,7 @@
   (`<copy>`, `<increment>`, `<delta>`, `<tail>`), including decimal `<exponent>`/`<mantissa>` operators.
   Both attributes are rejected on filed elements and other operators. `dictionary` remains valid on
   `<templates>`, `<template>`, `<sequence>` and `<group>`.
+- FAST 1.1 compliance fixes.
 - Performance improvements and fixes.
 - Add benchmarks.
 

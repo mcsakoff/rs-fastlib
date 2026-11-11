@@ -98,11 +98,17 @@ pub trait Reader {
     /// # Errors
     /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
-        let value = self.read_uint()?;
-        if value == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(value - 1))
+        let mut value: u64 = 0;
+        loop {
+            let byte = self.read_u8()?;
+            if value > u64::MAX >> 7 {
+                return uint_nullable_max(value, byte);
+            }
+            value <<= 7;
+            value |= u64::from(byte & 0x7f);
+            if byte & 0x80 == 0x80 {
+                return Ok(value.checked_sub(1));
+            }
         }
     }
 
@@ -131,38 +137,39 @@ pub trait Reader {
     /// # Errors
     /// Returns error if it can not read bytes or the value does not fit into 64 bit.
     fn read_int_nullable(&mut self) -> Result<Option<i64>> {
-        let value = self.read_int()?;
-        match value {
-            0 => Ok(None),
-            value if value < 0 => Ok(Some(value)),
-            value => Ok(Some(value - 1)),
+        let mut byte = self.read_u8()?;
+        // Negative integers are sign-extended.
+        let mut value: i64 = if byte & 0x40 != 0 { -1 } else { 0 };
+        loop {
+            if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
+                return int_nullable_max(value, byte);
+            }
+            value <<= 7;
+            value |= i64::from(byte & 0x7f);
+
+            if byte & 0x80 == 0x80 {
+                return Ok(int_from_nullable(value));
+            }
+            byte = self.read_u8()?;
         }
     }
 
     /// Returns decoded non-nullable ASCII encoded string.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the string is overlong.
     fn read_ascii_string(&mut self) -> Result<String> {
         let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
         self.read_stop_bit_run(&mut buf)?;
-        Ok(ascii_from_run(buf))
+        ascii_from_run(buf)
     }
 
     /// Returns decoded nullable ASCII encoded string.
     /// # Errors
-    /// Returns error if it can not read bytes len or bytes len mismatch.
+    /// Returns error if it can not read bytes or the string is overlong.
     fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
         let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
         self.read_stop_bit_run(&mut buf)?;
-        match buf.as_slice() {
-            [0x80] => Ok(None),
-            [0x00, 0x80] => Ok(Some(String::new())),
-            [0x80, ..] => {
-                buf.remove(0);
-                Ok(Some(ascii_from_run(buf)))
-            }
-            _ => Ok(Some(ascii_from_run(buf))),
-        }
+        ascii_from_run_nullable(buf)
     }
 
     /// Returns decoded non-nullable unicode encoded string.
@@ -218,23 +225,93 @@ fn integer_overflow() -> Error {
     Error::Dynamic("integer value does not fit into 64 bits".to_string())
 }
 
-// Converts a stop bit encoded run into an ASCII string.
-// A single 0x80 byte is an empty string.
-fn ascii_from_run(mut buf: Vec<u8>) -> String {
-    if buf == [0x80] {
-        return String::new();
+// Called when a nullable unsigned integer overflows 64 bits before the `byte` is added.
+// The only acceptable value is 2^64, which is the nullable representation of `u64::MAX`.
+#[cold]
+fn uint_nullable_max(value: u64, byte: u8) -> Result<Option<u64>> {
+    if value == 1 << 57 && byte == 0x80 {
+        return Ok(Some(u64::MAX));
     }
+    Err(integer_overflow()) // [ERR D2]
+}
+
+// Called when a nullable signed integer overflows 64 bits before the `byte` is added.
+// The only acceptable value is 2^63, which is the nullable representation of `i64::MAX`.
+#[cold]
+fn int_nullable_max(value: i64, byte: u8) -> Result<Option<i64>> {
+    if value == 1 << 56 && byte == 0x80 {
+        return Ok(Some(i64::MAX));
+    }
+    Err(integer_overflow()) // [ERR D2]
+}
+
+// Every non-negative nullable integer is incremented by 1 before it is encoded.
+// Zero in `null`.
+#[inline]
+fn int_from_nullable(value: i64) -> Option<i64> {
+    match value {
+        0 => None,
+        v if v < 0 => Some(v),
+        v => Some(v - 1),
+    }
+}
+
+#[cold]
+fn overlong_string() -> Error {
+    Error::Dynamic("overlong ASCII string".to_string()) // [ERR R9]
+}
+
+// Converts a stop bit encoded run into a non-nullable ASCII string.
+//
+// A string that starts with a zero-preamble (seven zero bits) consists of the bits that remain after removing the preamble.
+// If there are no bits left, it is the empty string. If the first seven of the remaining bits are not all zero,
+// the string is overlong.
+fn ascii_from_run(mut buf: Vec<u8>) -> Result<String> {
     if let Some(last) = buf.last_mut() {
         *last &= 0x7f;
     }
+    ascii_from_entity(buf)
+}
+
+// Converts a stop bit encoded run into a nullable ASCII string.
+//
+// An additional zero-preamble is allowed at the start of the string. The bits that follow are interpreted as
+// a non-nullable string. If there are no remaining bits after removing the preamble, the value is `null`.
+fn ascii_from_run_nullable(mut buf: Vec<u8>) -> Result<Option<String>> {
+    if let Some(last) = buf.last_mut() {
+        *last &= 0x7f;
+    }
+    match buf.as_slice() {
+        [0x00] => Ok(None),
+        [0x00, 0x00, ..] => {
+            buf.remove(0);
+            Ok(Some(ascii_from_entity(buf)?))
+        }
+        [0x00, _, ..] => Err(overlong_string()),
+        _ => Ok(Some(ascii_from_entity(buf)?)),
+    }
+}
+
+// Converts an entity value (stop bit is cleared) into a non-nullable ASCII string.
+fn ascii_from_entity(mut buf: Vec<u8>) -> Result<String> {
+    match buf.as_slice() {
+        [0x00, 0x00, ..] | [0x00] => {
+            buf.remove(0);
+        }
+        [0x00, _, ..] => return Err(overlong_string()),
+        _ => {}
+    }
     // SAFETY: `buf` contains ASCII 7-bit characters.
-    //         A stop bit run has the 8th bit set only in the last byte, which was cleared above.
-    unsafe { String::from_utf8_unchecked(buf) }
+    //         A stop bit run has the 8th bit set only in the last byte, which was cleared by the caller.
+    Ok(unsafe { String::from_utf8_unchecked(buf) })
 }
 
 // Helpers that parse values from contiguous memory. Each returns the value and the number of consumed bytes.
 mod slice {
-    use super::{MAX_PMAP_BITS, integer_overflow, pmap_overflow};
+    use super::{
+        MAX_PMAP_BITS, int_from_nullable, int_nullable_max, integer_overflow, pmap_overflow,
+        uint_nullable_max,
+    };
     use crate::{Error, Result};
 
     #[inline]
@@ -261,6 +338,21 @@ mod slice {
     }
 
     #[inline]
+    pub(super) fn uint_nullable(buf: &[u8]) -> Result<(Option<u64>, usize)> {
+        let mut value: u64 = 0;
+        for (i, &byte) in buf.iter().enumerate() {
+            if value > u64::MAX >> 7 {
+                return Ok((uint_nullable_max(value, byte)?, i + 1));
+            }
+            value = (value << 7) | u64::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok((value.checked_sub(1), i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+
+    #[inline]
     pub(super) fn int(buf: &[u8]) -> Result<(i64, usize)> {
         let Some(&first) = buf.first() else {
             return Err(Error::UnexpectedEof);
@@ -274,6 +366,25 @@ mod slice {
             value = (value << 7) | i64::from(byte & 0x7f);
             if byte & 0x80 != 0 {
                 return Ok((value, i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+
+    #[inline]
+    pub(super) fn int_nullable(buf: &[u8]) -> Result<(Option<i64>, usize)> {
+        let Some(&first) = buf.first() else {
+            return Err(Error::UnexpectedEof);
+        };
+        // Negative integers are sign-extended.
+        let mut value: i64 = if first & 0x40 != 0 { -1 } else { 0 };
+        for (i, &byte) in buf.iter().enumerate() {
+            if !(i64::MIN >> 7..=i64::MAX >> 7).contains(&value) {
+                return Ok((int_nullable_max(value, byte)?, i + 1));
+            }
+            value = (value << 7) | i64::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok((int_from_nullable(value), i + 1));
             }
         }
         Err(Error::UnexpectedEof)
@@ -353,8 +464,22 @@ macro_rules! impl_contiguous_reader {
         }
 
         #[inline]
+        fn read_uint_nullable(&mut self) -> Result<Option<u64>> {
+            let (v, n) = slice::uint_nullable(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
         fn read_int(&mut self) -> Result<i64> {
             let (v, n) = slice::int(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_int_nullable(&mut self) -> Result<Option<i64>> {
+            let (v, n) = slice::int_nullable(Contiguous::rest(self))?;
             Contiguous::consume(self, n);
             Ok(v)
         }
@@ -609,12 +734,27 @@ mod tests {
                 input: vec![0x41, 0x42, 0xc3],
                 value: "ABC".to_string(),
             },
+            TestCase {
+                input: vec![0x00, 0x80],
+                value: "\0".to_string(),
+            },
+            TestCase {
+                input: vec![0x00, 0x00, 0x80],
+                value: "\0\0".to_string(),
+            },
+            TestCase {
+                input: vec![0x00, 0x00, 0xc1],
+                value: "\0A".to_string(),
+            },
         ];
         for tc in test_cases {
             let mut buf = bytes::Bytes::from(tc.input);
             let value = buf.read_ascii_string().unwrap();
             assert_eq!(value, tc.value);
         }
+        // Overlong
+        let mut buf = bytes::Bytes::from(vec![0x00, 0xc1]);
+        assert!(matches!(buf.read_ascii_string(), Err(Error::Dynamic(_))));
     }
 
     #[test]
@@ -636,11 +776,24 @@ mod tests {
                 input: vec![0x41, 0x42, 0xc3],
                 value: Some("ABC".to_string()),
             },
+            TestCase {
+                input: vec![0x00, 0x00, 0x80],
+                value: Some("\0".to_string()),
+            },
+            TestCase {
+                input: vec![0x00, 0x00, 0x00, 0xc1],
+                value: Some("\0A".to_string()),
+            },
         ];
         for tc in test_cases {
             let mut buf = bytes::Bytes::from(tc.input);
             let value = buf.read_ascii_string_nullable().unwrap();
             assert_eq!(value, tc.value);
+        }
+        // Overlong
+        for input in [vec![0x00, 0xc1], vec![0x00, 0x00, 0xc1]] {
+            let mut buf = bytes::Bytes::from(input);
+            assert!(matches!(buf.read_ascii_string_nullable(), Err(Error::Dynamic(_))));
         }
     }
 
@@ -815,6 +968,7 @@ mod tests {
             step!(r.read_bytes_nullable());
             step!(r.read_unicode_string());
             step!(r.read_int_nullable());
+            step!(r.read_uint_nullable());
             out
         }
         let inputs: Vec<Vec<u8>> = vec![
@@ -833,12 +987,32 @@ mod tests {
             vec![0x81, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
             vec![0x81, 0x80, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
             vec![0x81, 0x80, 0x80, 0x80, 0x81, 0xff],
+            // zero-preamble strings, nullable max integers
+            vec![
+                0x80, 0x81, 0x81, 0x00, 0x00, 0x80, 0x00, 0x80, 0x80, 0x80, 0x01, 0, 0, 0, 0, 0, 0,
+                0, 0, 0x80, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80,
+            ],
+            // overlong nullable string
+            vec![0x80, 0x81, 0x81, 0x00, 0xc1],
+            // overlong string
+            vec![0x80, 0x81, 0x81, 0x80, 0x00, 0xc1],
+            // nullable integers above MAX
+            vec![
+                0x80, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x81,
+            ],
+            vec![
+                0x80, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x81, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x81,
+            ],
         ];
         for input in inputs {
             let mut cursor = Cursor::new(input.clone());
             let expected = run(&mut StreamReader::new(&mut cursor));
             assert_eq!(run(&mut SliceReader::new(&input)), expected, "{input:x?}");
-            assert_eq!(run(&mut bytes::Bytes::from(input.clone())), expected, "{input:x?}");
+            assert_eq!(
+                run(&mut bytes::Bytes::from(input.clone())),
+                expected,
+                "{input:x?}"
+            );
         }
     }
 }

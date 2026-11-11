@@ -264,18 +264,24 @@ impl Instruction {
                         op = o;
                         ex = Instruction::new(0, "exponent", ValueType::Exponent);
                         mn = Instruction::new(0, "mantissa", ValueType::Mantissa);
+                        let initial_value = initial_value
+                            .map(|v| Decimal::from_string(&v)) // [ERR S3]
+                            .transpose()?;
                         match o {
+                            // Operators are applied to the exponent and mantissa individually.
                             Operator::Delta | Operator::Increment => {
                                 op = Operator::None;
                                 ex.operator = o;
                                 mn.operator = o;
+                                if let Some(d) = initial_value {
+                                    ex.initial_value = Some(Value::Int32(d.exponent));
+                                    mn.initial_value = Some(Value::Int64(d.mantissa));
+                                }
                             }
-                            _ => {}
-                        }
-                        if let Some(v) = initial_value {
-                            let d = Decimal::from_string(&v)?; // [ERR S3]
-                            ex.initial_value = Some(Value::Int32(d.exponent));
-                            mn.initial_value = Some(Value::Int64(d.mantissa));
+                            // Other operators are applied to the decimal value as a whole.
+                            _ => {
+                                instruction.initial_value = initial_value.map(Value::Decimal);
+                            }
                         }
                     }
                     // Elements are decimal subcomponents.
@@ -613,8 +619,9 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     let Some(tail) = self.read_tail(s)? else {
                         // If the field has optional presence, the tail value can be NULL.
-                        // In that case the value of the field is considered absent.
+                        // In that case the value of the field is considered absent and the state of the previous value is set to empty.
                         return if self.is_optional() {
+                            s.ctx_set(self, None);
                             Ok(None)
                         } else {
                             Err(Error::Runtime(
@@ -847,16 +854,17 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => Ok(Some((Value::Int64(v), 0))),
             },
+            // Only the subtraction length is nullable; the string/bytes part is present iff it is not `null`.
             ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
                 match self.read_int32(s)? {
                     None => Ok(None),
                     Some(sub) => match self.value_type {
                         ValueType::ASCIIString => {
-                            let diff = self.read_ascii_string(s)?.unwrap();
+                            let diff = s.rdr.read_ascii_string()?;
                             Ok(Some((Value::ASCIIString(diff), sub)))
                         }
                         ValueType::UnicodeString | ValueType::Bytes => {
-                            let diff = self.read_bytes(s)?.unwrap();
+                            let diff = s.rdr.read_bytes()?;
                             Ok(Some((Value::Bytes(diff), sub)))
                         }
                         _ => unreachable!(),
@@ -981,13 +989,17 @@ impl Instruction {
                 }
             }
             Operator::Increment => {
-                let prev_value = s.ctx_get(self)?.unwrap_or(&self.initial_value);
-                let next_value = match prev_value {
-                    None => None,
-                    Some(v) => Some(v.apply_increment()?),
+                // The value the decoder yields when the value is not present in the stream.
+                let implicit = match s.ctx_get(self)? {
+                    // Undefined: the initial value.
+                    None => self.initial_value.as_ref() == value,
+                    // Assigned: the previous value incremented by 1.
+                    Some(Some(prev)) => value == Some(&prev.apply_increment()?),
+                    // Empty: absent.
+                    Some(None) => value.is_none(),
                 };
                 s.ctx_set(self, value);
-                if next_value.as_ref() == value {
+                if implicit {
                     s.pmap_set_next_bit(false);
                     Ok(())
                 } else {
@@ -1012,11 +1024,9 @@ impl Instruction {
                         None => Cow::Owned(self.value_type.to_default_value()?),
                     },
                 };
-                let delta = value.find_delta_ref(&base).ok_or_else(|| {
-                    Error::Runtime(format!(
-                        "Cannot find delta of {value:?} from {base:?} for field {}",
-                        self.name,
-                    ))
+                let delta = value.find_delta_ref(&base).map_err(|e| match e {
+                    Error::Runtime(m) => Error::Runtime(format!("field {}: {m}", self.name)),
+                    e => e,
                 })?;
                 self.write_delta(buf, Some(delta))?;
                 s.ctx_set(self, Some(value));
@@ -1025,26 +1035,30 @@ impl Instruction {
             Operator::Tail => {
                 let prev = s.ctx_get(self)?;
                 let defined = prev.is_some();
-                let prev_value = prev.unwrap_or(&self.initial_value);
-                if prev_value.as_ref() == value {
+                // The value the decoder yields when the tail is not present in the stream:
+                // the initial value if undefined, the previous value otherwise.
+                if prev.unwrap_or(&self.initial_value).as_ref() == value {
                     if !defined {
                         s.ctx_set(self, value);
                     }
                     s.pmap_set_next_bit(false);
                     return Ok(());
                 }
-                match (value, prev_value) {
-                    (None, _) => self.write_tail(buf, None)?,
-                    (Some(v), Some(prev)) => self.write_tail(buf, Some(v.find_tail_ref(prev)?))?,
-                    (Some(v), None) => {
-                        let prev = self.value_type.to_default_value()?;
-                        self.write_tail(buf, Some(v.find_tail_ref(&prev)?))?;
+                match value {
+                    None => self.write_tail(buf, None)?,
+                    Some(v) => {
+                        // The base value is the previous value if assigned. Otherwise, it is the initial value
+                        // if present or a type dependant default base value.
+                        let base = match (prev, &self.initial_value) {
+                            (Some(Some(p)), _) | (_, Some(p)) => Cow::Borrowed(p),
+                            _ => Cow::Owned(self.value_type.to_default_value()?),
+                        };
+                        self.write_tail(buf, Some(v.find_tail_ref(&base)?))?;
                     }
                 }
                 s.pmap_set_next_bit(true);
-                if value.is_some() {
-                    s.ctx_set(self, value);
-                }
+                // `null` sets the state of the previous value to empty.
+                s.ctx_set(self, value);
                 Ok(())
             }
         }
@@ -1198,14 +1212,15 @@ impl Instruction {
                 self.write_int::<i32>(buf, None)
             }
 
+            // Only the subtraction length is nullable.
             (ValueType::ASCIIString, Some(DeltaRef::Ascii(s, sub))) => {
                 self.write_int(buf, Some(sub))?;
-                self.write_ascii_string(buf, Some(s))
+                buf.write_ascii_string(s)
             }
 
             (ValueType::UnicodeString | ValueType::Bytes, Some(DeltaRef::Bytes(b, sub))) => {
                 self.write_int(buf, Some(sub))?;
-                self.write_bytes(buf, Some(b))
+                buf.write_bytes(b)
             }
 
             (_, delta) => Err(Error::Runtime(format!(

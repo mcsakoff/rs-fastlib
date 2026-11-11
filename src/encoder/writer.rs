@@ -60,7 +60,11 @@ pub trait Writer {
     fn write_uint_nullable(&mut self, value: Option<u64>) -> Result<()> {
         match value {
             None => self.write_uint(0),
-            Some(v) => self.write_uint(v + 1),
+            Some(v) => match v.checked_add(1) {
+                Some(v) => self.write_uint(v),
+                // 2^64: the nullable representation of u64::MAX
+                None => self.write_buf(&[0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80]),
+            },
         }
     }
     /// Writes non-nullable 64bit signed integer.
@@ -106,6 +110,10 @@ pub trait Writer {
     fn write_int_nullable(&mut self, value: Option<i64>) -> Result<()> {
         match value {
             None => self.write_int(0),
+            Some(i64::MAX) => {
+                // 2^63: the nullable representation fo i64:MAX
+                self.write_buf(&[0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80])
+            }
             Some(v) if v >= 0 => self.write_int(v + 1),
             Some(v) => self.write_int(v),
         }
@@ -115,7 +123,7 @@ pub trait Writer {
     /// # Errors
     /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
     fn write_ascii_string(&mut self, value: &str) -> Result<()> {
-        self.write_ascii_str(value, &[0x80])
+        self.write_ascii_str(value, &[0x00], &[0x80])
     }
 
     /// Writes nullable ASCII encoded bytes.
@@ -124,14 +132,15 @@ pub trait Writer {
     fn write_ascii_string_nullable(&mut self, value: Option<&str>) -> Result<()> {
         match value {
             None => self.write_u8(0x80),
-            Some(s) => self.write_ascii_str(s, &[0x00, 0x80]),
+            Some(s) => self.write_ascii_str(s, &[0x00, 0x00], &[0x00, 0x80]),
         }
     }
 
-    /// Writes non-nullable ASCII encoded bytes.
+    /// Writes ASCII encoded bytes.
+    /// Strings starting `\0` are prefixed with `preamble`; the empty strings is written as `empty`.
     /// # Errors
     /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
-    fn write_ascii_str(&mut self, value: &str, empty: &[u8]) -> Result<()> {
+    fn write_ascii_str(&mut self, value: &str, preamble: &[u8], empty: &[u8]) -> Result<()> {
         // Checking is string contains only ASCII chars.
         // If so we can just use them as slice of bytes with only last byte changed.
         if !value.is_ascii() {
@@ -145,6 +154,12 @@ pub trait Writer {
         let [buf @ .., last_byte] = value.as_bytes() else {
             return self.write_buf(empty);
         };
+
+        // A string starting with seven zero bits must have a zere-preamble, otherwise it is
+        // decoded as the empty string of `null`.
+        if value.as_bytes()[0] == 0 {
+            self.write_buf(preamble)?;
+        }
 
         self.write_buf(buf)?;
         self.write_u8(*last_byte | 0x80)
@@ -211,7 +226,6 @@ pub(crate) fn presence_map_bytes(bitmap: u64, size: u8) -> Result<([u8; 10], usi
     }
     Ok((encode_number(bitmap >> (trailing_bytes * 7), len), len))
 }
-
 
 trait ToByte {
     fn to_byte(&self) -> u8;
@@ -381,6 +395,10 @@ mod tests {
                 input: Some(942755),
                 value: vec![0x39, 0x45, 0xa4],
             },
+            TestCase {
+                input: Some(u64::MAX),
+                value: vec![0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
+            },
         ];
         for tc in test_cases {
             let mut buf = bytes::BytesMut::new();
@@ -445,6 +463,12 @@ mod tests {
                 input: Some(-942755),
                 value: vec![0x46, 0x3a, 0xdd],
             },
+            // 2^63
+            TestCase {
+                input: Some(i64::MAX),
+                value: vec![0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
+            },
+
         ];
         for tc in test_cases {
             let mut buf = bytes::BytesMut::new();
@@ -467,6 +491,14 @@ mod tests {
             TestCase {
                 input: "ABC",
                 value: vec![0x41, 0x42, 0xc3],
+            },
+            TestCase {
+                input: "\0",
+                value: vec![0x00, 0x80],
+            },
+            TestCase {
+                input: "\0A",
+                value: vec![0x00, 0x00, 0xc1],
             },
         ];
         for tc in test_cases {
@@ -494,6 +526,14 @@ mod tests {
             TestCase {
                 input: Some("ABC"),
                 value: vec![0x41, 0x42, 0xc3],
+            },
+            TestCase {
+                input: Some("\0"),
+                value: vec![0x00, 0x00, 0x80],
+            },
+            TestCase {
+                input: Some("\0A"),
+                value: vec![0x00, 0x00, 0x00, 0xc1],
             },
         ];
         for tc in test_cases {

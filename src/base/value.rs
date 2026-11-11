@@ -205,23 +205,19 @@ impl Value {
             Ok(b)
         }
 
+        // It is a reportable error [ERR R4] if the combined value does not fit into the integer type.
+        #[inline]
+        fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i64) -> Result<T> {
+            T::try_from(v.into() + i128::from(d)).map_err(|_| {
+                Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
+            })
+        }
+
         match (self, &delta) {
-            (Value::UInt32(v), Value::Int64(d)) => {
-                if *d < 0 {
-                    Ok(Value::UInt32(*v - (-*d) as u32))
-                } else {
-                    Ok(Value::UInt32(*v + *d as u32))
-                }
-            }
-            (Value::Int32(v), Value::Int64(d)) => Ok(Value::Int32(*v + *d as i32)),
-            (Value::UInt64(v), Value::Int64(d)) => {
-                if *d < 0 {
-                    Ok(Value::UInt64(*v - (-*d) as u64))
-                } else {
-                    Ok(Value::UInt64(*v + *d as u64))
-                }
-            }
-            (Value::Int64(v), Value::Int64(d)) => Ok(Value::Int64(*v + *d)),
+            (Value::UInt32(v), Value::Int64(d)) => Ok(Value::UInt32(combine(*v, *d)?)),
+            (Value::Int32(v), Value::Int64(d)) => Ok(Value::Int32(combine(*v, *d)?)),
+            (Value::UInt64(v), Value::Int64(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
+            (Value::Int64(v), Value::Int64(d)) => Ok(Value::Int64(combine(*v, *d)?)),
             (Value::ASCIIString(v), Value::ASCIIString(d)) => {
                 let (front, i) = sub2index(sub, v.len())?;
                 let mut s = String::with_capacity(v.len() + d.len());
@@ -300,8 +296,8 @@ impl Value {
     /// Assigns `src` to the value reusing allocated buffer when possible.
     pub fn assign(&mut self, src: &Value) {
         match (self, src) {
-            (Value::ASCIIString(d), Value::ASCIIString(s)) |
-            (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
+            (Value::ASCIIString(d), Value::ASCIIString(s))
+            | (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
             (Value::Bytes(d), Value::Bytes(s)) => d.clone_from(s),
             (d, s) => *d = s.clone(),
         }
@@ -325,14 +321,15 @@ impl Value {
     }
 
     /// Increments underlying integer value.
+    /// The maximum value of the type wraps around to the maximum value.
     /// # Errors
     /// Returns error if self type is not an integer.
     pub fn apply_increment(&self) -> Result<Value> {
         match self {
-            Value::UInt32(v) => Ok(Value::UInt32(v + 1)),
-            Value::Int32(v) => Ok(Value::Int32(v + 1)),
-            Value::UInt64(v) => Ok(Value::UInt64(v + 1)),
-            Value::Int64(v) => Ok(Value::Int64(v + 1)),
+            Value::UInt32(v) => Ok(Value::UInt32(v.wrapping_add(1))),
+            Value::Int32(v) => Ok(Value::Int32(v.wrapping_add(1))),
+            Value::UInt64(v) => Ok(Value::UInt64(v.wrapping_add(1))),
+            Value::Int64(v) => Ok(Value::Int64(v.wrapping_add(1))),
             _ => Err(Error::Runtime(format!(
                 "Cannot apply increment to {self:?}"
             ))),
@@ -340,20 +337,27 @@ impl Value {
     }
 
     /// Searches difference between current and previous value without copying.
-    /// Returns `None` if the types do not match.
-    #[must_use]
-    pub fn find_delta_ref<'a>(&'a self, prev: &'a Value) -> Option<DeltaRef<'a>> {
-        Some(match (self, prev) {
-            (Value::Int32(v), Value::Int32(p)) => DeltaRef::Int(i64::from(v - p)),
-            (Value::Int64(v), Value::Int64(p)) => DeltaRef::Int(v - p),
+    /// # Errors
+    /// Returns error if the types do not match or the integer delta does not fit into `i64`.
+    pub fn find_delta_ref<'a>(&'a self, prev: &'a Value) -> Result<DeltaRef<'a>> {
+        #[inline]
+        fn int_delta<T>(v: T, p: T) -> Result<DeltaRef<'static>>
+        where
+            T: Into<i128> + Sized,
+        {
+            let v = v.into();
+            let p = p.into();
+            let d = i64::try_from(v - p).map_err(|_| {
+                Error::Runtime(format!("delta from {p} to {v} doesn't fit into int64"))
+            })?;
+            Ok(DeltaRef::Int(d))
+        }
+
+        Ok(match (self, prev) {
+            (Value::Int32(v), Value::Int32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
             (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
-            (Value::UInt64(v), Value::UInt64(p)) => {
-                if *v < *p {
-                    DeltaRef::Int(-((*p - *v) as i64))
-                } else {
-                    DeltaRef::Int((*v - *p) as i64)
-                }
-            }
+            (Value::Int64(v), Value::Int64(p)) => int_delta(*v, *p)?,
+            (Value::UInt64(v), Value::UInt64(p)) => int_delta(*v, *p)?,
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let (delta, sub) = string_delta(p, v);
                 DeltaRef::Ascii(delta, sub)
@@ -366,19 +370,24 @@ impl Value {
                 let (delta, sub) = bytes_delta(p, v);
                 DeltaRef::Bytes(delta, sub)
             }
-            _ => return None,
+            _ => {
+                return Err(Error::Runtime(format!(
+                    "Cannot find delta of {self:?} from {prev:?}"
+                )));
+            }
         })
     }
 
     /// Searches difference between current and previous value.
+    /// # Errors
+    /// Returns error if the types do not match or the integer delta does not fit into `i64`.
     #[must_use]
-    pub fn find_delta(&self, prev: &Value) -> (Value, i32) {
-        match self.find_delta_ref(prev) {
-            Some(DeltaRef::Int(d)) => (Value::Int64(d), 0),
-            Some(DeltaRef::Ascii(s, sub)) => (Value::ASCIIString(s.to_string()), sub),
-            Some(DeltaRef::Bytes(b, sub)) => (Value::Bytes(b.to_vec()), sub),
-            None => unimplemented!()
-        }
+    pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
+        Ok(match self.find_delta_ref(prev)? {
+            DeltaRef::Int(d) => (Value::Int64(d), 0),
+            DeltaRef::Ascii(s, sub) => (Value::ASCIIString(s.to_string()), sub),
+            DeltaRef::Bytes(b, sub) => (Value::Bytes(b.to_vec()), sub),
+        })
     }
 
     /// Searches tail difference between current value and prev string or byte-slices without copying.

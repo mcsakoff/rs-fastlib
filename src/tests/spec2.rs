@@ -183,14 +183,17 @@ fn operator_tail() {
             name: "TAIL operator",
             raw: vec![vec![0xe0, 0x8c, 0x80], vec![0x80], vec![0xa0, 0x59, 0xd9]],
             data: vec![
+                // `null` sets the previous value to empty...
                 TestMsgValue {
                     template: "OptionalTailDefault",
                     value: None,
                 },
+                // ... so, the value is absent when not present in the stream
                 TestMsgValue {
                     template: "OptionalTailDefault",
-                    value: Some(Value::ASCIIString("ABC".to_string())),
+                    value: None,
                 },
+                // ... and the base value is the initial value.
                 TestMsgValue {
                     template: "OptionalTailDefault",
                     value: Some(Value::ASCIIString("AYY".to_string())),
