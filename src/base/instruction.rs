@@ -4,16 +4,15 @@ use std::rc::Rc;
 
 use roxmltree::Node;
 
+use crate::base::decimal::{MAX_EXPONENT, MIN_EXPONENT};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
 use crate::base::value::{DeltaRef, TailRef, Value, ValueType};
 use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
+use crate::utils::xml::{inherited_attribute, parse_id, td_children};
 use crate::{Decimal, Error, MessageFactory, Reader, Result};
-
-const MAX_EXPONENT: i32 = 63;
-const MIN_EXPONENT: i32 = -63;
 
 /// # Field Instruction
 ///
@@ -56,6 +55,10 @@ pub(crate) struct Instruction {
     // Internal key name for lookup in storage
     pub(crate) key: Rc<str>,
 
+    // The namespace URI of the `key` (`ns` attribute).
+    // For static ::TemplateReference it is the namespace URI of the referenced template (`templateNs` attribute).
+    pub(crate) ns: Rc<str>,
+
     // For ::Sequence it shows if the instruction needs a pmap.
     // For ::Decimal it shows if any of its subcomponent needs a pmap.
     pub(crate) has_pmap: Cell<bool>,
@@ -92,6 +95,7 @@ impl Instruction {
             dictionary: Dictionary::Inherit,
             type_ref: TypeRef::Any,
             key: Rc::from(ky),
+            ns: Rc::from(""),
             has_pmap: Cell::new(false),
             template_index: Cell::new(usize::MAX),
             dictionary_slot: Cell::new(DictionaryType::None),
@@ -106,7 +110,7 @@ impl Instruction {
 
     #[allow(clippy::too_many_lines)]
     pub fn from_node(node: Node) -> Result<Self> {
-        let id = node.attribute("id").unwrap_or("0").parse::<u32>()?;
+        let id = parse_id(&node)?;
         let name = node.attribute("name").unwrap_or("");
         let unicode = match node.attribute("charset") {
             Some("unicode") => true,
@@ -119,32 +123,24 @@ impl Instruction {
         match type_ {
             ValueType::Mantissa
             | ValueType::Exponent
-            | ValueType::Sequence
-            | ValueType::Group
-            | ValueType::TemplateReference => {}
-            _ => {
-                if id == 0 {
-                    return Err(Error::Runtime(
-                        "instruction must have non-zero 'id' attribute".to_string(),
-                    ));
-                }
-            }
-        }
-        match type_ {
-            ValueType::Mantissa
-            | ValueType::Exponent
             | ValueType::Length
             | ValueType::TemplateReference => {}
             _ => {
                 if name.is_empty() {
-                    return Err(Error::Runtime(
-                        "instruction must have 'name' attribute".to_string(),
-                    ));
+                    return Err(Error::Static(format!(
+                        "<{}/> must have 'name' attribute",
+                        node.tag_name().name()
+                    )));
                 }
             }
         }
 
         let mut instruction = Instruction::new(id, name, type_);
+        instruction.ns = if instruction.value_type == ValueType::TemplateReference {
+            inherited_attribute(&node, "templateNs")
+        } else {
+            inherited_attribute(&node, "ns")
+        };
         if let Some(p) = node.attribute("presence") {
             instruction.presence = Presence::from_str(p)?;
         }
@@ -173,7 +169,7 @@ impl Instruction {
             ValueType::TemplateReference => {}
 
             ValueType::Group => {
-                for n in node.children().filter(Node::is_element) {
+                for n in td_children(&node) {
                     // Try to parse as a typeRef
                     if let Some(tr) = TypeRef::try_from_node(&n)? {
                         instruction.type_ref = tr;
@@ -187,7 +183,7 @@ impl Instruction {
 
             ValueType::Sequence => {
                 let mut first_instruction: usize = 0;
-                for (i, c) in node.children().filter(Node::is_element).enumerate() {
+                for (i, c) in td_children(&node).enumerate() {
                     // Try to parse as a typeRef
                     if let Some(tr) = TypeRef::try_from_node(&c)? {
                         instruction.type_ref = tr;
@@ -213,6 +209,7 @@ impl Instruction {
                                 &format!("{}:length", instruction.name),
                                 ValueType::Length,
                             );
+                            length.ns = instruction.ns.clone();
                             // An optional sequence means that the length field is optional.
                             length.presence = instruction.presence;
                             instruction.add_instruction(length);
@@ -229,7 +226,7 @@ impl Instruction {
                 let mut mantissa: Option<Instruction> = None;
                 let mut initial_value: Option<String> = None;
 
-                for op_node in node.children().filter(Node::is_element) {
+                for op_node in td_children(&node) {
                     let op_name = op_node.tag_name().name();
                     match op_name {
                         "exponent" => {
@@ -259,10 +256,14 @@ impl Instruction {
                         ex = Instruction::new(0, "exponent", ValueType::Exponent);
                         mn = Instruction::new(0, "mantissa", ValueType::Mantissa);
                         let initial_value = initial_value
-                            .map(|v| Decimal::from_string(&v)) // [ERR S3]
+                            .map(|v| {
+                                Decimal::from_string(&v)
+                                    .map_err(|e| instruction.initial_value_error(&v, &e))
+                            })
                             .transpose()?;
                         match o {
-                            // Operators are applied to the exponent and mantissa individually.
+                            // Delta is applied to exponent and mantissa individually.
+                            // Increment is not applicable to decimals [ERR S2], see `check_is_valid()`.
                             Operator::Delta => {
                                 op = Operator::None;
                                 ex.operator = o;
@@ -299,9 +300,11 @@ impl Instruction {
                 // Set proper storage keys if it is not set explicitly with 'key' attribute.
                 if ex.key.is_empty() {
                     ex.key = Rc::from(format!("{}:exponent", instruction.key));
+                    ex.ns = instruction.ns.clone();
                 }
                 if mn.key.is_empty() {
                     mn.key = Rc::from(format!("{}:mantissa", instruction.key));
+                    mn.ns = instruction.ns.clone();
                 }
                 instruction.operator = op;
                 // Put subcomponents into instruction.
@@ -310,7 +313,21 @@ impl Instruction {
             }
 
             _ => {
-                if let Some(operator) = node.children().find(Node::is_element) {
+                let mut operator: Option<Node> = None;
+                for child in td_children(&node) {
+                    if child.tag_name().name() == "length" {
+                        instruction.add_length(child)?;
+                        continue;
+                    }
+                    if operator.is_some() {
+                        return Err(Error::Static(format!(
+                            "field '{}' has more than one operator",
+                            instruction.name
+                        )));
+                    }
+                    operator = Some(child);
+                }
+                if let Some(operator) = operator {
                     instruction.operator = Operator::new_from_tag(operator.tag_name().name())?;
                     if let Some(s) = operator.attribute("value") {
                         instruction.set_initial_value(s)?; // [ERR S3]
@@ -321,6 +338,47 @@ impl Instruction {
         }
         instruction.check_is_valid()?;
         Ok(instruction)
+    }
+
+    // Returns the named length field (<length> element) of a byte vector or unicode string field.
+    #[inline]
+    pub(crate) fn length_field(&self) -> Option<&Instruction> {
+        match self.value_type {
+            ValueType::Bytes | ValueType::UnicodeString => self.instructions.first(),
+            _ => None,
+        }
+    }
+
+    // Reads the <length> element of a byte vector or unicode string field. It names the length preamble,
+    // so the length can be reported to the application.
+    fn add_length(&mut self, node: Node) -> Result<()> {
+        if !matches!(self.value_type, ValueType::Bytes | ValueType::UnicodeString) {
+            return Err(Error::Static(format!(
+                "<length/> is not allowed in <{}/>",
+                self.value_type.type_str()
+            )));
+        }
+        if !self.instructions.is_empty() {
+            return Err(Error::Static(format!(
+                "field '{}' has more than one <length/>",
+                self.name
+            )));
+        }
+        let length = Instruction::from_node(node)?;
+        if length.name.is_empty() {
+            return Err(Error::Static(format!(
+                "<length/> of field '{}' must have 'name' attribute",
+                self.name
+            )));
+        }
+        if length.operator != Operator::None {
+            return Err(Error::Static(format!(
+                "<length/> of field '{}' cannot have an operator",
+                self.name
+            )));
+        }
+        self.add_instruction(length);
+        Ok(())
     }
 
     // Reads the operator context: `dictionary` and `key` attributes of an operator element.
@@ -342,6 +400,7 @@ impl Instruction {
         }
         if let Some(k) = key {
             self.key = Rc::from(k);
+            self.ns = inherited_attribute(&operator, "ns");
         }
         Ok(())
     }
@@ -429,6 +488,14 @@ impl Instruction {
     // The value is a string of Unicode characters. This value is converted to the type of the field as defined
     // in the Converting from String section. The possible dynamic and reportable errors that may occur during
     // conversion are treated as static errors [ERR S3] when interpreting the initial value.
+    // Errors converting the initial value are static errors [ERR S3].
+    fn initial_value_error(&self, value: &str, err: &dyn std::fmt::Display) -> Error {
+        Error::Static(format!(
+            "invalid initial value '{value}' of field '{}': {err}",
+            self.name
+        ))
+    }
+
     fn set_initial_value(&mut self, value: &str) -> Result<()> {
         match self.value_type {
             ValueType::UInt32
@@ -441,7 +508,17 @@ impl Instruction {
             | ValueType::ASCIIString
             | ValueType::UnicodeString
             | ValueType::Bytes => {
-                self.initial_value = Some(self.value_type.str_to_value(value)?);
+                let v = self
+                    .value_type
+                    .str_to_value(value)
+                    .map_err(|e| self.initial_value_error(value, &e))?;
+                if let Value::Int32(e) = v
+                    && self.value_type == ValueType::Exponent
+                    && !(MIN_EXPONENT..=MAX_EXPONENT).contains(&e)
+                {
+                    return Err(self.initial_value_error(value, &"exponent is out of range")); // [ERR R1]
+                }
+                self.initial_value = Some(v);
                 Ok(())
             }
             // If the field is of type decimal, the value resulting from the conversion is normalized.
@@ -618,7 +695,8 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     let Some(tail) = self.read_tail(s)? else {
                         // If the field has optional presence, the tail value can be NULL.
-                        // In that case the value of the field is considered absent and the state of the previous value is set to empty.
+                        // In that case the value of the field is considered absent
+                        // and the state of the previous value is set to empty.
                         return if self.is_optional() {
                             s.ctx_set(self, None);
                             Ok(None)
@@ -853,7 +931,7 @@ impl Instruction {
                 None => Ok(None),
                 Some(v) => Ok(Some((Value::Int64(v), 0))),
             },
-            // Only the subtraction length is nullable; the string/bytes part is present iff it is not `null`.
+            // Only the subtraction length is nullable; the string/bytes part is present iff it is not NULL.
             ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
                 match self.read_int32(s)? {
                     None => Ok(None),
@@ -992,7 +1070,7 @@ impl Instruction {
                 let implicit = match s.ctx_get(self)? {
                     // Undefined: the initial value.
                     None => self.initial_value.as_ref() == value,
-                    // Assigned: the previous value incremented by 1.
+                    // Assigned: the previous value incremented by one.
                     Some(Some(prev)) => value == Some(&prev.apply_increment()?),
                     // Empty: absent.
                     Some(None) => value.is_none(),
@@ -1056,7 +1134,7 @@ impl Instruction {
                     }
                 }
                 s.pmap_set_next_bit(true);
-                // `null` sets the state of the previous value to empty.
+                // NULL sets the state of the previous value to empty.
                 s.ctx_set(self, value);
                 Ok(())
             }

@@ -4,6 +4,7 @@ use std::rc::Rc;
 use roxmltree::Node;
 
 use crate::base::instruction::Instruction;
+use crate::utils::xml::{inherited_attribute, parse_id, td_children};
 use crate::{Error, Result};
 
 /// A template contains a sequence of instructions. The order of the instructions is significant and corresponds
@@ -13,6 +14,8 @@ pub(crate) struct Template {
     // Index of the template in definitions; it identifies the instance of the `template` dictionary.
     pub(crate) index: u32,
     pub(crate) name: String,
+    // The namespace URI of the template name (`templateNs` attribute).
+    pub(crate) ns: Rc<str>,
     pub(crate) type_ref: TypeRef,
     pub(crate) dictionary: Dictionary,
     pub(crate) instructions: Vec<Instruction>,
@@ -31,18 +34,19 @@ impl Template {
                 node.tag_name().name()
             )));
         }
-        let id = node.attribute("id").unwrap_or("0").parse::<u32>()?;
+        let id = parse_id(&node)?;
         let name = node
             .attribute("name")
             .ok_or_else(|| Error::Static("template name not found".to_string()))?
             .to_string();
+        let ns = inherited_attribute(&node, "templateNs");
         let dictionary = node
             .attribute("dictionary")
             .map_or_else(|| default_dictionary.clone(), Dictionary::from_str);
 
         let mut type_ref = TypeRef::Any;
         let mut instructions = Vec::new();
-        for child in node.children().filter(Node::is_element) {
+        for child in td_children(&node) {
             // Try to parse as a typeRef
             if let Some(tr) = TypeRef::try_from_node(&child)? {
                 type_ref = tr;
@@ -54,6 +58,7 @@ impl Template {
         Ok(Self {
             id,
             name,
+            ns,
             type_ref,
             dictionary,
             instructions,
@@ -134,14 +139,11 @@ impl Dictionary {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum TypeRef {
     Any,
-    ApplicationType(Rc<str>),
+    // Application type name: (namespace URI, local name).
+    ApplicationType(Rc<str>, Rc<str>),
 }
 
 impl TypeRef {
-    pub(crate) fn from_str(name: &str) -> Self {
-        Self::ApplicationType(Rc::from(name))
-    }
-
     /// Tries to create a `TypeRef` from a node.
     /// Returns `None` if the node is not a `typeRef`.
     pub(crate) fn try_from_node(node: &Node) -> Result<Option<Self>> {
@@ -149,7 +151,10 @@ impl TypeRef {
             let type_ref_name = node
                 .attribute("name")
                 .ok_or_else(|| Error::Static("typeRef name not found".to_string()))?;
-            Ok(Some(TypeRef::from_str(type_ref_name)))
+            Ok(Some(TypeRef::ApplicationType(
+                inherited_attribute(node, "ns"),
+                Rc::from(type_ref_name),
+            )))
         } else {
             Ok(None)
         }

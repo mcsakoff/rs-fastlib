@@ -3,7 +3,6 @@
 //! See: https://fixtrading.org/packages/fast-specification-version-1-1/
 //!
 use super::*;
-
 use crate::model::template::TemplateData;
 use crate::model::value::{Fields, ValueData};
 use crate::{Decimal, Error};
@@ -611,4 +610,321 @@ fn decimal_increment_is_rejected() {
         <template id="1" name="A"><decimal id="1" name="Value"><increment/></decimal></template>
     </templates>"#;
     assert!(matches!(Decoder::new_from_xml(xml), Err(Error::Static(_))));
+}
+
+const DEFINITION_XML: &str = include_str!("templates/compliance_xml.xml");
+
+fn load_error(xml: &str) -> bool {
+    matches!(Decoder::new_from_xml(xml), Err(Error::Static(_)))
+}
+
+fn template_xml(body: &str) -> String {
+    format!(
+        r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+            <template id="1" name="T">{body}</template>
+        </templates>"#
+    )
+}
+
+#[test]
+fn root_template_element() {
+    let xml = r#"<?xml version="1.0"?>
+        <!-- a comment before the root -->
+        <template xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" id="1" name="T">
+            <uInt32 id="1" name="Value"/>
+        </template>"#;
+    do_test(
+        true,
+        true,
+        true,
+        xml,
+        TestCase {
+            name: "root template",
+            raw: vec![0xc0, 0x81, 0x85],
+            data: msg("T", Some(Value::UInt32(5))),
+        },
+    );
+    assert!(load_error(
+        r#"<foo xmlns="http://www.fixprotocol.org/ns/fast/td/1.1"/>"#
+    ));
+}
+
+#[test]
+fn foreign_elements_and_attributes_are_ignored() {
+    do_test(
+        true,
+        true,
+        true,
+        DEFINITION_XML,
+        TestCase {
+            name: "foreign",
+            raw: vec![0xe0, 0x81, 0x85],
+            data: msg("Foreign", Some(Value::UInt32(5))),
+        },
+    );
+}
+
+#[test]
+fn template_namespaces() {
+    for (template, raw, value) in [
+        ("RefB", vec![0xc0, 0x82], 7),
+        ("RefA", vec![0xc0, 0x83, 0x85], 5),
+    ] {
+        do_test(
+            true,
+            true,
+            true,
+            DEFINITION_XML,
+            TestCase {
+                name: template,
+                raw,
+                data: msg(template, Some(Value::UInt32(value))),
+            },
+        );
+    }
+
+    // Selecting a template by an ambiguous local name is an error.
+    let mut e = Encoder::new_from_xml(DEFINITION_XML).unwrap();
+    let mut m = ModelVisitor::new(pack_value("Header", "Value", Some(Value::UInt32(5))));
+    assert!(matches!(e.encode_vec(&mut m), Err(Error::Dynamic(_))));
+
+    // The same name in the same namespace.
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" templateNs="urn:a">
+        <template id="1" name="T"/>
+        <template id="2" name="T"/>
+    </templates>"#;
+    assert!(load_error(xml));
+    // Unknown static reference.
+    assert!(load_error(&template_xml(
+        r#"<templateRef name="T" templateNs="urn:x"/>"#
+    )));
+}
+
+#[test]
+fn key_and_type_namespaces() {
+    let d = Decoder::new_from_xml(DEFINITION_XML).unwrap();
+    let slots: Vec<_> = d
+        .definitions
+        .template_by_id(4)
+        .unwrap()
+        .instructions
+        .iter()
+        .map(|i| i.dictionary_slot.get())
+        .collect();
+    assert_ne!(slots[0], slots[1], "k in urn:x and urn:y");
+    assert_eq!(slots[0], slots[2], "explicit key namespace");
+    assert_ne!(slots[3], slots[4], "default keys in different namespaces");
+
+    let t1 = &d.definitions.template_by_id(12).unwrap().type_ref;
+    let t2 = &d.definitions.template_by_id(13).unwrap().type_ref;
+    assert_ne!(d.definitions.type_index(t1), d.definitions.type_index(t2));
+}
+
+#[test]
+fn optional_id_attribute() {
+    do_test(
+        true,
+        true,
+        true,
+        DEFINITION_XML,
+        TestCase {
+            name: "no id",
+            raw: vec![0xc0, 0x85, 0x85],
+            data: msg("NoId", Some(Value::UInt32(5))),
+        },
+    );
+    assert!(load_error(&template_xml(
+        r#"<uInt32 id="abc" name="Value"/>"#
+    )));
+    assert!(load_error(&template_xml(r#"<uInt32 id="1"/>"#)));
+    assert!(load_error(
+        r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+            <template id="x" name="T"/>
+        </templates>"#
+    ));
+}
+
+#[test]
+fn byte_vector_length() {
+    let decode = |raw: &[u8]| {
+        let mut d = Decoder::new_from_xml(DEFINITION_XML).unwrap();
+        let mut m = LoggingMessageFactory::new();
+        d.decode_slice(raw, &mut m).unwrap();
+        m.calls
+    };
+    assert_eq!(
+        decode(&[0xc0, 0x86, 0x83, 0x01, 0x02]),
+        vec![
+            "start_template: 6:BytesLength",
+            "set_value: 9:Len Some(UInt32(2))",
+            "set_value: 2:Value Some(Bytes([1, 2]))",
+            "stop_template",
+        ]
+    );
+    assert_eq!(
+        decode(&[0xc0, 0x86, 0x80]),
+        vec![
+            "start_template: 6:BytesLength",
+            "set_value: 9:Len None",
+            "set_value: 2:Value None",
+            "stop_template",
+        ]
+    );
+
+    // The encoder doesn't need the length field.
+    do_test(
+        true,
+        true,
+        true,
+        DEFINITION_XML,
+        TestCase {
+            name: "byteVector length",
+            raw: vec![0xc0, 0x86, 0x83, 0x01, 0x02],
+            data: msg("BytesLength", Some(Value::Bytes(vec![1, 2]))),
+        },
+    );
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION_XML,
+        TestCaseSeq {
+            name: "unicode length",
+            raw: vec![vec![0xe0, 0x87, 0x82, 0xc3, 0xa9], vec![0x80]],
+            data: vec![
+                msg("UnicodeLength", Some(Value::UnicodeString("é".to_string()))),
+                msg("UnicodeLength", Some(Value::UnicodeString("é".to_string()))),
+            ],
+        },
+    );
+
+    // Serde structs don't need to declare the length field.
+    #[derive(serde_derive::Deserialize, Debug, PartialEq)]
+    enum Message {
+        UnicodeLength(UnicodeLength),
+    }
+    #[derive(serde_derive::Deserialize, Debug, PartialEq)]
+    struct UnicodeLength {
+        #[serde(rename = "Value")]
+        value: String,
+    }
+    let mut d = Decoder::new_from_xml(DEFINITION_XML).unwrap();
+    let m: Message = crate::from_slice(&mut d, &[0xe0, 0x87, 0x82, 0xc3, 0xa9]).unwrap();
+    assert_eq!(
+        m,
+        Message::UnicodeLength(UnicodeLength {
+            value: "é".to_string()
+        })
+    );
+
+    assert!(load_error(&template_xml(
+        r#"<string id="1" name="Value"><length name="L"/></string>"#
+    )));
+    assert!(load_error(&template_xml(
+        r#"<byteVector id="1" name="Value"><length/></byteVector>"#
+    )));
+    assert!(load_error(&template_xml(
+        r#"<byteVector id="1" name="Value"><length name="L"/><length name="M"/></byteVector>"#
+    )));
+    assert!(load_error(&template_xml(
+        r#"<uInt32 id="1" name="Value"><copy/><default value="1"/></uInt32>"#
+    )));
+}
+
+#[test]
+fn initial_value_conversion() {
+    for (template, raw, value) in [
+        ("Trimmed", vec![0xc0, 0x88], Value::UInt32(5)),
+        (
+            "TrimmedDecimal",
+            vec![0xc0, 0x89],
+            Value::Decimal(Decimal::new(-1, 15)),
+        ),
+        (
+            "HexWhitespace",
+            vec![0xc0, 0x8a],
+            Value::Bytes(vec![0x01, 0x02, 0x0a, 0xff]),
+        ),
+        (
+            "LargeDecimal",
+            vec![0xc0, 0x8b],
+            Value::Decimal(Decimal::new(20, 1)),
+        ),
+    ] {
+        do_test(
+            true,
+            true,
+            true,
+            DEFINITION_XML,
+            TestCase {
+                name: template,
+                raw,
+                data: msg(template, Some(value)),
+            },
+        );
+    }
+
+    // [ERR S3]
+    let tiny = format!("0.{}1", "0".repeat(63));
+    for body in [
+        r#"<uInt32 id="1" name="Value"><constant value="4294967296"/></uInt32>"#,
+        r#"<uInt32 id="1" name="Value"><constant value="-1"/></uInt32>"#,
+        r#"<int32 id="1" name="Value"><default value="abc"/></int32>"#,
+        r#"<decimal id="1" name="Value"><constant value="1e5"/></decimal>"#,
+        r#"<decimal id="1" name="Value"><copy value="9223372036854775808"/></decimal>"#,
+        &format!(r#"<decimal id="1" name="Value"><constant value="{tiny}"/></decimal>"#),
+        r#"<decimal id="1" name="Value"><exponent><copy value="64"/></exponent></decimal>"#,
+        r#"<string id="1" name="Value"><constant value="é"/></string>"#,
+        r#"<byteVector id="1" name="Value"><constant value="0"/></byteVector>"#,
+        r#"<byteVector id="1" name="Value"><constant value="zz"/></byteVector>"#,
+    ] {
+        assert!(load_error(&template_xml(body)), "{body}");
+    }
+}
+
+#[test]
+fn string_conversions() {
+    for (input, expected) in [
+        (" .5 ", (-1, 5)),
+        ("-.5", (-1, -5)),
+        ("+1", (0, 1)),
+        ("1.", (0, 1)),
+        ("-0.0", (0, 0)),
+        ("1200", (2, 12)),
+        ("-9223372036854775808", (0, i64::MIN)),
+        (
+            "0.000000000000000000000000000000000000000000000000000000000000001",
+            (-63, 1),
+        ),
+    ] {
+        let d = Decimal::from_string(input).unwrap();
+        assert_eq!((d.exponent, d.mantissa), expected, "{input}");
+    }
+    let tiny = format!("0.{}1", "0".repeat(63));
+    for input in [
+        "",
+        ".",
+        "-",
+        "1e5",
+        "1.2.3",
+        "- 1",
+        "9223372036854775808",
+        &tiny,
+    ] {
+        assert!(
+            matches!(Decimal::from_string(input), Err(Error::Dynamic(_))),
+            "{input:?}"
+        );
+    }
+
+    let mut v = Value::Int32(0);
+    v.set_from_string("\t-42\n").unwrap();
+    assert_eq!(v, Value::Int32(-42));
+    assert!(matches!(
+        v.set_from_string("2147483648"),
+        Err(Error::Dynamic(_))
+    ));
+    assert!(matches!(v.set_from_string("4 2"), Err(Error::Dynamic(_))));
+    let mut v = Value::ASCIIString(String::new());
+    assert!(matches!(v.set_from_string("é"), Err(Error::Dynamic(_))));
 }

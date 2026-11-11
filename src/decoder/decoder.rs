@@ -246,6 +246,19 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     fn decode_field(&mut self, instruction: &Instruction) -> Result<()> {
         let value = instruction.extract(self)?;
+        if let Some(length) = instruction.length_field() {
+            // The named length preamble of a byte vector is reported before the value.
+            let len = match &value {
+                Some(Value::Bytes(b)) => Some(b.len()),
+                Some(Value::UnicodeString(s) | Value::ASCIIString(s)) => Some(s.len()),
+                _ => None,
+            };
+            let len = len
+                .map(|l| u32::try_from(l).map(Value::UInt32))
+                .transpose()
+                .map_err(|_| Error::Dynamic(format!("{} is too long", instruction.name)))?;
+            self.msg.set_value(length.id, &length.name, len);
+        }
         self.msg.set_value(instruction.id, &instruction.name, value);
         Ok(())
     }

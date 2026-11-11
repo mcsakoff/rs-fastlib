@@ -1,6 +1,10 @@
 use std::fmt::{Display, Formatter};
 
+use crate::utils::bytes::trim_whitespace;
 use crate::{Error, Result};
+
+pub(crate) const MAX_EXPONENT: i32 = 63;
+pub(crate) const MIN_EXPONENT: i32 = -63;
 
 /// Represents a scaled decimal number.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -15,44 +19,67 @@ impl Decimal {
         Decimal { exponent, mantissa }
     }
 
-    /// If the field is of type decimal, the value resulting from the conversion is normalized. The reason for this is that
-    /// the exponent and mantissa must be predictable when operators are applied to them individually. A decimal value
-    /// is normalized by adjusting the mantissa and exponent so that the integer remainder after dividing the mantissa
-    /// by 10 is not zero: mant % 10 != 0. For example 100 would be normalized as 1 * 10^2. If the mantissa is zero,
-    /// the normalized decimal has a zero mantissa and a zero exponent.
+    /// Converts a string into normalized decimal.
+    ///
+    /// The string has an integer part and a decimal part. It is allowed to specify either or both of them.
+    /// A leading minus sign indicates a negative number, e.g.: `1`, `1.1`, `.1` and `-0.1`. The literal is
+    /// whitespace trimmed.
+    ///
+    /// The value is normalized by adjusting the mantissa and exponent so that the integer remainder after
+    /// dividing the mantissa by 10 is not zero: mant % 10 != 0. For example 100 would be normalized as 1 * 10^2.
+    /// If the mantissa is zero, the normalized decimal has a zero mantissa and a zero exponent.
     /// # Errors
-    /// Returns error if string is incorrect format.
+    /// Returns [`Error::Dynamic`] if the string has wrong format, or the exponent is out of
+    /// range \[-63 … 63\], or the mantissa doesn't fit into `i64`.
     pub fn from_string(value: &str) -> Result<Decimal> {
-        fn scale_down(mut value: i64) -> (i32, i64) {
-            let mut scale = 0;
-            if value != 0 {
-                while value % 10 == 0 {
-                    value /= 10;
-                    scale += 1;
-                }
-            }
-            (scale, value)
+        let invalid = || Error::Dynamic(format!("invalid decimal '{value}'")); // [ERR D11]
+        let out_of_range = || Error::Dynamic(format!("decimal '{value}' is out of range")); // [ERR R1]
+
+        let s = trim_whitespace(value);
+        let (negative, s) = match s.as_bytes().first() {
+            Some(b'-') => (true, &s[1..]),
+            Some(b'+') => (false, &s[1..]),
+            _ => (false, s),
+        };
+        let (integer, fraction) = s.split_once('.').unwrap_or((s, ""));
+        if (integer.is_empty() && fraction.is_empty())
+            || !integer
+            .bytes()
+            .chain(fraction.bytes())
+            .all(|b| b.is_ascii_digit())
+        {
+            return Err(invalid());
         }
 
-        let mut parts = value.split('.');
-        let Some(mantissa) = parts.next() else {
-            return Err(Error::Static(format!("Not a decimal '{value}'")));
-        };
-
-        let Some(fractional) = parts.next() else {
-            let (exponent, mantissa) = scale_down(mantissa.parse::<i64>()?);
-            return Ok(Decimal::new(exponent, mantissa));
-        };
-        if parts.next().is_some() {
-            return Err(Error::Static(format!("Not a decimal '{value}'")));
-        }
-
-        let mantissa = format!("{mantissa}{fractional}").parse::<i64>()?;
-        if mantissa == 0 {
+        // Significant digits without leading and trailing zeroes.
+        let digits = format!("{integer}{fraction}");
+        let digits = digits.trim_start_matches('0');
+        let significant = digits.trim_end_matches('0');
+        if significant.is_empty() {
             return Ok(Decimal::new(0, 0));
         }
-        let (exponent_fix, mantissa) = scale_down(mantissa);
-        let exponent = -(fractional.len() as i32) + exponent_fix;
+        let trailing_zeroes =
+            i64::try_from(digits.len() - significant.len()).map_err(|_| out_of_range())?;
+        let fraction_len = i64::try_from(fraction.len()).map_err(|_| out_of_range())?;
+        let exponent = i32::try_from(trailing_zeroes - fraction_len)
+            .ok()
+            .filter(|e| (MIN_EXPONENT..=MAX_EXPONENT).contains(e))
+            .ok_or_else(out_of_range)?;
+
+        let mut mantissa: i64 = 0;
+        for d in significant.bytes().map(|b| i64::from(b - b'0')) {
+            // Accumulate negative numbers as negative to support i64::MIN.
+            mantissa = mantissa
+                .checked_mul(10)
+                .and_then(|m| {
+                    if negative {
+                        m.checked_sub(d)
+                    } else {
+                        m.checked_add(d)
+                    }
+                })
+                .ok_or_else(out_of_range)?;
+        }
         Ok(Decimal::new(exponent, mantissa))
     }
 

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" xmlns:x="urn:x" x:attr="ignored">
+
+    <!-- Foreign elements and attributes are ignored. -->
+    <x:meta>anything <x:nested a="b"/></x:meta>
+
+    <template id="1" name="Foreign" x:foo="bar">
+        <x:doc>text</x:doc>
+        <uInt32 id="1" name="Value" x:tag="1"><x:note/><copy x:a="b"/></uInt32>
+    </template>
+
+    <!-- Templates with the same local name in different namespaces. -->
+    <template name="Header" templateNs="urn:a">
+        <uInt32 name="Value"/>
+    </template>
+
+    <template name="Header" templateNs="urn:b">
+        <uInt32 name="Value"><constant value="7"/></uInt32>
+    </template>
+
+    <template id="2" name="RefB" templateNs="urn:b">
+        <templateRef name="Header"/>
+    </template>
+
+    <template id="3" name="RefA" templateNs="urn:b">
+        <templateRef name="Header" templateNs="urn:a"/>
+    </template>
+
+    <!-- Operator keys are names with namespaces. -->
+    <template id="4" name="Keys" ns="urn:x">
+        <uInt32 name="A" presence="optional"><copy key="k"/></uInt32>
+        <uInt32 name="B" presence="optional" ns="urn:y"><copy key="k"/></uInt32>
+        <uInt32 name="C" presence="optional" ns="urn:y"><copy key="k" ns="urn:x"/></uInt32>
+        <uInt32 name="D" presence="optional"><copy/></uInt32>
+        <uInt32 name="D" presence="optional" ns="urn:y"><copy/></uInt32>
+    </template>
+
+    <!-- Fields without id. -->
+    <template id="5" name="NoId">
+        <uInt32 name="Value"/>
+    </template>
+
+    <!-- Named length of byte vectors and unicode strings. -->
+    <template id="6" name="BytesLength">
+        <byteVector id="2" name="Value" presence="optional"><length id="9" name="Len"/></byteVector>
+    </template>
+
+    <template id="7" name="UnicodeLength">
+        <string id="2" name="Value" charset="unicode"><length name="Len"/><copy/></string>
+    </template>
+
+    <!-- Initial values are whitespace trimmed. -->
+    <template id="8" name="Trimmed">
+        <uInt32 id="1" name="Value"><constant value=" 5&#9;"/></uInt32>
+    </template>
+
+    <template id="9" name="TrimmedDecimal">
+        <decimal id="1" name="Value"><constant value="&#10; 1.50 "/></decimal>
+    </template>
+
+    <template id="10" name="HexWhitespace">
+        <byteVector id="1" name="Value"><constant value="01&#9;02&#10;0a FF"/></byteVector>
+    </template>
+
+    <template id="11" name="LargeDecimal">
+        <decimal id="1" name="Value"><constant value="100000000000000000000"/></decimal>
+    </template>
+
+    <template id="12" name="Types1"><typeRef name="T" ns="urn:a"/></template>
+    <template id="13" name="Types2"><typeRef name="T" ns="urn:b"/></template>
+
+</templates>

@@ -1,8 +1,12 @@
 use std::cmp::min;
 use std::fmt::{Display, Formatter, Write};
+use std::num::{IntErrorKind, ParseIntError};
+use std::str::FromStr;
 
 use crate::base::decimal::Decimal;
-use crate::utils::bytes::{bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes};
+use crate::utils::bytes::{
+    bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes, trim_whitespace,
+};
 use crate::{Error, Result};
 
 /// Represents type of field instruction.
@@ -152,38 +156,30 @@ pub enum Value {
 }
 
 impl Value {
-    /// It is a dynamic error [ERR D11] if a string does not match the syntax.
+    /// Sets the value of the same type converted from the string.
+    /// Integers and decimals are whitespace trimmed; byte vectors are hexadecimal digits possibly
+    /// interleaved with whitespace.
     /// # Errors
-    /// Returns error if string parse fails.
+    /// Returns [`Error::Dynamic`] if the string does not match the syntax [ERR D11], the number is out of
+    /// range [ERR R1, R4] or an ASCII string has non-ASCII characters [ERR R3].
     pub fn set_from_string(&mut self, s: &str) -> Result<()> {
         match self {
-            Value::UInt32(_) => {
-                *self = Value::UInt32(s.parse()?);
-            }
-            Value::Int32(_) => {
-                *self = Value::Int32(s.parse()?);
-            }
-            Value::UInt64(_) => {
-                *self = Value::UInt64(s.parse()?);
-            }
-            Value::Int64(_) => {
-                *self = Value::Int64(s.parse()?);
-            }
-            Value::Decimal(_) => {
-                *self = Value::Decimal(Decimal::from_string(s)?);
-            }
+            Value::UInt32(_) => *self = Value::UInt32(parse_integer(s)?),
+            Value::Int32(_) => *self = Value::Int32(parse_integer(s)?),
+            Value::UInt64(_) => *self = Value::UInt64(parse_integer(s)?),
+            Value::Int64(_) => *self = Value::Int64(parse_integer(s)?),
+            Value::Decimal(_) => *self = Value::Decimal(Decimal::from_string(s)?),
             Value::ASCIIString(_) => {
+                if !s.is_ascii() {
+                    return Err(Error::Dynamic(format!("'{s}' is not an ASCII string"))); // [ERR R3]
+                }
                 *self = Value::ASCIIString(s.to_string());
             }
-            Value::UnicodeString(_) => {
-                *self = Value::UnicodeString(s.to_string());
-            }
+            Value::UnicodeString(_) => *self = Value::UnicodeString(s.to_string()),
             // The string is interpreted as an even number of hexadecimal digits [0-9A-Fa-f] possibly interleaved
             // with whitespace. The literal is turned into a byte vector by first stripping any whitespace.
             // Then each pair of characters is interpreted as a hexadecimal number representing a single byte.
-            Value::Bytes(_) => {
-                *self = Value::Bytes(string_to_bytes(s)?);
-            }
+            Value::Bytes(_) => *self = Value::Bytes(string_to_bytes(s)?),
         }
         Ok(())
     }
@@ -206,7 +202,6 @@ impl Value {
         }
 
         // It is a reportable error [ERR R4] if the combined value does not fit into the integer type.
-        #[inline]
         fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i64) -> Result<T> {
             T::try_from(v.into() + i128::from(d)).map_err(|_| {
                 Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
@@ -296,8 +291,8 @@ impl Value {
     /// Assigns `src` to the value reusing allocated buffer when possible.
     pub fn assign(&mut self, src: &Value) {
         match (self, src) {
-            (Value::ASCIIString(d), Value::ASCIIString(s))
-            | (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
+            (Value::ASCIIString(d), Value::ASCIIString(s)) |
+            (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
             (Value::Bytes(d), Value::Bytes(s)) => d.clone_from(s),
             (d, s) => *d = s.clone(),
         }
@@ -320,8 +315,7 @@ impl Value {
         self.apply_delta_in_place(tail, len as i32)
     }
 
-    /// Increments underlying integer value.
-    /// The maximum value of the type wraps around to the maximum value.
+    /// Increments underlying integer value. The maximum value of the type wraps around to the minimum value.
     /// # Errors
     /// Returns error if self type is not an integer.
     pub fn apply_increment(&self) -> Result<Value> {
@@ -340,23 +334,18 @@ impl Value {
     /// # Errors
     /// Returns error if the types do not match or the integer delta does not fit into `i64`.
     pub fn find_delta_ref<'a>(&'a self, prev: &'a Value) -> Result<DeltaRef<'a>> {
-        #[inline]
-        fn int_delta<T>(v: T, p: T) -> Result<DeltaRef<'static>>
-        where
-            T: Into<i128> + Sized,
-        {
-            let v = v.into();
-            let p = p.into();
+        fn int_delta(v: impl Into<i128>, p: impl Into<i128>) -> Result<DeltaRef<'static>> {
+            let (v, p) = (v.into(), p.into());
             let d = i64::try_from(v - p).map_err(|_| {
-                Error::Runtime(format!("delta from {p} to {v} doesn't fit into int64"))
+                Error::Runtime(format!("delta from {p} to {v} does not fit into int64"))
             })?;
             Ok(DeltaRef::Int(d))
         }
 
         Ok(match (self, prev) {
             (Value::Int32(v), Value::Int32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
-            (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
             (Value::Int64(v), Value::Int64(p)) => int_delta(*v, *p)?,
+            (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
             (Value::UInt64(v), Value::UInt64(p)) => int_delta(*v, *p)?,
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let (delta, sub) = string_delta(p, v);
@@ -381,7 +370,6 @@ impl Value {
     /// Searches difference between current and previous value.
     /// # Errors
     /// Returns error if the types do not match or the integer delta does not fit into `i64`.
-    #[must_use]
     pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
         Ok(match self.find_delta_ref(prev)? {
             DeltaRef::Int(d) => (Value::Int64(d), 0),
@@ -420,6 +408,18 @@ impl Value {
             TailRef::Bytes(b) => Value::Bytes(b.to_vec()),
         })
     }
+}
+
+// The string is interpreted as a sequence of digits; a leading minus is allowed for signed types.
+// The literal is whitespace trimmed.
+fn parse_integer<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T> {
+    let t = trim_whitespace(s);
+    t.parse::<T>().map_err(|e| match e.kind() {
+        IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => {
+            Error::Dynamic(format!("integer '{t}' is out of range")) // [ERR R4]
+        }
+        _ => Error::Dynamic(format!("invalid integer '{t}'")), // [ERR D11]
+    })
 }
 
 // Converts substraction length into (remove from front, index).

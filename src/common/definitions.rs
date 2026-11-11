@@ -6,6 +6,7 @@ use crate::base::instruction::Instruction;
 use crate::base::types::{Dictionary, Operator, Template, TypeRef};
 use crate::base::value::ValueType;
 use crate::common::context::DictionaryType;
+use crate::utils::xml::td_children;
 use crate::{Error, Result};
 
 /// Maximum number of bits in a presence map segment.
@@ -15,16 +16,20 @@ pub const MAX_PMAP_BITS: usize = 63;
 pub struct Definitions {
     pub(crate) templates: Vec<Template>,
     pub(crate) templates_by_id: HashMap<u32, usize>,
-    pub(crate) templates_by_name: HashMap<String, usize>,
+    // Templates by local name; `None` if the name is ambiguous (used in different namespaces).
+    templates_by_name: HashMap<String, Option<usize>>,
+    // Templates by (namespace URI, local name).
+    qualified_templates: HashMap<(Rc<str>, String), usize>,
     pub(crate) template_id_instruction: Instruction,
-    // Indexes of application types; index 0 is reserved for special type `any`.
-    type_indices: HashMap<Rc<str>, u32>,
+    // Indexes of application types by (namespace URI, local name); index 0 is reserved for special type `any`.
+    type_indices: HashMap<(Rc<str>, Rc<str>), u32>,
 }
 
 impl Definitions {
     pub(crate) fn new_from_templates(mut templates: Vec<Template>) -> Result<Self> {
         let mut templates_by_id = HashMap::default();
         let mut templates_by_name = HashMap::default();
+        let mut qualified_templates = HashMap::default();
         let mut type_indices = HashMap::default();
         for (i, t) in templates.iter_mut().enumerate() {
             t.index =
@@ -32,9 +37,19 @@ impl Definitions {
             if t.id != 0 {
                 templates_by_id.insert(t.id, i);
             }
-            if !t.name.is_empty() {
-                templates_by_name.insert(t.name.clone(), i);
+            if qualified_templates
+                .insert((t.ns.clone(), t.name.clone()), i)
+                .is_some()
+            {
+                return Err(Error::Static(format!(
+                    "duplicate template name '{}' (namespace '{}')",
+                    t.name, t.ns
+                )));
             }
+            templates_by_name
+                .entry(t.name.clone())
+                .and_modify(|e| *e = None)
+                .or_insert(Some(i));
             Self::index_type_ref(&t.type_ref, &mut type_indices);
             Self::index_type_refs(&t.instructions, &mut type_indices);
         }
@@ -45,6 +60,7 @@ impl Definitions {
             templates,
             templates_by_id,
             templates_by_name,
+            qualified_templates,
             template_id_instruction,
             type_indices,
         };
@@ -52,14 +68,19 @@ impl Definitions {
         Ok(definitions)
     }
 
-    fn index_type_ref(type_ref: &TypeRef, type_indices: &mut HashMap<Rc<str>, u32>) {
-        if let TypeRef::ApplicationType(name) = type_ref {
+    fn index_type_ref(type_ref: &TypeRef, type_indices: &mut HashMap<(Rc<str>, Rc<str>), u32>) {
+        if let TypeRef::ApplicationType(ns, name) = type_ref {
             let next = u32::try_from(type_indices.len() + 1).unwrap_or(u32::MAX);
-            type_indices.entry(name.clone()).or_insert(next);
+            type_indices
+                .entry((ns.clone(), name.clone()))
+                .or_insert(next);
         }
     }
 
-    fn index_type_refs(instructions: &[Instruction], type_indices: &mut HashMap<Rc<str>, u32>) {
+    fn index_type_refs(
+        instructions: &[Instruction],
+        type_indices: &mut HashMap<(Rc<str>, Rc<str>), u32>,
+    ) {
         for i in instructions {
             Self::index_type_ref(&i.type_ref, type_indices);
             Self::index_type_refs(&i.instructions, type_indices);
@@ -71,7 +92,9 @@ impl Definitions {
     pub(crate) fn type_index(&self, type_ref: &TypeRef) -> Option<u32> {
         match type_ref {
             TypeRef::Any => None,
-            TypeRef::ApplicationType(name) => self.type_indices.get(name).copied(),
+            TypeRef::ApplicationType(ns, name) => {
+                self.type_indices.get(&(ns.clone(), name.clone())).copied()
+            }
         }
     }
 
@@ -83,10 +106,14 @@ impl Definitions {
         }
     }
 
+    // Returns the template by its local name.
     #[inline]
     pub(crate) fn template_by_name(&self, name: &str) -> Result<&Template> {
         match self.templates_by_name.get(name) {
-            Some(&i) => Ok(&self.templates[i]),
+            Some(Some(i)) => Ok(&self.templates[*i]),
+            Some(None) => Err(Error::Dynamic(format!(
+                "Ambiguous template name: {name}; it is used in several namespaces"
+            ))),
             None => Err(Error::Dynamic(format!("Unknown template: {name}"))), // [ErrD09]
         }
     }
@@ -99,23 +126,25 @@ impl Definitions {
 
     pub fn new_from_xml(text: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(text)?;
-        let root = doc
-            .root()
-            .first_child()
-            .ok_or_else(|| Error::Static("no root element found".to_string()))?;
-        if root.tag_name().name() != "templates" {
-            return Err(Error::Static("<templates/> node not found".to_string()));
-        }
-        // The dictionary for templates that do not specify their own.
-        let dictionary = root
-            .attribute("dictionary")
-            .map_or(Dictionary::Global, Dictionary::from_str);
-        let mut templates = Vec::new();
-        for child in root.children() {
-            if child.is_element() {
-                templates.push(Template::from_node(child, &dictionary)?);
+        let root = doc.root_element();
+        // The root element is either <templates> or a single <template>.
+        let templates = match root.tag_name().name() {
+            "templates" => {
+                // The dictionary for templates that do not specify their own.
+                let dictionary = root
+                    .attribute("dictionary")
+                    .map_or(Dictionary::Global, Dictionary::from_str);
+                td_children(&root)
+                    .map(|child| Template::from_node(child, &dictionary))
+                    .collect::<Result<Vec<_>>>()?
             }
-        }
+            "template" => vec![Template::from_node(root, &Dictionary::Global)?],
+            _ => {
+                return Err(Error::Static(
+                    "<templates/> or <template/> root element not found".to_string(),
+                ));
+            }
+        };
         Self::new_from_templates(templates)
     }
 
@@ -212,9 +241,14 @@ impl Definitions {
                 }
                 // Static template ref occupies the same bits as the corresponding template.
                 let index = *self
-                    .templates_by_name
-                    .get(&instr.name)
-                    .ok_or_else(|| Error::Static(format!("template '{}' not found", instr.name)))?;
+                    .qualified_templates
+                    .get(&(instr.ns.clone(), instr.name.clone()))
+                    .ok_or_else(|| {
+                        Error::Static(format!(
+                            "template '{}' (namespace '{}') not found",
+                            instr.name, instr.ns
+                        ))
+                    })?; // [ERR D8]
                 instr.template_index.set(index);
                 return self.template_pmap_bits(index, visiting);
             }
@@ -249,12 +283,14 @@ impl Definitions {
 // doesn't depend on the place where the template is used and can be resolved statically.
 // Only the instance of `template` and `type` dictionaries (current template / application type) is
 // known at runtime.
+type StaticKey = (Option<Rc<str>>, Rc<str>, Rc<str>);
+
 #[derive(Default)]
 struct SlotResolver {
-    // (dictionary name or `None` for global, key) -> static slot
-    statics: HashMap<(Option<Rc<str>>, Rc<str>), u32>,
-    // key -> key index in `templates` and `type` dictionaries
-    keys: HashMap<Rc<str>, u32>,
+    // (dictionary name or `None` for global, key namespace URI, key) -> static slot
+    statics: HashMap<StaticKey, u32>,
+    // (key namespace URI, key) -> key index in `templates` and `type` dictionaries
+    keys: HashMap<(Rc<str>, Rc<str>), u32>,
 }
 
 impl SlotResolver {
@@ -278,29 +314,34 @@ impl SlotResolver {
             // Instructions of the referenced template are resolved on their own.
             ValueType::TemplateReference => {}
             ValueType::Decimal => {
-                instr.dictionary_slot.set(self.slot(dictionary, &instr.key));
+                instr.dictionary_slot.set(self.slot(dictionary, instr));
                 // Subcomponents inherits the dictionary of the decimal field unless their operators set their own.
                 self.resolve_all(&instr.instructions, dictionary);
             }
             _ => {
-                instr.dictionary_slot.set(self.slot(dictionary, &instr.key));
+                instr.dictionary_slot.set(self.slot(dictionary, instr));
             }
         }
     }
 
-    fn slot(&mut self, dictionary: &Dictionary, key: &Rc<str>) -> DictionaryType {
+    // Keys are names, so two keys are equal iff their namespace URIs and local names are equal.
+    fn slot(&mut self, dictionary: &Dictionary, instr: &Instruction) -> DictionaryType {
         let name = match dictionary {
-            Dictionary::Template => return DictionaryType::Template(self.key(key)),
-            Dictionary::Type => return DictionaryType::Type(self.key(key)),
+            Dictionary::Template => return DictionaryType::Template(self.key(instr)),
+            Dictionary::Type => return DictionaryType::Type(self.key(instr)),
             Dictionary::Inherit | Dictionary::Global => None,
             Dictionary::UserDefined(name) => Some(name.clone()),
         };
         let next = u32::try_from(self.statics.len()).unwrap_or(u32::MAX);
-        DictionaryType::Static(*self.statics.entry((name, key.clone())).or_insert(next))
+        let entry = (name, instr.ns.clone(), instr.key.clone());
+        DictionaryType::Static(*self.statics.entry(entry).or_insert(next))
     }
 
-    fn key(&mut self, key: &Rc<str>) -> u32 {
+    fn key(&mut self, instr: &Instruction) -> u32 {
         let next = u32::try_from(self.keys.len()).unwrap_or(u32::MAX);
-        *self.keys.entry(key.clone()).or_insert(next)
+        *self
+            .keys
+            .entry((instr.ns.clone(), instr.key.clone()))
+            .or_insert(next)
     }
 }

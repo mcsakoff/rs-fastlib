@@ -82,6 +82,10 @@
 //! * static template reference can be plain fields from the template or flattened `struct`,
 //! * dynamic template references must be `Box<Message>` with `#[serde(rename = "templateRef:N")]`, where `N`
 //!   is a 0-based index of the `<templateRef>` in its group.
+//! * a named `<length>` of `<byteVector>` or unicode `<string>` is decoded as an extra `u32` field
+//!   (`Option<u32>` if the field is optional); declaring it is optional and it is ignored when encoding;
+//! * templates are selected by the local name; if the same name is used in several `templateNs`
+//!   namespaces, such templates can't be selected by name.
 //!
 //! To deserialize a message call [`from_slice`], [`from_buffer`], [`from_vec`], [`from_bytes`] or more generic [`from_reader`] or [`from_stream`]:
 //!

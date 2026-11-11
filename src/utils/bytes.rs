@@ -10,36 +10,31 @@ pub(crate) fn bytes_to_string(bytes: &[u8]) -> String {
     s
 }
 
-pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
-    let s = s.trim().replace(' ', "");
-    if !s.len().is_multiple_of(2) {
-        return Err(Error::Runtime(format!(
-            "Invalid hex string (length): '{s}'"
-        )));
-    }
-    let v = s
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(2)
-        .map(|ch| {
-            let hi = hexchar2byte(ch[0])?;
-            let lo = hexchar2byte(ch[1])?;
-            Ok((hi << 4) | lo)
-        })
-        .collect::<Result<Vec<u8>>>()?;
-    Ok(v)
+// Whitespace characters of string literals: space, horizontal tab, carriage return and linefeed.
+const WHITESPACE: [char; 4] = [' ', '\t', '\r', '\n'];
+
+/// Removes leading and trailing whitespace.
+pub(crate) fn trim_whitespace(s: &str) -> &str {
+    s.trim_matches(WHITESPACE)
 }
 
-fn hexchar2byte(c: char) -> Result<u8> {
-    if c.is_ascii_digit() {
-        Ok((c as u8) - b'0')
-    } else if ('a'..='f').contains(&c) {
-        Ok((c as u8) - b'a' + 10)
-    } else if ('A'..='F').contains(&c) {
-        Ok((c as u8) - b'A' + 10)
-    } else {
-        Err(Error::Runtime(format!("Invalid hex char: '{c}'")))
+/// Converts a string of an even number of hexadecimal digits, possibly interleaved with whitespace,
+/// into bytes.
+pub(crate) fn string_to_bytes(s: &str) -> Result<Vec<u8>> {
+    let invalid = || Error::Dynamic(format!("invalid hex string '{s}'")); // [ERR D11]
+    let digits = s
+        .chars()
+        .filter(|c| !WHITESPACE.contains(c))
+        .map(|c| {
+            c.to_digit(16)
+                .and_then(|d| u8::try_from(d).ok())
+                .ok_or_else(invalid)
+        })
+        .collect::<Result<Vec<u8>>>()?;
+    if !digits.len().is_multiple_of(2) {
+        return Err(invalid());
     }
+    Ok(digits.chunks(2).map(|p| (p[0] << 4) | p[1]).collect())
 }
 
 pub fn string_delta<'a>(a: &'a str, b: &'a str) -> (&'a str, i32) {
