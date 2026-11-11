@@ -8,6 +8,7 @@
   Both attributes are rejected on filed elements and other operators. `dictionary` remains valid on
   `<templates>`, `<template>`, `<sequence>` and `<group>`.
 - FAST 1.1 compliance fixes.
+- AI generated compliance tests.
 - Performance improvements and fixes.
 - Add benchmarks.
 

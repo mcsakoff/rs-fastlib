@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+
+    <template id="1" name="IncrementInitial">
+        <uInt32 id="1" name="Value"><increment value="5"/></uInt32>
+    </template>
+
+    <template id="2" name="IncrementU32">
+        <uInt32 id="1" name="Value"><increment/></uInt32>
+    </template>
+
+    <template id="3" name="IncrementI32">
+        <int32 id="1" name="Value"><increment/></int32>
+    </template>
+
+    <template id="4" name="IncrementU64">
+        <uInt64 id="1" name="Value"><increment/></uInt64>
+    </template>
+
+    <template id="5" name="IncrementI64">
+        <int64 id="1" name="Value"><increment/></int64>
+    </template>
+
+    <template id="6" name="OptionalTail">
+        <string id="1" name="Value" presence="optional"><tail/></string>
+    </template>
+
+    <template id="7" name="DecimalConstant">
+        <decimal id="1" name="Value"><constant value="1.5"/></decimal>
+    </template>
+
+    <template id="8" name="DecimalDefault">
+        <decimal id="1" name="Value"><default value="1.5"/></decimal>
+    </template>
+
+    <template id="9" name="DecimalCopy">
+        <decimal id="1" name="Value"><copy value="1.5"/></decimal>
+    </template>
+
+    <template id="10" name="DeltaU64">
+        <uInt64 id="1" name="Value"><delta/></uInt64>
+    </template>
+
+    <template id="11" name="DeltaU32">
+        <uInt32 id="1" name="Value"><delta/></uInt32>
+    </template>
+
+    <template id="12" name="DeltaI32">
+        <int32 id="1" name="Value"><delta/></int32>
+    </template>
+
+    <template id="13" name="DeltaI64">
+        <int64 id="1" name="Value"><delta/></int64>
+    </template>
+
+    <template id="14" name="OptionalDeltaBytes">
+        <byteVector id="1" name="Value" presence="optional"><delta/></byteVector>
+    </template>
+
+    <template id="15" name="OptionalDeltaAscii">
+        <string id="1" name="Value" presence="optional"><delta/></string>
+    </template>
+
+    <template id="16" name="Ascii">
+        <string id="1" name="Value"/>
+    </template>
+
+    <template id="17" name="OptionalAscii">
+        <string id="1" name="Value" presence="optional"/>
+    </template>
+
+    <template id="18" name="OptionalU64">
+        <uInt64 id="1" name="Value" presence="optional"/>
+    </template>
+
+    <template id="19" name="OptionalI64">
+        <int64 id="1" name="Value" presence="optional"/>
+    </template>
+
+    <template id="20" name="OptionalIncrementInitial">
+        <uInt32 id="1" name="Value" presence="optional"><increment value="5"/></uInt32>
+    </template>
+
+</templates>

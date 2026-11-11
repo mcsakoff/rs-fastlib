@@ -17,6 +17,7 @@ mod pmap;
 mod spec;
 mod spec2;
 mod typeref;
+mod compliance;
 
 pub struct TestField {
     id: u32,
