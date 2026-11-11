@@ -148,10 +148,10 @@ pub(crate) struct EncoderContext<'a> {
     pub(crate) definitions: &'a Definitions,
     pub(crate) context: &'a mut Context,
 
-    // The current template id.
+    // The index of the current template (`Template::index`).
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
     // the current template as described in the Template Reference Instruction section.
-    pub(crate) template_id: Stacked<u32>,
+    pub(crate) template: Stacked<u32>,
 
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
@@ -168,7 +168,7 @@ impl<'a> EncoderContext<'a> {
         Self {
             definitions: &d.definitions,
             context: &mut d.context,
-            template_id: Stacked::new_empty(),
+            template: Stacked::new_empty(),
             type_ref: Stacked::new(0),
             presence_map: Stacked::new_empty(),
         }
@@ -219,10 +219,10 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     fn entry(&mut self, i: &Instruction) -> Option<&mut Option<Value>> {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
         self.context
-            .get_mut(i.dictionary_slot.get(), template_id, type_index)
+            .get_mut(i.dictionary_slot.get(), template, type_index)
     }
 
     #[inline]
@@ -234,20 +234,20 @@ impl<'a> EncoderContext<'a> {
             }
             return;
         }
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
         self.context
-            .set(i.dictionary_slot.get(), template_id, type_index, v.cloned());
+            .set(i.dictionary_slot.get(), template, type_index, v.cloned());
     }
 
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
 
         let v = self
             .context
-            .get(i.dictionary_slot.get(), template_id, type_index);
+            .get(i.dictionary_slot.get(), template, type_index);
         if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
@@ -289,22 +289,28 @@ impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
         let template = definitions.template_by_name(&self.msg.get_template_name()?)?;
         // presence map + template_id + instructions
         self.with_segment(buf, |ctx, buf| {
-            ctx.encode_template_body(buf, template, &definitions.template_id_instruction)
+            ctx.encode_template_id(buf, template)?;
+            ctx.encode_template_instructions(buf, template)
         })
     }
 
-    // Encode template id and template instructions.
-    // `tid_instruction` is the template id instruction of the current place in the template.
-    fn encode_template_body(
+    // Encode template id and make the template current.
+    fn encode_template_id(&mut self, buf: &mut Vec<u8>, template: &Template) -> Result<()> {
+        let definitions = self.ctx.definitions;
+        definitions.template_id_instruction.inject(
+            &mut self.ctx,
+            buf,
+            Some(&Value::UInt32(template.id)),
+        )
+    }
+
+    // Encode template instructions with the template as the current template.
+    fn encode_template_instructions(
         &mut self,
         buf: &mut Vec<u8>,
         template: &Template,
-        tid_instruction: &Instruction,
     ) -> Result<()> {
-        // The template id is stored in the dictionary of the enclosing template.
-        tid_instruction.inject(&mut self.ctx, buf, Some(&Value::UInt32(template.id)))?;
-        self.ctx.template_id.push(template.id);
-
+        self.ctx.template.push(template.index);
         let has_type_ref = self.ctx.switch_type_ref(&template.type_ref);
 
         self.encode_instructions(buf, &template.instructions)?;
@@ -312,8 +318,7 @@ impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
         if has_type_ref {
             self.ctx.restore_type_ref();
         }
-
-        self.ctx.template_id.pop();
+        self.ctx.template.pop();
         Ok(())
     }
 
@@ -440,19 +445,14 @@ impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
                 })?;
             let template = definitions.template_by_name(&template_name)?;
             self.with_segment(buf, |ctx, buf| {
-                ctx.encode_template_body(buf, template, &instruction.instructions[0])
+                ctx.encode_template_id(buf, template)?;
+                ctx.encode_template_instructions(buf, template)
             })?;
         } else {
             self.msg.select_template_ref(&instruction.name, false)?;
+            // A static reference continues with the referred template as the current template.
             let template = definitions.static_template_ref(instruction);
-
-            let has_type_ref = self.ctx.switch_type_ref(&template.type_ref);
-
-            self.encode_instructions(buf, &template.instructions)?;
-
-            if has_type_ref {
-                self.ctx.restore_type_ref();
-            }
+            self.encode_template_instructions(buf, template)?;
         }
         self.msg.release_template_ref()
     }

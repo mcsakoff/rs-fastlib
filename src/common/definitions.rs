@@ -27,6 +27,8 @@ impl Definitions {
         let mut templates_by_name = HashMap::default();
         let mut type_indices = HashMap::default();
         for (i, t) in templates.iter_mut().enumerate() {
+            t.index =
+                u32::try_from(i).map_err(|_| Error::Static("too many templates".to_string()))?;
             if t.id != 0 {
                 templates_by_id.insert(t.id, i);
             }
@@ -34,7 +36,7 @@ impl Definitions {
                 templates_by_name.insert(t.name.clone(), i);
             }
             Self::index_type_ref(&t.type_ref, &mut type_indices);
-            Self::prepare_instructions(&mut t.instructions, &mut type_indices);
+            Self::index_type_refs(&t.instructions, &mut type_indices);
         }
 
         let template_id_instruction = Instruction::new_template_id();
@@ -57,18 +59,10 @@ impl Definitions {
         }
     }
 
-    // Collects application types and gives each dynamic template reference its own template identifier
-    // instruction, because the identifier uses the dictionary of the place where the reference is.
-    fn prepare_instructions(
-        instructions: &mut [Instruction],
-        type_indices: &mut HashMap<Rc<str>, u32>,
-    ) {
+    fn index_type_refs(instructions: &[Instruction], type_indices: &mut HashMap<Rc<str>, u32>) {
         for i in instructions {
             Self::index_type_ref(&i.type_ref, type_indices);
-            if i.value_type == ValueType::TemplateReference && i.name.is_empty() {
-                i.instructions = vec![Instruction::new_template_id()];
-            }
-            Self::prepare_instructions(&mut i.instructions, type_indices);
+            Self::index_type_refs(&i.instructions, type_indices);
         }
     }
 
@@ -129,20 +123,41 @@ impl Definitions {
     // for structures that must have a presence map. That can only be done when whole
     // templates structure is generated.
     fn finalize(&self) -> Result<()> {
-        for tpl in &self.templates {
-            let bits = self.count_presence_map_bits(&tpl.instructions)?;
-            // The template segment also contains the template identifier bit
-            Self::check_segment_size(&tpl.name, bits + 1)?;
-            tpl.pmap_bits.set(Some(bits));
+        // Templates being processed, to detect cyclic static template references.
+        let mut visiting = vec![false; self.templates.len()];
+        for index in 0..self.templates.len() {
+            self.template_pmap_bits(index, &mut visiting)?;
         }
 
         let mut slots = SlotResolver::default();
-        // The template identifier of a message is in the `global` directory.
+        // All template identifiers use the copy operator in the `global` dictionary with a common key.
         slots.resolve(&self.template_id_instruction, &Dictionary::Global);
         for tpl in &self.templates {
             slots.resolve_all(&tpl.instructions, &tpl.dictionary);
         }
         Ok(())
+    }
+
+    // Returns the number of presence map bits the template instructions occupy (without the template
+    // identifier bit). Computed on first call, so static references can refer to templates defined later.
+    fn template_pmap_bits(&self, index: usize, visiting: &mut [bool]) -> Result<usize> {
+        let tpl = &self.templates[index];
+        if let Some(bits) = tpl.pmap_bits.get() {
+            return Ok(bits);
+        }
+        if visiting[index] {
+            return Err(Error::Static(format!(
+                "template '{}' statically references itself",
+                tpl.name
+            )));
+        }
+        visiting[index] = true;
+        let bits = self.count_presence_map_bits(&tpl.instructions, visiting)?;
+        visiting[index] = false;
+        // The template segment also contains the template identifier bit
+        Self::check_segment_size(&tpl.name, bits + 1)?;
+        tpl.pmap_bits.set(Some(bits));
+        Ok(bits)
     }
 
     // Presence map is stored in `u64`, so a segment can't use more than 63 bits.
@@ -157,20 +172,24 @@ impl Definitions {
 
     // Count presence map bits the instruction occupy in the enclosing segment.
     // No early exit! Must iterate over all items because presence_map_bits() also initializes has_pmap bit.
-    fn count_presence_map_bits(&self, instructions: &[Instruction]) -> Result<usize> {
+    fn count_presence_map_bits(
+        &self,
+        instructions: &[Instruction],
+        visiting: &mut [bool],
+    ) -> Result<usize> {
         let mut pmap_bits = 0;
         for i in instructions {
-            pmap_bits += self.presence_map_bits(i)?;
+            pmap_bits += self.presence_map_bits(i, visiting)?;
         }
         Ok(pmap_bits)
     }
 
     // Initializes `has_pmap` of the instructions and returns the number of presence map bits it occupies
     // in the enclosing segment.
-    fn presence_map_bits(&self, instr: &Instruction) -> Result<usize> {
+    fn presence_map_bits(&self, instr: &Instruction, visiting: &mut [bool]) -> Result<usize> {
         match instr.value_type {
             ValueType::Group => {
-                let inner = self.count_presence_map_bits(&instr.instructions)?;
+                let inner = self.count_presence_map_bits(&instr.instructions, visiting)?;
                 Self::check_segment_size(&instr.name, inner)?;
                 instr.has_pmap.set(inner > 0);
                 // If a ::Group field is optional, it will occupy a single bit in the presence map.
@@ -180,11 +199,11 @@ impl Definitions {
                 let length = instr.instructions.first().ok_or_else(|| {
                     Error::Static(format!("sequence '{}' has no length field", instr.name))
                 })?;
-                let inner = self.count_presence_map_bits(&instr.instructions[1..])?;
+                let inner = self.count_presence_map_bits(&instr.instructions[1..], visiting)?;
                 Self::check_segment_size(&instr.name, inner)?;
                 instr.has_pmap.set(inner > 0);
                 // For ::Sequence its length field show if the sequence has a bit in the presence map.
-                return self.presence_map_bits(length);
+                return self.presence_map_bits(length, visiting);
             }
             ValueType::TemplateReference => {
                 if instr.name.is_empty() {
@@ -197,16 +216,10 @@ impl Definitions {
                     .get(&instr.name)
                     .ok_or_else(|| Error::Static(format!("template '{}' not found", instr.name)))?;
                 instr.template_index.set(index);
-                let template = &self.templates[index];
-                return template.pmap_bits.get().ok_or_else(|| {
-                    Error::Static(format!(
-                        "template '{}' not initialized yet; consider reordering templates",
-                        instr.name
-                    ))
-                });
+                return self.template_pmap_bits(index, visiting);
             }
             ValueType::Decimal => {
-                let inner = self.count_presence_map_bits(&instr.instructions)?;
+                let inner = self.count_presence_map_bits(&instr.instructions, visiting)?;
                 instr.has_pmap.set(inner > 0);
                 if instr.operator == Operator::None {
                     // Subcomponents occupy their own bits
@@ -234,7 +247,7 @@ impl Definitions {
 //
 // Every template sets its own dictionary (`global` if not specified), so the dictionary of an instruction
 // doesn't depend on the place where the template is used and can be resolved statically.
-// Only the instance of `template` and `type` dictionaries (current template_id / application type) is
+// Only the instance of `template` and `type` dictionaries (current template / application type) is
 // known at runtime.
 #[derive(Default)]
 struct SlotResolver {
@@ -253,9 +266,7 @@ impl SlotResolver {
 
     // `dictionary` is the dictionary inherited from the enclosing element.
     fn resolve(&mut self, instr: &Instruction, dictionary: &Dictionary) {
-        let dictionary = if instr.dictionary == Dictionary::Inherit
-            || instr.value_type == ValueType::TemplateReference
-        {
+        let dictionary = if instr.dictionary == Dictionary::Inherit {
             dictionary
         } else {
             &instr.dictionary
@@ -264,11 +275,8 @@ impl SlotResolver {
             ValueType::Group | ValueType::Sequence => {
                 self.resolve_all(&instr.instructions, dictionary);
             }
-            ValueType::TemplateReference => {
-                // Dynamic reference has the template identifier instruction which uses the current dictionary.
-                // Static reference uses instructions of the referenced template resolved on their own.
-                self.resolve_all(&instr.instructions, dictionary);
-            }
+            // Instructions of the referenced template are resolved on their own.
+            ValueType::TemplateReference => {}
             ValueType::Decimal => {
                 instr.dictionary_slot.set(self.slot(dictionary, &instr.key));
                 // Subcomponents inherits the dictionary of the decimal field unless their operators set their own.
@@ -292,7 +300,7 @@ impl SlotResolver {
     }
 
     fn key(&mut self, key: &Rc<str>) -> u32 {
-        let next = u32::try_from(self.statics.len()).unwrap_or(u32::MAX);
+        let next = u32::try_from(self.keys.len()).unwrap_or(u32::MAX);
         *self.keys.entry(key.clone()).or_insert(next)
     }
 }

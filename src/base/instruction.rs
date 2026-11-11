@@ -253,12 +253,6 @@ impl Instruction {
                 let mut ex: Instruction;
                 let mut mn: Instruction;
                 match (operator, exponent, mantissa) {
-                    // No elements.
-                    (None, None, None) => {
-                        op = Operator::None;
-                        ex = Instruction::new(0, "exponent", ValueType::Exponent);
-                        mn = Instruction::new(0, "mantissa", ValueType::Mantissa);
-                    }
                     // Only one element and it is an operation.
                     (Some(o), None, None) => {
                         op = o;
@@ -269,7 +263,7 @@ impl Instruction {
                             .transpose()?;
                         match o {
                             // Operators are applied to the exponent and mantissa individually.
-                            Operator::Delta | Operator::Increment => {
+                            Operator::Delta => {
                                 op = Operator::None;
                                 ex.operator = o;
                                 mn.operator = o;
@@ -284,11 +278,16 @@ impl Instruction {
                             }
                         }
                     }
-                    // Elements are decimal subcomponents.
-                    (None, Some(e), Some(m)) => {
+                    // Individual operators for subcomponents (or no elements at all).
+                    // A missing subcomponent has no operator.
+                    (None, e, m) => {
                         op = Operator::None;
-                        ex = e;
-                        mn = m;
+                        ex = e.unwrap_or_else(|| {
+                            Instruction::new(0, "exponent", ValueType::Exponent)
+                        });
+                        mn = m.unwrap_or_else(|| {
+                            Instruction::new(0, "mantissa", ValueType::Mantissa)
+                        });
                     }
                     _ => {
                         return Err(Error::Static("invalid decimal elements".to_string()));

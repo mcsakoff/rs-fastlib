@@ -30,9 +30,9 @@ pub(crate) type Entry = Option<Option<Value>>;
 pub(crate) struct Context {
     // Entries of `global` and user-defined dictionaries indexed by `DictionaryType::Static`.
     statics: Vec<Entry>,
-    // Entries of `template` dictionaries keyed by (template id, key index)
+    // Entries of `template` dictionaries keyed by (template index, key index)
     templates: HashMap<(u32, u32), Entry>,
-    // Entries of `type` dictionaries keyed by (template id, type index)
+    // Entries of `type` dictionaries keyed by (template index, type index)
     types: HashMap<(u32, u32), Entry>,
 }
 
@@ -48,7 +48,7 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn set(&mut self, dict: DictionaryType, template_id: u32, type_index: u32, val: Option<Value>) {
+    pub(crate) fn set(&mut self, dict: DictionaryType, template: u32, type_index: u32, val: Option<Value>) {
         match dict {
             DictionaryType::Static(i) => {
                 let i = i as usize;
@@ -58,7 +58,7 @@ impl Context {
                 self.statics[i] = Some(val);
             }
             DictionaryType::Template(i) => {
-                self.templates.insert((template_id, i), Some(val));
+                self.templates.insert((template, i), Some(val));
             }
             DictionaryType::Type(i) => {
                 self.types.insert((type_index, i), Some(val));
@@ -68,20 +68,20 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get(&self, dict: DictionaryType, template_id: u32, type_index: u32) -> Option<&Option<Value>> {
+    pub(crate) fn get(&self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get(i as usize)?.as_ref(),
-            DictionaryType::Template(i) => self.templates.get(&(template_id, i))?.as_ref(),
+            DictionaryType::Template(i) => self.templates.get(&(template, i))?.as_ref(),
             DictionaryType::Type(i) => self.types.get(&(type_index, i))?.as_ref(),
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
     }
 
     #[inline]
-    pub(crate) fn get_mut(&mut self, dict: DictionaryType, template_id: u32, type_index: u32) -> Option<&mut Option<Value>> {
+    pub(crate) fn get_mut(&mut self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&mut Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get_mut(i as usize)?.as_mut(),
-            DictionaryType::Template(i) => self.templates.get_mut(&(template_id, i))?.as_mut(),
+            DictionaryType::Template(i) => self.templates.get_mut(&(template, i))?.as_mut(),
             DictionaryType::Type(i) => self.types.get_mut(&(type_index, i))?.as_mut(),
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }

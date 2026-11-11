@@ -10,6 +10,8 @@ use crate::{Error, Result};
 /// to the order of the data in the stream.
 pub(crate) struct Template {
     pub(crate) id: u32,
+    // Index of the template in definitions; it identifies the instance of the `template` dictionary.
+    pub(crate) index: u32,
     pub(crate) name: String,
     pub(crate) type_ref: TypeRef,
     pub(crate) dictionary: Dictionary,
@@ -56,6 +58,7 @@ impl Template {
             dictionary,
             instructions,
             pmap_bits: Cell::new(None),
+            index: 0,
         })
     }
 }

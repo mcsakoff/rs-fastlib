@@ -128,10 +128,10 @@ pub(crate) struct DecoderContext<'a, R, M> {
     pub(crate) rdr: &'a mut R,
     pub(crate) msg: &'a mut M,
 
-    // The current template id.
+    // The index of the current template (`Template::index`).
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
     // the current template as described in the Template Reference Instruction section.
-    pub(crate) template_id: Stacked<u32>,
+    pub(crate) template: Stacked<u32>,
 
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
@@ -150,15 +150,16 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             context: &mut d.context,
             rdr: r,
             msg: m,
-            template_id: Stacked::new_empty(),
+            template: Stacked::new_empty(),
             type_ref: Stacked::new(0),
             presence_map: Stacked::new_empty(),
         }
     }
 
     // Read template id from the stream.
-    fn read_template_id(&mut self, instruction: &Instruction) -> Result<u32> {
-        match instruction.extract(self)? {
+    fn read_template_id(&mut self) -> Result<u32> {
+        let definitions = self.definitions;
+        match definitions.template_id_instruction.extract(self)? {
             Some(Value::UInt32(id)) => Ok(id),
             Some(_) => Err(Error::Runtime(
                 "Wrong template id type in context storage".to_string(),
@@ -169,17 +170,17 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         }
     }
 
-    // Decode template id from the stream and change the current processing context accordingly.
-    // `instruction` is the template id instruction of the current place in the template.
-    fn decode_template_id(&mut self, instruction: &Instruction) -> Result<()> {
-        let template_id = self.read_template_id(instruction)?;
-        self.template_id.push(template_id);
-        Ok(())
+    // Decode template id from the stream and make the template current.
+    fn decode_template_id(&mut self) -> Result<&'a Template> {
+        let template_id = self.read_template_id()?;
+        let template = self.definitions.template_by_id(template_id)?;
+        self.template.push(template.index);
+        Ok(template)
     }
 
-    // Stop processing the current template id, restore the previous value in the processing context.
-    fn drop_template_id(&mut self) {
-        self.template_id.pop();
+    // Stop processing the current template, restore the previous one in the processing context.
+    fn drop_template(&mut self) {
+        self.template.pop();
     }
 
     // Decode presence map from the stream and change the current processing context accordingly.
@@ -198,11 +199,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     // Decode a template from the stream.
     pub(crate) fn decode_template(&mut self) -> Result<()> {
         self.decode_presence_map()?;
-        let definitions = self.definitions;
-        self.decode_template_id(&definitions.template_id_instruction)?;
-        let template = self
-            .definitions
-            .template_by_id(*self.template_id.must_peek())?;
+        let template = self.decode_template_id()?;
         self.msg.start_template(template.id, &template.name);
 
         // Update some context variables
@@ -215,7 +212,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         }
 
         self.msg.stop_template();
-        self.drop_template_id();
+        self.drop_template();
         self.drop_presence_map();
         Ok(())
     }
@@ -323,11 +320,12 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
         let template = if is_dynamic {
             self.decode_presence_map()?;
-            self.decode_template_id(&instruction.instructions[0])?;
-            self.definitions
-                .template_by_id(*self.template_id.must_peek())?
+            self.decode_template_id()?
         } else {
-            self.definitions.static_template_ref(instruction)
+            // A static reference continues with the referred template as the current template.
+            let template = self.definitions.static_template_ref(instruction);
+            self.template.push(template.index);
+            template
         };
         self.msg.start_template_ref(&template.name, is_dynamic);
 
@@ -341,8 +339,8 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         }
 
         self.msg.stop_template_ref();
+        self.drop_template();
         if is_dynamic {
-            self.drop_template_id();
             self.drop_presence_map();
         }
         Ok(())
@@ -371,19 +369,19 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
         self.context
-            .set(i.dictionary_slot.get(), template_id, type_index, v);
+            .set(i.dictionary_slot.get(), template, type_index, v);
     }
 
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
         let v = self
             .context
-            .get(i.dictionary_slot.get(), template_id, type_index);
+            .get(i.dictionary_slot.get(), template, type_index);
         if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
@@ -399,11 +397,11 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_get_mut(&mut self, i: &Instruction) -> Result<Option<&mut Option<Value>>> {
-        let template_id = self.template_id.peek().copied().unwrap_or_default();
+        let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
         let v = self
             .context
-            .get_mut(i.dictionary_slot.get(), template_id, type_index);
+            .get_mut(i.dictionary_slot.get(), template, type_index);
         if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
