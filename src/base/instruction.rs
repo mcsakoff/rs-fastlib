@@ -702,7 +702,7 @@ impl Instruction {
                         } else {
                             Err(Error::Dynamic(
                                 "tail operator has no previous value".to_string(),
-                            )) // [ERR D7]
+                            )) // [ERR D6]
                         };
                     };
                     // Otherwise, if the tail value is present, the value of the field is obtained by combining
@@ -728,22 +728,22 @@ impl Instruction {
                 // on the state of the previous value.
                 match s.ctx_get(self)? {
                     // Empty: the value of the field is empty. If the field is optional the value is considered absent.
-                    // It is a dynamic error [ERR D7] if the field is mandatory.
+                    // It is a dynamic error [ERR D6] if the field is mandatory.
                     Some(None) if !self.is_optional() => Err(Error::Dynamic(
                         "tail operator has no previous value".to_string(),
-                    )), // [ERR D7]
+                    )), // [ERR D6]
 
                     Some(v) => Ok(v.clone()),
 
                     // Undefined: the value of the field is the initial value that also becomes the new previous value.
-                    // Unless the field has optional presence, it is a dynamic error [ERR D6] if the instruction context
+                    // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
                     // has no initial value. If the field has optional presence and no initial value, the field is considered
                     // absent and the state of the previous value is changed to empty.
                     None => {
                         if self.initial_value.is_none() && !self.is_optional() {
                             return Err(Error::Dynamic(
                                 "tail operator has no initial value".to_string(),
-                            )); // [ERR D6]
+                            )); // [ERR D5]
                         }
                         s.ctx_set(self, self.initial_value.clone());
                         Ok(self.initial_value.clone())

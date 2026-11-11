@@ -246,6 +246,8 @@ pub struct TextMessageVisitor {
     pub data: TextMessageValue,
     context: Stacked<*const TextMessageValue>,
     group_as_seq: Stacked<bool>,
+    // For each selected template reference: `true` if it is dynamic, so it has own context.
+    dynamic: Stacked<bool>,
 }
 
 impl TextMessageVisitor {
@@ -258,6 +260,7 @@ impl TextMessageVisitor {
             data: TextMessageValue::from_text(text)?,
             context: Stacked::new_empty(),
             group_as_seq: Stacked::new_empty(),
+            dynamic: Stacked::new_empty(),
         })
     }
 }
@@ -405,14 +408,45 @@ impl MessageVisitor for TextMessageVisitor {
     }
 
     fn select_template_ref(&mut self, _name: &str, dynamic: bool) -> Result<Option<Cow<'_, str>>> {
-        if dynamic {
-            todo!()
+        self.dynamic.push(dynamic);
+        if !dynamic {
+            // do nothing because static template ref is embedded into current context
+            return Ok(None);
         }
-        // do nothing because static template ref is embedded into current context
-        Ok(None)
+        // Dynamic template reference is formatted as `TemplateReference=<Name=<...>>`.
+        // SAFETY: the reference to context is always valid because we never modify `self.data`
+        let ctx = unsafe { self.context.must_peek().as_ref().unwrap() };
+        let TextMessageValue::Group(context) = ctx else {
+            unreachable!()
+        };
+        match context.get("TemplateReference") {
+            None => {
+                // nothing to release
+                self.dynamic.pop();
+                Ok(None)
+            }
+            Some(TextMessageValue::Group(h)) if h.len() == 1 => {
+                let (name, value) = h.iter().next().unwrap();
+                match value {
+                    TextMessageValue::Group(_) => {
+                        self.context.push(value);
+                        Ok(Some(Cow::Borrowed(name)))
+                    }
+                    _ => Err(Error::Runtime(format!(
+                        "Template reference {name} expected to be TextMessageValue::Group, got {value:?}"
+                    ))),
+                }
+            }
+            Some(v) => Err(Error::Runtime(format!(
+                "TemplateReference expected to be a group with a single template, got {v:?}"
+            ))),
+        }
     }
 
     fn release_template_ref(&mut self) -> Result<()> {
+        if self.dynamic.pop().unwrap_or_default() {
+            self.context.pop();
+        }
         Ok(())
     }
 }

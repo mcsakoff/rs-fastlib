@@ -1129,3 +1129,59 @@ foreignElm = element * - td:* { any }
 foreignAttr = attribute * - (local:* | td:*) { text }
 any = attribute * { text }*, ( text | element * { any } )*
 ```
+
+## Appendix 4: Summary of Error Codes
+
+### Static Errors
+
+#### ERR S1
+It is a static error if templates encoded in the concrete XML syntax are in fact not well-formed, do
+not follow the rules of XML namespaces or are invalid with respect to the schema in Appendix 1.
+
+#### ERR S2
+It is a static error if an operator is specified for a field of a type to which the operator is not
+applicable.
+
+#### ERR S3
+It is a static error if an initial value specified by the value attribute in the concrete syntax cannot be
+converted to a value of the type of the field.
+
+#### ERR S4
+It is a static error if no initial value is specified for a constant operator.
+
+#### ERR S5
+It is a static error if no initial value is specified for a default operator on a mandatory field.
+
+### Dynamic Errors
+
+#### ERR D1
+It is a dynamic error if type of a field in a template cannot be converted to or from the type of the
+corresponding application field.
+
+#### ERR D2
+It is a dynamic error if an integer in the stream does not fall within the bounds of the specific
+integer type specified on the corresponding field.
+
+#### ERR D3
+It is a dynamic error if a decimal value cannot be encoded due to limitations introduced by using
+individual operators on exponent and mantissa.
+
+#### ERR D4
+It is a dynamic error if the type of the previous value is not the same as the type of the field of the
+current operator.
+
+#### ERR D5
+It is a dynamic error if a mandatory field is not present in the stream, has an undefined previous
+value and there is no initial value in the instruction context.
+
+#### ERR D6
+It is a dynamic error if a mandatory field is not present in the stream and has an empty previous
+value.
+
+#### ERR D7
+It is a dynamic error if the subtraction length exceeds the length of the base value or if it does not
+fall in the value rang of an int32.
+
+#### ERR D8
+It is a dynamic error if the name specified on a static template reference does not point to a
+template known by the encoder or decoder.

@@ -1025,3 +1025,26 @@ fn decoder_error_categories() {
         "invalid UTF-8"
     ));
 }
+
+#[test]
+fn text_visitor_dynamic_template_ref() {
+    let definitions = include_str!("templates/base.xml");
+    let raw = [0xc0, 0x89, 0x86, 0xe0, 0x87, 0x85];
+    let mut d = Decoder::new_from_xml(definitions).unwrap();
+    let mut factory = crate::TextMessageFactory::new();
+    d.decode_slice(&raw, &mut factory).unwrap();
+    assert_eq!(
+        factory.text,
+        "DynamicReference=<PreRefData=6|TemplateReference=<RefData=<TestData=5>>>"
+    );
+
+    let mut e = Encoder::new_from_xml(definitions).unwrap();
+    let mut visitor = crate::TextMessageVisitor::from_text(&factory.text).unwrap();
+    assert_eq!(e.encode_vec(&mut visitor).unwrap(), raw);
+
+    // Missing mandatory dynamic template reference.
+    let mut e = Encoder::new_from_xml(definitions).unwrap();
+    let mut visitor =
+        crate::TextMessageVisitor::from_text("DynamicReference=<PreRefData=6>").unwrap();
+    assert!(e.encode_vec(&mut visitor).is_err());
+}
