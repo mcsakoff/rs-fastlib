@@ -225,7 +225,7 @@ impl Value {
 
     /// Same as [`Value::apply_delta`] but modifies the value in place, reusing the buffer when possible.
     /// # Errors
-    /// Same as [`Value::apply_delta`].
+    /// Same as [`Value::apply_delta`]. If a Unicode string doesn't remain valid UTF-8, it is left empty.
     pub fn apply_delta_in_place(&mut self, delta: &Delta) -> Result<()> {
         match (&mut *self, delta) {
             (Value::ASCIIString(v), Delta::Ascii(d, sub)) => {
@@ -240,13 +240,12 @@ impl Value {
             }
             (Value::Bytes(v), Delta::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
-                if front {
-                    v.splice(..i, d.iter().copied());
-                } else {
-                    v.truncate(i);
-                    v.extend_from_slice(d);
-                }
+                splice_in_place(v, d, front, i);
                 Ok(())
+            }
+            (Value::UnicodeString(v), Delta::Bytes(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
+                unicode_in_place(v, |b| splice_in_place(b, d, front, i))
             }
             _ => {
                 *self = self.apply_delta(delta)?;
@@ -297,6 +296,7 @@ impl Value {
     /// Same as [`Value::apply_tail`] but modifies the value in place.
     /// # Errors
     /// Returns error if types are not bytes/string or previous and current types mismatch.
+    /// If a Unicode string doesn't remain valid UTF-8, it is left empty.
     pub fn apply_tail_in_place(&mut self, tail: &Value) -> Result<()> {
         match (&mut *self, tail) {
             (Value::ASCIIString(v), Value::ASCIIString(t)) => {
@@ -309,6 +309,10 @@ impl Value {
                 v.extend_from_slice(t);
                 Ok(())
             }
+            (Value::UnicodeString(v), Value::Bytes(t)) => unicode_in_place(v, |b| {
+                b.truncate(tail_index(b.len(), t.len()));
+                b.extend_from_slice(t);
+            }),
             _ => {
                 *self = self.apply_tail(tail)?;
                 Ok(())
@@ -462,6 +466,25 @@ fn splice_bytes(v: &[u8], d: &[u8], front: bool, i: usize) -> Vec<u8> {
         b.extend_from_slice(d);
     }
     b
+}
+
+// Same as `splice_bytes` but modifies `v` in place.
+fn splice_in_place(v: &mut Vec<u8>, d: &[u8], front: bool, i: usize) {
+    if front {
+        v.splice(..i, d.iter().copied());
+    } else {
+        v.truncate(i);
+        v.extend_from_slice(d);
+    }
+}
+
+// Modifies the bytes of a Unicode string in place reusing its buffer.
+// It is a reportable error [ERR R2] if the result is not a valid UTF-8 sequence; the string is left empty then.
+fn unicode_in_place(v: &mut String, f: impl FnOnce(&mut Vec<u8>)) -> Result<()> {
+    let mut b = std::mem::take(v).into_bytes();
+    f(&mut b);
+    *v = String::from_utf8(b).map_err(|e| invalid_utf8(&e))?;
+    Ok(())
 }
 
 // It is a reportable error [ERR R2] if the combined value is not a valid UTF-8 sequence.

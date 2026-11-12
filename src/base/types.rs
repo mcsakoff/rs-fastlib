@@ -141,8 +141,9 @@ impl Dictionary {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum TypeRef {
     Any,
-    // Application type name: (namespace URI, local name).
-    ApplicationType(Rc<str>, Rc<str>),
+    // Application type name: (namespace URI, local name, index).
+    // The index (`Definitions::type_index`) is resolved when definitions are loaded.
+    ApplicationType(Rc<str>, Rc<str>, Cell<u32>),
 }
 
 impl TypeRef {
@@ -156,6 +157,7 @@ impl TypeRef {
             Ok(Some(TypeRef::ApplicationType(
                 inherited_attribute(node, "ns"),
                 Rc::from(type_ref_name),
+                Cell::new(0),
             )))
         } else {
             Ok(None)

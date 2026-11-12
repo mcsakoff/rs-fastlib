@@ -218,7 +218,9 @@ pub trait Reader {
     fn read_ascii_string(&mut self) -> Result<String> {
         let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
         self.read_stop_bit_run(&mut buf)?;
-        ascii_from_run(buf)
+        let offset = ascii_offset(&buf)?;
+        buf.drain(..offset);
+        Ok(ascii_from_run(buf))
     }
 
     /// Returns decoded nullable ASCII encoded string.
@@ -227,7 +229,11 @@ pub trait Reader {
     fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
         let mut buf: Vec<u8> = Vec::with_capacity(128); // just a guess
         self.read_stop_bit_run(&mut buf)?;
-        ascii_from_run_nullable(buf)
+        let Some(offset) = ascii_nullable_offset(&buf)? else {
+            return Ok(None);
+        };
+        buf.drain(..offset);
+        Ok(Some(ascii_from_run(buf)))
     }
 
     /// Returns decoded non-nullable unicode encoded string.
@@ -348,54 +354,48 @@ fn overlong_string() -> Error {
     Error::Dynamic("overlong ASCII string".to_string()) // [ERR R9]
 }
 
-// Converts a stop bit encoded run into a non-nullable ASCII string.
+// Returns the offset of a non-nullable ASCII string in its stop bit encoded run.
 // A string that starts with a zero-preamble (seven zero bits) consists of the bits that remain after removing the preamble.
 // If there are no bits left, it is the empty string. If the first seven of the remaining bits are not all zero,
 // the string is overlong.
-fn ascii_from_run(mut buf: Vec<u8>) -> Result<String> {
-    if let Some(last) = buf.last_mut() {
-        *last &= 0x7f;
+fn ascii_offset(run: &[u8]) -> Result<usize> {
+    match run {
+        [0x80] | [0x00, 0x00 | 0x80, ..] => Ok(1),
+        [0x00, ..] => Err(overlong_string()),
+        _ => Ok(0),
     }
-    ascii_from_entity(buf)
 }
 
-// Converts a stop bit encoded run into a nullable ASCII string.
+// Returns the offset of a nullable ASCII string in its stop bit encoded run, or `None` if the value is NULL.
 // An additional zero-preamble is allowed at the start of the string. The bits that follow are interpreted as
 // a non-nullable string. If there are no remaining bits after removing the preamble the value is NULL.
-fn ascii_from_run_nullable(mut buf: Vec<u8>) -> Result<Option<String>> {
-    if let Some(last) = buf.last_mut() {
-        *last &= 0x7f;
-    }
-    match buf.as_slice() {
-        [0x00] => Ok(None),
-        [0x00, 0x00, ..] => {
-            buf.remove(0);
-            Ok(Some(ascii_from_entity(buf)?))
-        }
-        [0x00, _, ..] => Err(overlong_string()),
-        _ => Ok(Some(ascii_from_entity(buf)?)),
+fn ascii_nullable_offset(run: &[u8]) -> Result<Option<usize>> {
+    match run {
+        [0x80] => Ok(None),
+        [0x00, rest @ ..] => match rest {
+            [0x00 | 0x80, ..] => Ok(Some(1 + ascii_offset(rest)?)),
+            _ => Err(overlong_string()),
+        },
+        _ => Ok(Some(0)),
     }
 }
 
-// Converts an entity value (stop bit cleared) into a non-nullable ASCII string.
-fn ascii_from_entity(mut buf: Vec<u8>) -> Result<String> {
-    match buf.as_slice() {
-        [0x00, 0x00, ..] | [0x00] => {
-            buf.remove(0);
-        }
-        [0x00, _, ..] => return Err(overlong_string()),
-        _ => {}
+// Converts the tail of a stop bit encoded run (after the preamble is removed) into an ASCII string.
+fn ascii_from_run(mut buf: Vec<u8>) -> String {
+    if let Some(last) = buf.last_mut() {
+        *last &= 0x7f;
     }
     // SAFETY: `buf` contains ASCII 7-bit characters.
-    //         A stop bit run has the 8th bit set only in the last byte, which was cleared by the caller.
-    Ok(unsafe { String::from_utf8_unchecked(buf) })
+    //         A stop bit run has the 8th bit set only in the last byte, which is cleared above.
+    unsafe { String::from_utf8_unchecked(buf) }
 }
 
 // Helpers that parse values from contiguous memory. Each returns the value and the number of consumed bytes.
 mod slice {
     use super::{
-        MAX_PMAP_BITS, int_from_nullable, int_nullable_max, integer_overflow, is_overlong_signed,
-        overlong_integer, pmap_overflow, uint_nullable_max,
+        MAX_PMAP_BITS, ascii_from_run, ascii_nullable_offset, ascii_offset, int_from_nullable,
+        int_nullable_max, integer_overflow, is_overlong_signed, overlong_integer, pmap_overflow,
+        uint_nullable_max,
     };
     use crate::{Error, Result};
 
@@ -515,6 +515,22 @@ mod slice {
         Err(Error::UnexpectedEof)
     }
 
+    // Returns the non-nullable ASCII string; it is allocated with the exact size.
+    #[inline]
+    pub(super) fn ascii_string(buf: &[u8]) -> Result<(String, usize)> {
+        let n = stop_bit_len(buf)?;
+        let offset = ascii_offset(&buf[..n])?;
+        Ok((ascii_from_run(buf[offset..n].to_vec()), n))
+    }
+
+    #[inline]
+    pub(super) fn ascii_string_nullable(buf: &[u8]) -> Result<(Option<String>, usize)> {
+        let n = stop_bit_len(buf)?;
+        let s =
+            ascii_nullable_offset(&buf[..n])?.map(|offset| ascii_from_run(buf[offset..n].to_vec()));
+        Ok((s, n))
+    }
+
     #[inline]
     pub(super) fn presence_map(buf: &[u8]) -> Result<((u64, u8), usize)> {
         if buf.is_empty() {
@@ -612,6 +628,20 @@ macro_rules! impl_contiguous_reader {
         #[inline]
         fn read_int128(&mut self) -> Result<i128> {
             let (v, n) = slice::int128(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_ascii_string(&mut self) -> Result<String> {
+            let (v, n) = slice::ascii_string(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_ascii_string_nullable(&mut self) -> Result<Option<String>> {
+            let (v, n) = slice::ascii_string_nullable(Contiguous::rest(self))?;
             Contiguous::consume(self, n);
             Ok(v)
         }
@@ -1186,7 +1216,11 @@ mod tests {
             let mut cursor = Cursor::new(input.clone());
             let expected = run(&mut StreamReader::new(&mut cursor));
             assert_eq!(run(&mut SliceReader::new(&input)), expected, "{input:x?}");
-            assert_eq!(run(&mut bytes::Bytes::from(input.clone())), expected, "{input:x?}");
+            assert_eq!(
+                run(&mut bytes::Bytes::from(input.clone())),
+                expected,
+                "{input:x?}"
+            );
         }
     }
 }

@@ -28,6 +28,12 @@ impl<T> Stacked<T> {
         }
     }
 
+    /// Replaces the current value with `v` and drops the stack keeping its allocated capacity.
+    pub fn reset(&mut self, v: Option<T>) {
+        self.current = v;
+        self.stack.clear();
+    }
+
     pub fn pop(&mut self) -> Option<T> {
         let old = self.stack.pop();
         match old {

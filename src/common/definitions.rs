@@ -23,8 +23,6 @@ pub struct Definitions {
     pub(crate) template_id_instruction: Instruction,
     // Message segments (and dynamic template references) may need presence maps longer than `MAX_PMAP_BITS`.
     pub(crate) long_template_pmap: bool,
-    // Indexes of application types by (namespace URI, local name); index 0 is reserved for special type `any`.
-    type_indices: HashMap<(Rc<str>, Rc<str>), u32>,
 }
 
 impl Definitions {
@@ -32,6 +30,7 @@ impl Definitions {
         let mut templates_by_id = HashMap::default();
         let mut templates_by_name = HashMap::default();
         let mut qualified_templates = HashMap::default();
+        // Indexes of application types by (namespace URI, local name); index 0 is reserved for special type `any`.
         let mut type_indices = HashMap::default();
         for (i, t) in templates.iter_mut().enumerate() {
             t.index =
@@ -65,18 +64,19 @@ impl Definitions {
             qualified_templates,
             template_id_instruction,
             long_template_pmap: false,
-            type_indices,
         };
         definitions.long_template_pmap = definitions.finalize()?;
         Ok(definitions)
     }
 
     fn index_type_ref(type_ref: &TypeRef, type_indices: &mut HashMap<(Rc<str>, Rc<str>), u32>) {
-        if let TypeRef::ApplicationType(ns, name) = type_ref {
+        if let TypeRef::ApplicationType(ns, name, index) = type_ref {
             let next = u32::try_from(type_indices.len() + 1).unwrap_or(u32::MAX);
-            type_indices
-                .entry((ns.clone(), name.clone()))
-                .or_insert(next);
+            index.set(
+                *type_indices
+                    .entry((ns.clone(), name.clone()))
+                    .or_insert(next),
+            );
         }
     }
 
@@ -92,12 +92,10 @@ impl Definitions {
 
     /// Returns index of application type, or `None` for the special type `any`.
     #[inline]
-    pub(crate) fn type_index(&self, type_ref: &TypeRef) -> Option<u32> {
+    pub(crate) fn type_index(type_ref: &TypeRef) -> Option<u32> {
         match type_ref {
             TypeRef::Any => None,
-            TypeRef::ApplicationType(ns, name) => {
-                self.type_indices.get(&(ns.clone(), name.clone())).copied()
-            }
+            TypeRef::ApplicationType(_, _, index) => Some(index.get()),
         }
     }
 

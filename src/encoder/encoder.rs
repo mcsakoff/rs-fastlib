@@ -1,4 +1,4 @@
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use std::io::Write;
 
 use crate::base::instruction::Instruction;
@@ -6,7 +6,7 @@ use crate::base::message::MessageVisitor;
 use crate::base::pmap::PresenceMap;
 use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::Context;
+use crate::common::context::{Context, Scopes};
 use crate::common::definitions::Definitions;
 use crate::encoder::writer::{StreamWriter, Writer, presence_map_bytes};
 use crate::utils::stacked::Stacked;
@@ -18,6 +18,9 @@ pub struct Encoder {
     pub(crate) context: Context,
     // Reusable buffer for encoding messages into writers.
     scratch: Vec<u8>,
+    scopes: Scopes,
+    // Length of the last message encoded by `encode_vec`; used as the capacity of the next buffer.
+    size_hint: usize,
 }
 
 impl Encoder {
@@ -27,6 +30,8 @@ impl Encoder {
             definitions: Definitions::new_from_templates(ts)?,
             context: Context::new(),
             scratch: Vec::new(),
+            scopes: Scopes::new(),
+            size_hint: 0,
         })
     }
 
@@ -38,6 +43,8 @@ impl Encoder {
             definitions: Definitions::new_from_xml(text)?,
             context: Context::new(),
             scratch: Vec::new(),
+            scopes: Scopes::new(),
+            size_hint: 0,
         })
     }
 
@@ -50,8 +57,9 @@ impl Encoder {
     /// # Errors
     /// Returns error if encoding failed.
     pub fn encode_vec(&mut self, msg: &mut impl MessageVisitor) -> Result<Vec<u8>> {
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(self.size_hint);
         self.encode_append(&mut buf, msg)?;
+        self.size_hint = buf.len();
         Ok(buf)
     }
 
@@ -78,7 +86,8 @@ impl Encoder {
     /// # Errors
     /// Returns error if encoding failed.
     pub fn encode_bytes(&mut self, msg: &mut impl MessageVisitor) -> Result<BytesMut> {
-        Ok(BytesMut::from(self.encode_vec(msg)?.as_slice()))
+        // The conversion takes over the vector's buffer without copying.
+        Ok(BytesMut::from(Bytes::from(self.encode_vec(msg)?)))
     }
 
     /// Encodes message into a given stream.
@@ -151,26 +160,27 @@ pub(crate) struct EncoderContext<'a> {
     // The index of the current template (`Template::index`).
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
     // the current template as described in the Template Reference Instruction section.
-    pub(crate) template: Stacked<u32>,
+    pub(crate) template: &'a mut Stacked<u32>,
 
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
     // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
     // Holds index of the apllication type (`Definitions::type_index`), 0 is `any`.
-    pub(crate) type_ref: Stacked<u32>,
+    pub(crate) type_ref: &'a mut Stacked<u32>,
 
     // The presence map of the current segment.
-    pub(crate) presence_map: Stacked<PresenceMap>,
+    pub(crate) presence_map: &'a mut Stacked<PresenceMap>,
 }
 
 impl<'a> EncoderContext<'a> {
     pub(crate) fn new(d: &'a mut Encoder) -> Self {
+        d.scopes.reset();
         Self {
             definitions: &d.definitions,
             context: &mut d.context,
-            template: Stacked::new_empty(),
-            type_ref: Stacked::new(0),
-            presence_map: Stacked::new_empty(),
+            template: &mut d.scopes.template,
+            type_ref: &mut d.scopes.type_ref,
+            presence_map: &mut d.scopes.presence_map,
         }
     }
 
@@ -202,7 +212,7 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        match self.definitions.type_index(type_ref) {
+        match Definitions::type_index(type_ref) {
             None => false,
             Some(index) => {
                 self.type_ref.push(index);

@@ -1,6 +1,8 @@
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::Value;
+use crate::base::pmap::PresenceMap;
+use crate::utils::stacked::Stacked;
 
 /// Location of an instruction's previous value in the dictionaries.
 /// It is resolved with templates are loaded, so no strings are hashed during processing.
@@ -21,6 +23,32 @@ pub(crate) enum DictionaryType {
 ///     - `Sone(None)` - empty,
 ///     - `Some(Some(None))` - value assigned.
 pub(crate) type Entry = Option<Option<Value>>;
+
+/// Processing scopes of one message: the current template, application type and presence map.
+/// They are kept by the decoder/encoder between messages, so the stacks are allocated once.
+#[derive(Debug)]
+pub(crate) struct Scopes {
+    pub(crate) template: Stacked<u32>,
+    pub(crate) type_ref: Stacked<u32>,
+    pub(crate) presence_map: Stacked<PresenceMap>,
+}
+
+impl Scopes {
+    pub(crate) fn new() -> Self {
+        Self {
+            template: Stacked::new_empty(),
+            type_ref: Stacked::new(0),
+            presence_map: Stacked::new_empty(),
+        }
+    }
+
+    /// Resets the scopes for a new message; previous message processing could fail half way.
+    pub(crate) fn reset(&mut self) {
+        self.template.reset(None);
+        self.type_ref.reset(Some(0));
+        self.presence_map.reset(None);
+    }
+}
 
 /// Decoder state that stores global state during all messages decoding.
 /// Created when decoder is created.

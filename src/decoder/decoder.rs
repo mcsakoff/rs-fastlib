@@ -5,7 +5,7 @@ use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
 use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::Context;
+use crate::common::context::{Context, Scopes};
 use crate::common::definitions::Definitions;
 use crate::decoder::reader::{Reader, SliceReader, StreamReader};
 use crate::utils::stacked::Stacked;
@@ -15,6 +15,7 @@ use crate::{Error, Result};
 pub struct Decoder {
     pub(crate) definitions: Definitions,
     pub(crate) context: Context,
+    pub(crate) scopes: Scopes,
 }
 
 impl Decoder {
@@ -26,6 +27,7 @@ impl Decoder {
         Ok(Decoder {
             definitions: Definitions::new_from_templates(ts)?,
             context: Context::new(),
+            scopes: Scopes::new(),
         })
     }
 
@@ -36,6 +38,7 @@ impl Decoder {
         Ok(Decoder {
             definitions: Definitions::new_from_xml(text)?,
             context: Context::new(),
+            scopes: Scopes::new(),
         })
     }
 
@@ -131,28 +134,29 @@ pub(crate) struct DecoderContext<'a, R, M> {
     // The index of the current template (`Template::index`).
     // It is updated when a template identifier is encountered in the stream. A static template reference can also change
     // the current template as described in the Template Reference Instruction section.
-    pub(crate) template: Stacked<u32>,
+    pub(crate) template: &'a mut Stacked<u32>,
 
     // The current application type is initially the special type `any`. The current application type changes when the processor
     // encounters an element containing a `typeRef` element. The new type is applicable to the instructions contained within
     // the element. The `typeRef` can appear in the <template>, <group> and <sequence> elements.
     // Holds index of the apllication type (`Definitions::type_index`), 0 is `any`.
-    pub(crate) type_ref: Stacked<u32>,
+    pub(crate) type_ref: &'a mut Stacked<u32>,
 
     // The presence map of the current segment.
-    pub(crate) presence_map: Stacked<PresenceMap>,
+    pub(crate) presence_map: &'a mut Stacked<PresenceMap>,
 }
 
 impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     pub(crate) fn new(d: &'a mut Decoder, r: &'a mut R, m: &'a mut M) -> Self {
+        d.scopes.reset();
         Self {
             definitions: &d.definitions,
             context: &mut d.context,
             rdr: r,
             msg: m,
-            template: Stacked::new_empty(),
-            type_ref: Stacked::new(0),
-            presence_map: Stacked::new_empty(),
+            template: &mut d.scopes.template,
+            type_ref: &mut d.scopes.type_ref,
+            presence_map: &mut d.scopes.presence_map,
         }
     }
 
@@ -399,7 +403,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     fn switch_type_ref(&mut self, type_ref: &TypeRef) -> bool {
-        match self.definitions.type_index(type_ref) {
+        match Definitions::type_index(type_ref) {
             None => false,
             Some(index) => {
                 self.type_ref.push(index);

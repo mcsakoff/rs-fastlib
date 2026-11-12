@@ -3,6 +3,7 @@
 //! See: https://fixtrading.org/packages/fast-specification-version-1-1/
 //!
 use super::*;
+use crate::common::definitions::Definitions;
 use crate::model::template::TemplateData;
 use crate::model::value::{Fields, ValueData};
 use crate::{Decimal, Error};
@@ -732,7 +733,7 @@ fn key_and_type_namespaces() {
 
     let t1 = &d.definitions.template_by_id(12).unwrap().type_ref;
     let t2 = &d.definitions.template_by_id(13).unwrap().type_ref;
-    assert_ne!(d.definitions.type_index(t1), d.definitions.type_index(t2));
+    assert_ne!(Definitions::type_index(t1), Definitions::type_index(t2));
 }
 
 #[test]
@@ -1216,4 +1217,74 @@ fn sequence_without_instructions() {
             "{body}"
         );
     }
+}
+
+#[test]
+fn unicode_delta_and_tail_on_previous_value() {
+    let unicode = |s: &str| Some(Value::UnicodeString(s.to_string()));
+    // Byte-level splices can replace a part of a multi-byte character.
+    do_test_seq(
+        true,
+        true,
+        true,
+        &template_xml(r#"<string id="1" name="Value" charset="unicode"><delta/></string>"#),
+        TestCaseSeq {
+            name: "unicode delta",
+            raw: vec![
+                vec![0xc0, 0x81, 0x80, 0x83, 0x61, 0xc3, 0xa9],
+                vec![0x80, 0x81, 0x81, 0xa8],
+                vec![0x80, 0xff, 0x82, 0xc3, 0xbc],
+            ],
+            data: vec![
+                msg("T", unicode("aé")),
+                msg("T", unicode("aè")),
+                msg("T", unicode("üaè")),
+            ],
+        },
+    );
+    do_test_seq(
+        true,
+        true,
+        true,
+        &template_xml(r#"<string id="1" name="Value" charset="unicode"><tail/></string>"#),
+        TestCaseSeq {
+            name: "unicode tail",
+            raw: vec![
+                vec![0xe0, 0x81, 0x83, 0x61, 0xc3, 0xa9],
+                vec![0xa0, 0x81, 0xa8],
+            ],
+            data: vec![msg("T", unicode("aé")), msg("T", unicode("aè"))],
+        },
+    );
+    // [ERR R2] the combined value is not valid UTF-8.
+    let xml = template_xml(r#"<string id="1" name="Value" charset="unicode"><delta/></string>"#);
+    assert!(is_dynamic(
+        decode_seq_result(
+            &xml,
+            &[
+                &[0xc0, 0x81, 0x80, 0x83, 0x61, 0xc3, 0xa9],
+                &[0x80, 0x81, 0x81, 0x41]
+            ]
+        ),
+        "invalid UTF-8"
+    ));
+}
+
+#[test]
+fn decode_after_failed_message() {
+    let xml =
+        template_xml(r#"<group name="G"><typeRef name="X"/><uInt32 id="1" name="Value"/></group>"#);
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    // The message ends inside the application type scope of the group.
+    assert!(
+        d.decode_slice(&[0xc0, 0x81], &mut ModelFactory::new())
+            .is_err()
+    );
+    d.decode_slice(&[0xc0, 0x81, 0x82], &mut ModelFactory::new())
+        .unwrap();
+    // Scopes of the failed message don't leak into the next one.
+    assert_eq!(d.scopes.type_ref.peek(), Some(&0));
+    assert!(d.scopes.type_ref.stack.is_empty());
+    assert!(d.scopes.template.peek().is_none());
+    assert!(d.scopes.presence_map.peek().is_none());
 }
