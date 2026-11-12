@@ -60,17 +60,17 @@ impl MessageFactory for TextMessageFactory {
         self.text += ">";
     }
 
-    fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
+    fn set_value(&mut self, _id: u32, name: &str, value: Option<Cow<'_, Value>>) {
         if let Some(value) = value {
             self.delimiter();
-            let value = match value {
-                Value::UInt32(v) => format!("{v}"),
-                Value::Int32(v) => format!("{v}"),
-                Value::UInt64(v) => format!("{v}"),
-                Value::Int64(v) => format!("{v}"),
-                Value::Decimal(v) => v.to_string(),
-                Value::ASCIIString(v) | Value::UnicodeString(v) => v.clone(),
-                Value::Bytes(b) => bytes_to_string(&b),
+            let value: Cow<str> = match value.as_ref() {
+                Value::UInt32(v) => format!("{v}").into(),
+                Value::Int32(v) => format!("{v}").into(),
+                Value::UInt64(v) => format!("{v}").into(),
+                Value::Int64(v) => format!("{v}").into(),
+                Value::Decimal(v) => v.to_string().into(),
+                Value::ASCIIString(v) | Value::UnicodeString(v) => v.as_str().into(),
+                Value::Bytes(b) => bytes_to_string(b).into(),
             };
             let _ = write!(&mut self.text, "{name}={value}");
         }
@@ -175,17 +175,17 @@ impl MessageFactory for JsonMessageFactory {
         self.json += "}}";
     }
 
-    fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
+    fn set_value(&mut self, _id: u32, name: &str, value: Option<Cow<'_, Value>>) {
         if let Some(value) = value {
             self.delimiter();
-            let value = match value {
+            let value = match value.as_ref() {
                 Value::UInt32(v) => format!("{v}"),
                 Value::Int32(v) => format!("{v}"),
                 Value::UInt64(v) => format!("{v}"),
                 Value::Int64(v) => format!("{v}"),
                 Value::Decimal(v) => format!("{v}"),
                 Value::ASCIIString(v) | Value::UnicodeString(v) => format!("\"{v}\""),
-                Value::Bytes(b) => bytes_to_string(&b),
+                Value::Bytes(b) => bytes_to_string(b),
             };
             let _ = write!(&mut self.json, "\"{name}\":{value}");
         }

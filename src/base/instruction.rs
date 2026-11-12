@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::ops::RangeInclusive;
 use std::rc::Rc;
@@ -71,6 +72,14 @@ pub(crate) struct Instruction {
 
     // Location of the previous value in dictionaries; resolved when defitions are loaded.
     pub(crate) dictionary_slot: Cell<DictionaryType>,
+}
+
+/// The value of a field extracted by the decoder.
+pub(crate) enum Extracted<'i> {
+    /// The value decoded from the stream or borrowed from the instruction context; `None` if absent.
+    Value(Option<Cow<'i, Value>>),
+    /// The value is the (assigned) previous value of the field in the dictionary.
+    Previous,
 }
 
 impl Instruction {
@@ -538,28 +547,29 @@ impl Instruction {
         }
     }
 
+    // Extracts the value of the field from the stream applying the field operator.
+    // Values are not copied from dictionaries and the instruction: the value may be borrowed from
+    // the instruction context or refer to the previous value of the field.
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn extract<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    pub(crate) fn extract<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Extracted<'_>>
     where
         R: Reader,
         M: MessageFactory,
     {
+        let owned = |v: Option<Value>| Extracted::Value(v.map(Cow::Owned));
+        let initial = || Extracted::Value(self.initial_value.as_ref().map(Cow::Borrowed));
         match self.operator {
-            Operator::None => Ok(self.read(s)?),
+            Operator::None => Ok(owned(self.read(s)?)),
 
             // The constant operator specifies that the value of a field will always be the same.
             // The value of the field is the initial value. It is a static error [ERR S4] if the instruction context
             // has no initial value. The value of a constant field is never transferred.
             Operator::Constant => {
-                let v = if !self.is_optional() || s.pmap_next_bit_set() {
-                    match &self.initial_value {
-                        Some(v) => Some(v.clone()),
-                        None => unreachable!(),
-                    }
+                if !self.is_optional() || s.pmap_next_bit_set() {
+                    Ok(initial())
                 } else {
-                    None
-                };
-                Ok(v)
+                    Ok(Extracted::Value(None))
+                }
             }
 
             // The default operator specifies that the value of a field is either present in the stream
@@ -568,9 +578,9 @@ impl Instruction {
             // the field is considered absent when there is no value in the stream.
             Operator::Default => {
                 if s.pmap_next_bit_set() {
-                    Ok(self.read(s)?)
+                    Ok(owned(self.read(s)?))
                 } else {
-                    Ok(self.initial_value.clone())
+                    Ok(initial())
                 }
             }
 
@@ -579,8 +589,7 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     // If the value is present in the stream it becomes the new previous value.
                     let v = self.read(s)?;
-                    s.ctx_set(self, v.clone());
-                    return Ok(v);
+                    return Ok(self.set_previous(s, v));
                 }
 
                 // When the value is not present in the stream there are three cases depending
@@ -591,9 +600,10 @@ impl Instruction {
                     Some(None) if !self.is_optional() => Err(Error::Dynamic(
                         "copy operator has no previous value".to_string(),
                     )), // [ERR D6]
+                    Some(None) => Ok(Extracted::Value(None)),
 
                     // Assigned: The value of the field is the previous value.
-                    Some(v) => Ok(v.clone()),
+                    Some(Some(_)) => Ok(Extracted::Previous),
 
                     // Undefined: The value of the field is the initial value that also becomes the new previous value.
                     // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context has no initial value.
@@ -606,7 +616,7 @@ impl Instruction {
                             )); // [ERR D5]
                         }
                         s.ctx_set(self, self.initial_value.clone());
-                        Ok(self.initial_value.clone())
+                        Ok(initial())
                     }
                 }
             }
@@ -616,14 +626,16 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     //If the value is present in the stream it becomes the new previous value.
                     let v = self.read(s)?;
-                    s.ctx_set(self, v.clone());
-                    return Ok(v);
+                    return Ok(self.set_previous(s, v));
                 }
                 // When the value is not present in the stream there are three cases depending on the state of the previous value:
-                let v = match s.ctx_get(self)? {
+                match s.ctx_get_mut(self)? {
                     // Assigned: the value of the field is the previous value incremented by one.
                     // The incremented value also becomes the new previous value.
-                    Some(Some(prev)) => Some(prev.apply_increment()?),
+                    Some(Some(prev)) => {
+                        *prev = prev.apply_increment()?;
+                        Ok(Extracted::Previous)
+                    }
 
                     // Empty: the value of the field is empty.
                     // If the field is optional, the value is considered absent.
@@ -634,7 +646,7 @@ impl Instruction {
                                 "increment operator has no previous value".to_string(),
                             ));
                         }
-                        return Ok(None);
+                        Ok(Extracted::Value(None))
                     }
 
                     // Undefined: the value of the field is the initial value that also becomes the new previous value.
@@ -647,11 +659,10 @@ impl Instruction {
                                 "increment operator has no initial value".to_string(),
                             )); // [ERR D5]
                         }
-                        self.initial_value.clone()
+                        s.ctx_set(self, self.initial_value.clone());
+                        Ok(initial())
                     }
-                };
-                s.ctx_set(self, v.clone());
-                Ok(v)
+                }
             }
 
             // The delta operator specifies that a delta value is present in the stream.
@@ -659,7 +670,7 @@ impl Instruction {
                 // If the field has optional presence, the delta value can be NULL.
                 // In that case the value of the field is considered absent.
                 let Some(delta) = self.read_delta(s)? else {
-                    return Ok(None);
+                    return Ok(Extracted::Value(None));
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
                 // The base value depends on the state of the previous value in the following way:
@@ -668,7 +679,7 @@ impl Instruction {
                     // The combined value becomes the new previous value.
                     Some(Some(prev)) => {
                         prev.apply_delta_in_place(&delta)?;
-                        Ok(Some(prev.clone()))
+                        Ok(Extracted::Previous)
                     }
 
                     // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
@@ -683,9 +694,7 @@ impl Instruction {
                             Some(v) => v.apply_delta(&delta)?,
                             None => self.value_type.to_default_value()?.apply_delta(&delta)?,
                         };
-                        let value = Some(value);
-                        s.ctx_set(self, value.clone());
-                        Ok(value)
+                        Ok(self.set_previous(s, Some(value)))
                     }
                 }
             }
@@ -698,8 +707,7 @@ impl Instruction {
                         // In that case the value of the field is considered absent
                         // and the state of the previous value is set to empty.
                         return if self.is_optional() {
-                            s.ctx_set(self, None);
-                            Ok(None)
+                            Ok(self.set_previous(s, None))
                         } else {
                             Err(Error::Dynamic(
                                 "tail operator has no previous value".to_string(),
@@ -712,7 +720,7 @@ impl Instruction {
                     if let Some(Some(prev)) = s.ctx_get_mut(self)? {
                         // Assigned: the base value is the previous value.
                         prev.apply_tail_in_place(&tail)?;
-                        return Ok(Some(prev.clone()));
+                        return Ok(Extracted::Previous);
                     }
                     // Empty or Undefined: the base value is the initial value if present in the instruction context.
                     // Otherwise, a type dependant default base value is used.
@@ -720,9 +728,7 @@ impl Instruction {
                         Some(v) => v.apply_tail(&tail)?,
                         None => self.value_type.to_default_value()?.apply_tail(&tail)?,
                     };
-                    let value = Some(value);
-                    s.ctx_set(self, value.clone());
-                    return Ok(value);
+                    return Ok(self.set_previous(s, Some(value)));
                 }
 
                 // If the tail value is not present in the stream, the value of the field depends
@@ -733,8 +739,9 @@ impl Instruction {
                     Some(None) if !self.is_optional() => Err(Error::Dynamic(
                         "tail operator has no previous value".to_string(),
                     )), // [ERR D6]
+                    Some(None) => Ok(Extracted::Value(None)),
 
-                    Some(v) => Ok(v.clone()),
+                    Some(Some(_)) => Ok(Extracted::Previous),
 
                     // Undefined: the value of the field is the initial value that also becomes the new previous value.
                     // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
@@ -747,10 +754,39 @@ impl Instruction {
                             )); // [ERR D5]
                         }
                         s.ctx_set(self, self.initial_value.clone());
-                        Ok(self.initial_value.clone())
+                        Ok(initial())
                     }
                 }
             }
+        }
+    }
+
+    // Same as `extract` but returns an owned value; used for values the decoder needs itself.
+    #[inline]
+    pub(crate) fn extract_owned<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
+        match self.extract(s)? {
+            Extracted::Value(v) => Ok(v.map(Cow::into_owned)),
+            Extracted::Previous => Ok(s.ctx_get(self)?.cloned().flatten()),
+        }
+    }
+
+    // Makes the value the new previous value. The value of the field is the previous value then.
+    #[inline]
+    fn set_previous<R, M>(&self, s: &mut DecoderContext<R, M>, v: Option<Value>) -> Extracted<'_>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
+        let present = v.is_some();
+        s.ctx_set(self, v);
+        if present {
+            Extracted::Previous
+        } else {
+            Extracted::Value(None)
         }
     }
 
@@ -973,7 +1009,7 @@ impl Instruction {
             .instructions
             .first()
             .ok_or_else(|| Error::Runtime("exponent field not found".to_string()))?
-            .extract(s)?;
+            .extract_owned(s)?;
         if exponent.is_none() {
             return Ok(None);
         }
@@ -981,7 +1017,7 @@ impl Instruction {
             .instructions
             .get(1)
             .ok_or_else(|| Error::Runtime("mantissa field not found".to_string()))?
-            .extract(s)?;
+            .extract_owned(s)?;
 
         if let (Some(Value::Int32(e)), Some(Value::Int64(m))) = (exponent, mantissa) {
             // The exponent must be in range after any operator has been applied.
@@ -1011,8 +1047,6 @@ impl Instruction {
         buf: &mut impl Writer,
         value: Option<&Value>,
     ) -> Result<()> {
-        use std::borrow::Cow;
-
         // Convert between character sets before operators use the value, so previous values have
         // the type of the field.
         let converted;

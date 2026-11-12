@@ -1,5 +1,6 @@
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use fastlib::{Decoder, Encoder, MessageFactory, TextMessageFactory, TextMessageVisitor, Value};
+use std::borrow::Cow;
 use std::hint::black_box;
 
 use crate::cqg::{DEFINITIONS_RAW, DEFINITIONS_TEXT};
@@ -20,7 +21,7 @@ struct NoopFactory;
 impl MessageFactory for NoopFactory {
     fn start_template(&mut self, _id: u32, _name: &str) {}
     fn stop_template(&mut self) {}
-    fn set_value(&mut self, _id: u32, _name: &str, value: Option<Value>) {
+    fn set_value(&mut self, _id: u32, _name: &str, value: Option<Cow<'_, Value>>) {
         black_box(value);
     }
     fn start_sequence(&mut self, _id: u32, _name: &str, _length: u32) {}

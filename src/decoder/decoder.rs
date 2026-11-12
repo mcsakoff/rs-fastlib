@@ -1,6 +1,8 @@
 use std::io::Read;
 
-use crate::base::instruction::Instruction;
+use std::borrow::Cow;
+
+use crate::base::instruction::{Extracted, Instruction};
 use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
 use crate::base::types::{Template, TypeRef};
@@ -163,7 +165,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     // Read template id from the stream.
     fn read_template_id(&mut self) -> Result<u32> {
         let definitions = self.definitions;
-        match definitions.template_id_instruction.extract(self)? {
+        match definitions.template_id_instruction.extract_owned(self)? {
             Some(Value::UInt32(id)) => Ok(id),
             Some(_) => Err(Error::Dynamic(
                 "Wrong template id type in context storage".to_string(),
@@ -284,10 +286,21 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     }
 
     fn decode_field(&mut self, instruction: &Instruction) -> Result<()> {
-        let value = instruction.extract(self)?;
+        let value = match instruction.extract(self)? {
+            Extracted::Value(v) => v,
+            // Lend the previous value to the message factory.
+            Extracted::Previous => {
+                let template = self.template.peek().copied().unwrap_or_default();
+                let type_index = *self.type_ref.must_peek();
+                self.context
+                    .get(instruction.dictionary_slot.get(), template, type_index)
+                    .and_then(Option::as_ref)
+                    .map(Cow::Borrowed)
+            }
+        };
         if let Some(length) = instruction.length_field() {
             // The named length preamble of a byte vector is reported before the value.
-            let len = match &value {
+            let len = match value.as_deref() {
                 Some(Value::Bytes(b)) => Some(b.len()),
                 Some(Value::UnicodeString(s) | Value::ASCIIString(s)) => Some(s.len()),
                 _ => None,
@@ -296,7 +309,8 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
                 .map(|l| u32::try_from(l).map(Value::UInt32))
                 .transpose()
                 .map_err(|_| Error::Dynamic(format!("{} is too long", instruction.name)))?;
-            self.msg.set_value(length.id, &length.name, len);
+            self.msg
+                .set_value(length.id, &length.name, len.map(Cow::Owned));
         }
         self.msg.set_value(instruction.id, &instruction.name, value);
         Ok(())
@@ -311,7 +325,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         // elements. When a length field is present in the stream, it must appear directly before the encoded elements.
         // The length field has a name, is of type uInt32 and can have a field operator.
         let length_instruction = instruction.instructions.first().unwrap();
-        match length_instruction.extract(self)? {
+        match length_instruction.extract_owned(self)? {
             None => {}
             Some(Value::UInt32(length)) => {
                 self.msg

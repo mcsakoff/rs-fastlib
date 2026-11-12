@@ -19,8 +19,9 @@ pub trait MessageFactory {
     /// Called when a field element is processed.
     /// * `id` is the field instruction id;
     /// * `name` is the field name;
-    /// * `value` is the field value which is optional.
-    fn set_value(&mut self, id: u32, name: &str, value: Option<Value>);
+    /// * `value` is the field value which is optional. It is [`Cow::Borrowed`] if the decoder lends the value,
+    ///   e.g. from the previous values or the initial value, so it is copied only if the factory needs it.
+    fn set_value(&mut self, id: u32, name: &str, value: Option<Cow<'_, Value>>);
 
     /// Called when a \<sequence> element processing is started.
     /// * `id` is the sequence instruction id; can be `0` if id is not specified;

@@ -53,11 +53,14 @@ impl MessageFactory for ModelFactory {
         });
     }
 
-    fn set_value(&mut self, _id: u32, name: &str, value: Option<Value>) {
+    fn set_value(&mut self, _id: u32, name: &str, value: Option<Cow<'_, Value>>) {
         let (_, context) = self.context.must_peek_mut();
         match context {
             ValueData::Group(group) => {
-                group.push(name.to_string(), ValueData::Value(value));
+                group.push(
+                    name.to_string(),
+                    ValueData::Value(value.map(Cow::into_owned)),
+                );
             }
             _ => unreachable!(),
         }

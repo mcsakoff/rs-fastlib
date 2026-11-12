@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::Value;
 use crate::base::instruction::Instruction;
 use crate::base::message::MessageFactory;
@@ -91,7 +93,7 @@ impl MessageFactory for LoggingMessageFactory {
         self.calls.push("stop_template".to_string());
     }
 
-    fn set_value(&mut self, id: u32, name: &str, value: Option<Value>) {
+    fn set_value(&mut self, id: u32, name: &str, value: Option<Cow<'_, Value>>) {
         self.calls
             .push(format!("set_value: {id}:{name} {:?}", value));
     }

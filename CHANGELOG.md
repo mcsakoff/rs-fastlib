@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.4.0
+- **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends
+  previous and initial values instead of copying them. Use `Cow::into_owned` where an owned value is needed.
 - **Breaking:** `MessageVisitor::get_template_name`, `MessageVisitor::get_value` and
   `MessageVisitor::select_template_ref` now returns `Cow`.
 - **Breaking:** following the template schema, `dictionary` and `key` are read from operator elements

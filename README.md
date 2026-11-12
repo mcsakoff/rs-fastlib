@@ -177,7 +177,7 @@ pub trait MessageFactory {
     fn stop_template(&mut self);
     
     // Process field value
-    fn set_value(&mut self, id: u32, name: &str, value: Option<Value>);
+    fn set_value(&mut self, id: u32, name: &str, value: Option<Cow<'_, Value>>);
     
     // Process sequence
     fn start_sequence(&mut self, id: u32, name: &str, length: u32);
