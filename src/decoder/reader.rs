@@ -390,6 +390,59 @@ fn ascii_from_run(mut buf: Vec<u8>) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
+// Reads a non-nullable ASCII string into `buf` and returns it, so the string is not allocated.
+pub(crate) fn read_ascii_into<'b>(rdr: &mut impl Reader, buf: &'b mut Vec<u8>) -> Result<&'b str> {
+    buf.clear();
+    rdr.read_stop_bit_run(buf)?;
+    let offset = ascii_offset(buf)?;
+    Ok(ascii_in_buf(buf, offset))
+}
+
+// Reads a nullable ASCII string into `buf` and returns it, so the string is not allocated.
+pub(crate) fn read_ascii_nullable_into<'b>(
+    rdr: &mut impl Reader,
+    buf: &'b mut Vec<u8>,
+) -> Result<Option<&'b str>> {
+    buf.clear();
+    rdr.read_stop_bit_run(buf)?;
+    let Some(offset) = ascii_nullable_offset(buf)? else {
+        return Ok(None);
+    };
+    Ok(Some(ascii_in_buf(buf, offset)))
+}
+
+// Returns the ASCII string that starts at `offset` of the stop bit encoded run in `buf`.
+fn ascii_in_buf(buf: &mut [u8], offset: usize) -> &str {
+    if let Some(last) = buf.last_mut() {
+        *last &= 0x7f;
+    }
+    // SAFETY: `buf` contains ASCII 7-bit characters.
+    //         A stop bit run has the 8th bit set only in the last byte, which is cleared above.
+    unsafe { std::str::from_utf8_unchecked(&buf[offset..]) }
+}
+
+// Reads non-nullable bytes into `buf` and returns them, so the bytes are not allocated.
+pub(crate) fn read_bytes_into<'b>(rdr: &mut impl Reader, buf: &'b mut Vec<u8>) -> Result<&'b [u8]> {
+    let length = usize::try_from(rdr.read_uint()?).map_err(|_| integer_overflow())?;
+    buf.clear();
+    rdr.read_exact_into(length, buf)?;
+    Ok(buf)
+}
+
+// Reads nullable bytes into `buf` and returns them, so the bytes are not allocated.
+pub(crate) fn read_bytes_nullable_into<'b>(
+    rdr: &mut impl Reader,
+    buf: &'b mut Vec<u8>,
+) -> Result<Option<&'b [u8]>> {
+    let Some(length) = rdr.read_uint_nullable()? else {
+        return Ok(None);
+    };
+    let length = usize::try_from(length).map_err(|_| integer_overflow())?;
+    buf.clear();
+    rdr.read_exact_into(length, buf)?;
+    Ok(Some(buf))
+}
+
 // Helpers that parse values from contiguous memory. Each returns the value and the number of consumed bytes.
 mod slice {
     use super::{

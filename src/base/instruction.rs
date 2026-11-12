@@ -7,9 +7,12 @@ use roxmltree::Node;
 
 use crate::base::decimal::{MAX_EXPONENT, MIN_EXPONENT};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
-use crate::base::value::{Delta, DeltaRef, TailRef, Value, ValueType};
+use crate::base::value::{DeltaRef, TailRef, Value, ValueType};
 use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
+use crate::decoder::reader::{
+    read_ascii_into, read_ascii_nullable_into, read_bytes_into, read_bytes_nullable_into,
+};
 use crate::encoder::encoder::EncoderContext;
 use crate::encoder::writer::Writer;
 use crate::utils::xml::{inherited_attribute, parse_id, td_children};
@@ -666,97 +669,142 @@ impl Instruction {
             }
 
             // The delta operator specifies that a delta value is present in the stream.
-            Operator::Delta => {
-                // If the field has optional presence, the delta value can be NULL.
-                // In that case the value of the field is considered absent.
-                let Some(delta) = self.read_delta(s)? else {
-                    return Ok(Extracted::Value(None));
-                };
-                // Otherwise, the field is obtained by combining the delta value with a base value.
-                // The base value depends on the state of the previous value in the following way:
-                match s.ctx_get_mut(self)? {
-                    // Assigned: the base value is the previous value.
-                    // The combined value becomes the new previous value.
-                    Some(Some(prev)) => {
-                        prev.apply_delta_in_place(&delta)?;
-                        Ok(Extracted::Previous)
-                    }
-
-                    // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
-                    Some(None) => Err(Error::Dynamic(
-                        "delta operator has no previous value".to_string(),
-                    )), // [ERR D6]
-
-                    // Undefined: The base value is the initial value if present in the instruction context.
-                    // Otherwise, a type dependant default base value is used.
-                    None => {
-                        let value = match &self.initial_value {
-                            Some(v) => v.apply_delta(&delta)?,
-                            None => self.value_type.to_default_value()?.apply_delta(&delta)?,
-                        };
-                        Ok(self.set_previous(s, Some(value)))
-                    }
+            Operator::Delta => match self.value_type {
+                ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
+                    s.with_scratch(|s, buf| self.extract_delta(s, buf))
                 }
-            }
+                // Integer deltas don't use the buffer.
+                _ => self.extract_delta(s, &mut Vec::new()),
+            },
 
             // The tail operator specifies that a tail value is optionally present in the stream.
             Operator::Tail => {
                 if s.pmap_next_bit_set() {
-                    let Some(tail) = self.read_tail(s)? else {
-                        // If the field has optional presence, the tail value can be NULL.
-                        // In that case the value of the field is considered absent
-                        // and the state of the previous value is set to empty.
-                        return if self.is_optional() {
-                            Ok(self.set_previous(s, None))
-                        } else {
-                            Err(Error::Dynamic(
-                                "tail operator has no previous value".to_string(),
-                            )) // [ERR D6]
-                        };
-                    };
-                    // Otherwise, if the tail value is present, the value of the field is obtained by combining
-                    // the tail value with a base value. The base value depends on the state of the previous value.
-                    // The combined value becomes the new previous value.
-                    if let Some(Some(prev)) = s.ctx_get_mut(self)? {
-                        // Assigned: the base value is the previous value.
-                        prev.apply_tail_in_place(&tail)?;
-                        return Ok(Extracted::Previous);
-                    }
-                    // Empty or Undefined: the base value is the initial value if present in the instruction context.
-                    // Otherwise, a type dependant default base value is used.
-                    let value = match &self.initial_value {
-                        Some(v) => v.apply_tail(&tail)?,
-                        None => self.value_type.to_default_value()?.apply_tail(&tail)?,
-                    };
-                    return Ok(self.set_previous(s, Some(value)));
+                    s.with_scratch(|s, buf| self.extract_tail(s, buf))
+                } else {
+                    self.extract_previous_tail(s)
                 }
+            }
+        }
+    }
 
-                // If the tail value is not present in the stream, the value of the field depends
-                // on the state of the previous value.
-                match s.ctx_get(self)? {
-                    // Empty: the value of the field is empty. If the field is optional the value is considered absent.
-                    // It is a dynamic error [ERR D6] if the field is mandatory.
-                    Some(None) if !self.is_optional() => Err(Error::Dynamic(
-                        "tail operator has no previous value".to_string(),
-                    )), // [ERR D6]
-                    Some(None) => Ok(Extracted::Value(None)),
+    // The delta operator specifies that a delta value is present in the stream.
+    // The string part of the delta is read into `buf`.
+    #[inline]
+    fn extract_delta<R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Extracted<'_>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
+        // If the field has optional presence, the delta value can be NULL.
+        // In that case the value of the field is considered absent.
+        let Some(delta) = self.read_delta(s, buf)? else {
+            return Ok(Extracted::Value(None));
+        };
+        // Otherwise, the field is obtained by combining the delta value with a base value.
+        // The base value depends on the state of the previous value in the following way:
+        match s.ctx_get_mut(self)? {
+            // Assigned: the base value is the previous value.
+            // The combined value becomes the new previous value.
+            Some(Some(prev)) => {
+                prev.apply_delta_ref_in_place(&delta)?;
+                Ok(Extracted::Previous)
+            }
 
-                    Some(Some(_)) => Ok(Extracted::Previous),
+            // Empty: It is a dynamic error [ERR D6] if the previous value is empty.
+            Some(None) => Err(Error::Dynamic(
+                "delta operator has no previous value".to_string(),
+            )), // [ERR D6]
 
-                    // Undefined: the value of the field is the initial value that also becomes the new previous value.
-                    // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
-                    // has no initial value. If the field has optional presence and no initial value, the field is considered
-                    // absent and the state of the previous value is changed to empty.
-                    None => {
-                        if self.initial_value.is_none() && !self.is_optional() {
-                            return Err(Error::Dynamic(
-                                "tail operator has no initial value".to_string(),
-                            )); // [ERR D5]
-                        }
-                        s.ctx_set(self, self.initial_value.clone());
-                        Ok(initial())
-                    }
+            // Undefined: The base value is the initial value if present in the instruction context.
+            // Otherwise, a type dependant default base value is used.
+            None => {
+                let value = match &self.initial_value {
+                    Some(v) => v.apply_delta_ref(&delta)?,
+                    None => self
+                        .value_type
+                        .to_default_value()?
+                        .apply_delta_ref(&delta)?,
+                };
+                Ok(self.set_previous(s, Some(value)))
+            }
+        }
+    }
+
+    // The tail value is present in the stream; it is read into `buf`.
+    fn extract_tail<R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+        buf: &mut Vec<u8>,
+    ) -> Result<Extracted<'_>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
+        let Some(tail) = self.read_tail(s, buf)? else {
+            // If the field has optional presence, the tail value can be NULL.
+            // In that case the value of the field is considered absent
+            // and the state of the previous value is set to empty.
+            return if self.is_optional() {
+                Ok(self.set_previous(s, None))
+            } else {
+                Err(Error::Dynamic(
+                    "tail operator has no previous value".to_string(),
+                )) // [ERR D6]
+            };
+        };
+        // Otherwise, if the tail value is present, the value of the field is obtained by combining
+        // the tail value with a base value. The base value depends on the state of the previous value.
+        // The combined value becomes the new previous value.
+        if let Some(Some(prev)) = s.ctx_get_mut(self)? {
+            // Assigned: the base value is the previous value.
+            prev.apply_tail_ref_in_place(&tail)?;
+            return Ok(Extracted::Previous);
+        }
+        // Empty or Undefined: the base value is the initial value if present in the instruction context.
+        // Otherwise, a type dependant default base value is used.
+        let value = match &self.initial_value {
+            Some(v) => v.apply_tail_ref(&tail)?,
+            None => self.value_type.to_default_value()?.apply_tail_ref(&tail)?,
+        };
+        Ok(self.set_previous(s, Some(value)))
+    }
+
+    // If the tail value is not present in the stream, the value of the field depends
+    // on the state of the previous value.
+    fn extract_previous_tail<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Extracted<'_>>
+    where
+        R: Reader,
+        M: MessageFactory,
+    {
+        match s.ctx_get(self)? {
+            // Empty: the value of the field is empty. If the field is optional the value is considered absent.
+            // It is a dynamic error [ERR D6] if the field is mandatory.
+            Some(None) if !self.is_optional() => Err(Error::Dynamic(
+                "tail operator has no previous value".to_string(),
+            )), // [ERR D6]
+            Some(None) => Ok(Extracted::Value(None)),
+
+            Some(Some(_)) => Ok(Extracted::Previous),
+
+            // Undefined: the value of the field is the initial value that also becomes the new previous value.
+            // Unless the field has optional presence, it is a dynamic error [ERR D5] if the instruction context
+            // has no initial value. If the field has optional presence and no initial value, the field is considered
+            // absent and the state of the previous value is changed to empty.
+            None => {
+                if self.initial_value.is_none() && !self.is_optional() {
+                    return Err(Error::Dynamic(
+                        "tail operator has no initial value".to_string(),
+                    )); // [ERR D5]
                 }
+                s.ctx_set(self, self.initial_value.clone());
+                Ok(Extracted::Value(
+                    self.initial_value.as_ref().map(Cow::Borrowed),
+                ))
             }
         }
     }
@@ -951,21 +999,26 @@ impl Instruction {
     // The delta operator specifies that a delta value is present in the stream.
     // If the field has optional presence, the delta value can be NULL. In that case the value of the field
     // is considered absent. Otherwise, the field is obtained by combining the delta value with a base value.
-    fn read_delta<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Delta>>
+    // The string/bytes part of the delta is read into `buf`.
+    fn read_delta<'b, R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+        buf: &'b mut Vec<u8>,
+    ) -> Result<Option<DeltaRef<'b>>>
     where
         R: Reader,
         M: MessageFactory,
     {
         match self.value_type {
             ValueType::UInt32 | ValueType::Int32 | ValueType::Length | ValueType::Exponent => {
-                Ok(self.read_int64(s)?.map(|d| Delta::Int(i128::from(d))))
+                Ok(self.read_int64(s)?.map(|d| DeltaRef::Int(i128::from(d))))
             }
             // A delta of 64-bit integers can need 65 bits.
             ValueType::UInt64 | ValueType::Int64 | ValueType::Mantissa => {
                 if self.is_nullable() {
-                    Ok(s.rdr.read_int128_nullable()?.map(Delta::Int))
+                    Ok(s.rdr.read_int128_nullable()?.map(DeltaRef::Int))
                 } else {
-                    Ok(Some(Delta::Int(s.rdr.read_int128()?)))
+                    Ok(Some(DeltaRef::Int(s.rdr.read_int128()?)))
                 }
             }
             // Only the subtraction length is nullable; the string/bytes part is present iff it is not NULL.
@@ -974,24 +1027,36 @@ impl Instruction {
                     return Ok(None);
                 };
                 if self.value_type == ValueType::ASCIIString {
-                    Ok(Some(Delta::Ascii(s.rdr.read_ascii_string()?, sub)))
+                    Ok(Some(DeltaRef::Ascii(read_ascii_into(s.rdr, buf)?, sub)))
                 } else {
-                    Ok(Some(Delta::Bytes(s.rdr.read_bytes()?, sub)))
+                    Ok(Some(DeltaRef::Bytes(read_bytes_into(s.rdr, buf)?, sub)))
                 }
             }
             _ => unreachable!(),
         }
     }
 
-    fn read_tail<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
+    // The tail is read into `buf`.
+    fn read_tail<'b, R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+        buf: &'b mut Vec<u8>,
+    ) -> Result<Option<TailRef<'b>>>
     where
         R: Reader,
         M: MessageFactory,
     {
+        let nullable = self.is_nullable();
         match self.value_type {
-            ValueType::ASCIIString => Ok(self.read_ascii_string(s)?.map(Value::ASCIIString)),
+            ValueType::ASCIIString if nullable => {
+                Ok(read_ascii_nullable_into(s.rdr, buf)?.map(TailRef::Ascii))
+            }
+            ValueType::ASCIIString => Ok(Some(TailRef::Ascii(read_ascii_into(s.rdr, buf)?))),
+            ValueType::UnicodeString | ValueType::Bytes if nullable => {
+                Ok(read_bytes_nullable_into(s.rdr, buf)?.map(TailRef::Bytes))
+            }
             ValueType::UnicodeString | ValueType::Bytes => {
-                Ok(self.read_bytes(s)?.map(Value::Bytes))
+                Ok(Some(TailRef::Bytes(read_bytes_into(s.rdr, buf)?)))
             }
             _ => unreachable!(),
         }

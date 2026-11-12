@@ -18,6 +18,8 @@ pub struct Decoder {
     pub(crate) definitions: Definitions,
     pub(crate) context: Context,
     pub(crate) scopes: Scopes,
+    // Reusable buffer for strings and bytes that are not kept, e.g. deltas.
+    scratch: Vec<u8>,
 }
 
 impl Decoder {
@@ -30,6 +32,7 @@ impl Decoder {
             definitions: Definitions::new_from_templates(ts)?,
             context: Context::new(),
             scopes: Scopes::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -41,6 +44,7 @@ impl Decoder {
             definitions: Definitions::new_from_xml(text)?,
             context: Context::new(),
             scopes: Scopes::new(),
+            scratch: Vec::new(),
         })
     }
 
@@ -146,6 +150,8 @@ pub(crate) struct DecoderContext<'a, R, M> {
 
     // The presence map of the current segment.
     pub(crate) presence_map: &'a mut Stacked<PresenceMap>,
+
+    scratch: &'a mut Vec<u8>,
 }
 
 impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
@@ -159,7 +165,17 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             template: &mut d.scopes.template,
             type_ref: &mut d.scopes.type_ref,
             presence_map: &mut d.scopes.presence_map,
+            scratch: &mut d.scratch,
         }
+    }
+
+    // Runs `f` with the reusable scratch buffer.
+    #[inline]
+    pub(crate) fn with_scratch<T>(&mut self, f: impl FnOnce(&mut Self, &mut Vec<u8>) -> T) -> T {
+        let mut buf = std::mem::take(&mut *self.scratch);
+        let res = f(self, &mut buf);
+        *self.scratch = buf;
+        res
     }
 
     // Read template id from the stream.

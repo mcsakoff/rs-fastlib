@@ -190,30 +190,25 @@ impl Value {
     /// Returns error if the delta doesn't match the value type, the subtraction length is larger than the
     /// value [ERR D7], or the combined integer is out of range [ERR R4].
     pub fn apply_delta(&self, delta: &Delta) -> Result<Value> {
-        // It is a reportable error [ERR R4] if the combined value does not fit into the integer type.
-        fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i128) -> Result<T> {
-            v.into()
-                .checked_add(d)
-                .and_then(|r| T::try_from(r).ok())
-                .ok_or_else(|| {
-                    Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
-                })
-        }
+        self.apply_delta_ref(&delta.borrowed())
+    }
 
+    // Same as `apply_delta` with a borrowed delta.
+    pub(crate) fn apply_delta_ref(&self, delta: &DeltaRef) -> Result<Value> {
         match (self, delta) {
-            (Value::UInt32(v), Delta::Int(d)) => Ok(Value::UInt32(combine(*v, *d)?)),
-            (Value::Int32(v), Delta::Int(d)) => Ok(Value::Int32(combine(*v, *d)?)),
-            (Value::UInt64(v), Delta::Int(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
-            (Value::Int64(v), Delta::Int(d)) => Ok(Value::Int64(combine(*v, *d)?)),
-            (Value::ASCIIString(v), Delta::Ascii(d, sub)) => {
+            (Value::UInt32(v), DeltaRef::Int(d)) => Ok(Value::UInt32(combine(*v, *d)?)),
+            (Value::Int32(v), DeltaRef::Int(d)) => Ok(Value::Int32(combine(*v, *d)?)),
+            (Value::UInt64(v), DeltaRef::Int(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
+            (Value::Int64(v), DeltaRef::Int(d)) => Ok(Value::Int64(combine(*v, *d)?)),
+            (Value::ASCIIString(v), DeltaRef::Ascii(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 Ok(Value::ASCIIString(splice_str(v, d, front, i)))
             }
-            (Value::Bytes(v), Delta::Bytes(d, sub)) => {
+            (Value::Bytes(v), DeltaRef::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 Ok(Value::Bytes(splice_bytes(v, d, front, i)))
             }
-            (Value::UnicodeString(v), Delta::Bytes(d, sub)) => {
+            (Value::UnicodeString(v), DeltaRef::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 bytes_to_unicode(splice_bytes(v.as_bytes(), d, front, i))
             }
@@ -227,8 +222,29 @@ impl Value {
     /// # Errors
     /// Same as [`Value::apply_delta`]. If a Unicode string doesn't remain valid UTF-8, it is left empty.
     pub fn apply_delta_in_place(&mut self, delta: &Delta) -> Result<()> {
+        self.apply_delta_ref_in_place(&delta.borrowed())
+    }
+
+    // Same as `apply_delta_in_place` with a borrowed delta.
+    pub(crate) fn apply_delta_ref_in_place(&mut self, delta: &DeltaRef) -> Result<()> {
         match (&mut *self, delta) {
-            (Value::ASCIIString(v), Delta::Ascii(d, sub)) => {
+            (Value::UInt32(v), DeltaRef::Int(d)) => {
+                *v = combine(*v, *d)?;
+                Ok(())
+            }
+            (Value::Int32(v), DeltaRef::Int(d)) => {
+                *v = combine(*v, *d)?;
+                Ok(())
+            }
+            (Value::UInt64(v), DeltaRef::Int(d)) => {
+                *v = combine(*v, *d)?;
+                Ok(())
+            }
+            (Value::Int64(v), DeltaRef::Int(d)) => {
+                *v = combine(*v, *d)?;
+                Ok(())
+            }
+            (Value::ASCIIString(v), DeltaRef::Ascii(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 if front {
                     v.replace_range(..i, d);
@@ -238,17 +254,17 @@ impl Value {
                 }
                 Ok(())
             }
-            (Value::Bytes(v), Delta::Bytes(d, sub)) => {
+            (Value::Bytes(v), DeltaRef::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 splice_in_place(v, d, front, i);
                 Ok(())
             }
-            (Value::UnicodeString(v), Delta::Bytes(d, sub)) => {
+            (Value::UnicodeString(v), DeltaRef::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 unicode_in_place(v, |b| splice_in_place(b, d, front, i))
             }
             _ => {
-                *self = self.apply_delta(delta)?;
+                *self = self.apply_delta_ref(delta)?;
                 Ok(())
             }
         }
@@ -258,20 +274,25 @@ impl Value {
     /// # Errors
     /// Returns error if types are not bytes/string or previous and current types mismatch.
     pub fn apply_tail(&self, tail: &Value) -> Result<Value> {
+        self.apply_tail_ref(&tail_ref(tail)?)
+    }
+
+    // Same as `apply_tail` with a borrowed tail.
+    pub(crate) fn apply_tail_ref(&self, tail: &TailRef) -> Result<Value> {
         match (self, tail) {
-            (Value::ASCIIString(v), Value::ASCIIString(t)) => Ok(Value::ASCIIString(splice_str(
+            (Value::ASCIIString(v), TailRef::Ascii(t)) => Ok(Value::ASCIIString(splice_str(
                 v,
                 t,
                 false,
                 tail_index(v.len(), t.len()),
             ))),
-            (Value::UnicodeString(v), Value::Bytes(t)) => bytes_to_unicode(splice_bytes(
+            (Value::UnicodeString(v), TailRef::Bytes(t)) => bytes_to_unicode(splice_bytes(
                 v.as_bytes(),
                 t,
                 false,
                 tail_index(v.len(), t.len()),
             )),
-            (Value::Bytes(v), Value::Bytes(t)) => Ok(Value::Bytes(splice_bytes(
+            (Value::Bytes(v), TailRef::Bytes(t)) => Ok(Value::Bytes(splice_bytes(
                 v,
                 t,
                 false,
@@ -298,23 +319,28 @@ impl Value {
     /// Returns error if types are not bytes/string or previous and current types mismatch.
     /// If a Unicode string doesn't remain valid UTF-8, it is left empty.
     pub fn apply_tail_in_place(&mut self, tail: &Value) -> Result<()> {
+        self.apply_tail_ref_in_place(&tail_ref(tail)?)
+    }
+
+    // Same as `apply_tail_in_place` with a borrowed tail.
+    pub(crate) fn apply_tail_ref_in_place(&mut self, tail: &TailRef) -> Result<()> {
         match (&mut *self, tail) {
-            (Value::ASCIIString(v), Value::ASCIIString(t)) => {
+            (Value::ASCIIString(v), TailRef::Ascii(t)) => {
                 v.truncate(tail_index(v.len(), t.len()));
                 v.push_str(t);
                 Ok(())
             }
-            (Value::Bytes(v), Value::Bytes(t)) => {
+            (Value::Bytes(v), TailRef::Bytes(t)) => {
                 v.truncate(tail_index(v.len(), t.len()));
                 v.extend_from_slice(t);
                 Ok(())
             }
-            (Value::UnicodeString(v), Value::Bytes(t)) => unicode_in_place(v, |b| {
+            (Value::UnicodeString(v), TailRef::Bytes(t)) => unicode_in_place(v, |b| {
                 b.truncate(tail_index(b.len(), t.len()));
                 b.extend_from_slice(t);
             }),
             _ => {
-                *self = self.apply_tail(tail)?;
+                *self = self.apply_tail_ref(tail)?;
                 Ok(())
             }
         }
@@ -419,6 +445,16 @@ fn parse_integer<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T> {
     })
 }
 
+// Adds an integer delta. It is a reportable error [ERR R4] if the combined value does not fit into the integer type.
+fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i128) -> Result<T> {
+    v.into()
+        .checked_add(d)
+        .and_then(|r| T::try_from(r).ok())
+        .ok_or_else(|| {
+            Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
+        })
+}
+
 // Converts substraction length into (remove from front, index).
 fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
     // A negative subtraction length is used to remove values from the front of the string.
@@ -503,6 +539,25 @@ pub enum Delta {
     Ascii(String, i32),
     /// Byte vector or Unicode string delta: the bytes part and the subtraction length.
     Bytes(Vec<u8>, i32),
+}
+
+impl Delta {
+    pub(crate) fn borrowed(&self) -> DeltaRef<'_> {
+        match self {
+            Delta::Int(d) => DeltaRef::Int(*d),
+            Delta::Ascii(s, sub) => DeltaRef::Ascii(s, *sub),
+            Delta::Bytes(b, sub) => DeltaRef::Bytes(b, *sub),
+        }
+    }
+}
+
+// Tails are ASCII strings or byte vectors (also for Unicode strings).
+fn tail_ref(tail: &Value) -> Result<TailRef<'_>> {
+    match tail {
+        Value::ASCIIString(t) => Ok(TailRef::Ascii(t)),
+        Value::Bytes(t) => Ok(TailRef::Bytes(t)),
+        _ => Err(Error::Runtime(format!("{tail:?} cannot be a tail"))),
+    }
 }
 
 /// Borrowed delta of a value.
