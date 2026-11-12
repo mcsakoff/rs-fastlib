@@ -1,5 +1,3 @@
-use rustc_hash::FxHashMap as HashMap;
-
 use crate::Value;
 use crate::base::pmap::PresenceMap;
 use crate::utils::stacked::Stacked;
@@ -58,10 +56,43 @@ impl Scopes {
 pub(crate) struct Context {
     // Entries of `global` and user-defined dictionaries indexed by `DictionaryType::Static`.
     statics: Vec<Entry>,
-    // Entries of `template` dictionaries keyed by (template index, key index)
-    templates: HashMap<(u32, u32), Entry>,
-    // Entries of `type` dictionaries keyed by (template index, type index)
-    types: HashMap<(u32, u32), Entry>,
+    // Entries of `template` dictionaries indexed by template index and key index.
+    templates: Scoped,
+    // Entries of `type` dictionaries indexed by application type index and key index.
+    types: Scoped,
+}
+
+/// Entries of dictionaries that have an instance per scope (template or application type),
+/// indexed by the scope index and the key index. A scope allocates entries when it is used first.
+#[derive(Debug, PartialEq, Default)]
+struct Scoped(Vec<Vec<Entry>>);
+
+impl Scoped {
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    #[inline]
+    fn get(&self, scope: u32, key: u32) -> Option<&Entry> {
+        self.0.get(scope as usize)?.get(key as usize)
+    }
+
+    #[inline]
+    fn get_mut(&mut self, scope: u32, key: u32) -> Option<&mut Entry> {
+        self.0.get_mut(scope as usize)?.get_mut(key as usize)
+    }
+
+    fn set(&mut self, scope: u32, key: u32, entry: Entry) {
+        let (scope, key) = (scope as usize, key as usize);
+        if scope >= self.0.len() {
+            self.0.resize_with(scope + 1, Vec::new);
+        }
+        let entries = &mut self.0[scope];
+        if key >= entries.len() {
+            entries.resize(key + 1, None);
+        }
+        entries[key] = entry;
+    }
 }
 
 impl Context {
@@ -86,10 +117,10 @@ impl Context {
                 self.statics[i] = Some(val);
             }
             DictionaryType::Template(i) => {
-                self.templates.insert((template, i), Some(val));
+                self.templates.set(template, i, Some(val));
             }
             DictionaryType::Type(i) => {
-                self.types.insert((type_index, i), Some(val));
+                self.types.set(type_index, i, Some(val));
             }
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
@@ -99,8 +130,8 @@ impl Context {
     pub(crate) fn get(&self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get(i as usize)?.as_ref(),
-            DictionaryType::Template(i) => self.templates.get(&(template, i))?.as_ref(),
-            DictionaryType::Type(i) => self.types.get(&(type_index, i))?.as_ref(),
+            DictionaryType::Template(i) => self.templates.get(template, i)?.as_ref(),
+            DictionaryType::Type(i) => self.types.get(type_index, i)?.as_ref(),
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
     }
@@ -109,8 +140,8 @@ impl Context {
     pub(crate) fn get_mut(&mut self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&mut Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get_mut(i as usize)?.as_mut(),
-            DictionaryType::Template(i) => self.templates.get_mut(&(template, i))?.as_mut(),
-            DictionaryType::Type(i) => self.types.get_mut(&(type_index, i))?.as_mut(),
+            DictionaryType::Template(i) => self.templates.get_mut(template, i)?.as_mut(),
+            DictionaryType::Type(i) => self.types.get_mut(type_index, i)?.as_mut(),
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
     }
