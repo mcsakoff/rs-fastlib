@@ -86,9 +86,9 @@ impl PresenceMap {
         };
         window != 0
             || self
-            .long
-            .as_ref()
-            .is_some_and(|l| l.groups[l.pos..].iter().any(|g| *g != 0))
+                .long
+                .as_ref()
+                .is_some_and(|l| l.groups[l.pos..].iter().any(|g| *g != 0))
     }
 
     #[inline]

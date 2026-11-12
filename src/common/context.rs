@@ -107,7 +107,13 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn set(&mut self, dict: DictionaryType, template: u32, type_index: u32, val: Option<Value>) {
+    pub(crate) fn set(
+        &mut self,
+        dict: DictionaryType,
+        template: u32,
+        type_index: u32,
+        val: Option<Value>,
+    ) {
         match dict {
             DictionaryType::Static(i) => {
                 let i = i as usize;
@@ -127,7 +133,12 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get(&self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&Option<Value>> {
+    pub(crate) fn get(
+        &self,
+        dict: DictionaryType,
+        template: u32,
+        type_index: u32,
+    ) -> Option<&Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get(i as usize)?.as_ref(),
             DictionaryType::Template(i) => self.templates.get(template, i)?.as_ref(),
@@ -137,7 +148,12 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get_mut(&mut self, dict: DictionaryType, template: u32, type_index: u32) -> Option<&mut Option<Value>> {
+    pub(crate) fn get_mut(
+        &mut self,
+        dict: DictionaryType,
+        template: u32,
+        type_index: u32,
+    ) -> Option<&mut Option<Value>> {
         match dict {
             DictionaryType::Static(i) => self.statics.get_mut(i as usize)?.as_mut(),
             DictionaryType::Template(i) => self.templates.get_mut(template, i)?.as_mut(),
@@ -162,7 +178,11 @@ mod tests {
             assert_eq!(context.get(slot, 1, 1), None, "{slot:?}");
 
             context.set(slot, 1, 1, Some(Value::Int32(1)));
-            assert_eq!(context.get(slot, 1, 1), Some(&Some(Value::Int32(1))), "{slot:?}");
+            assert_eq!(
+                context.get(slot, 1, 1),
+                Some(&Some(Value::Int32(1))),
+                "{slot:?}"
+            );
 
             context.set(slot, 1, 1, None);
             assert_eq!(context.get(slot, 1, 1), Some(&None), "{slot:?}");
@@ -182,8 +202,17 @@ mod tests {
         assert_eq!(context.get(DictionaryType::Template(0), 2, 0), None);
         assert_eq!(context.get(DictionaryType::Type(0), 0, 2), None);
 
-        assert_eq!(context.get(DictionaryType::Template(0), 1, 1), Some(&Some(Value::Int32(1))));
-        assert_eq!(context.get(DictionaryType::Type(0), 1, 1), Some(&Some(Value::Int32(2))));
-        assert_eq!(context.get(DictionaryType::Static(0), 2, 2), Some(&Some(Value::Int32(3))));
+        assert_eq!(
+            context.get(DictionaryType::Template(0), 1, 1),
+            Some(&Some(Value::Int32(1)))
+        );
+        assert_eq!(
+            context.get(DictionaryType::Type(0), 1, 1),
+            Some(&Some(Value::Int32(2)))
+        );
+        assert_eq!(
+            context.get(DictionaryType::Static(0), 2, 2),
+            Some(&Some(Value::Int32(3)))
+        );
     }
 }

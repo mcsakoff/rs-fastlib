@@ -44,9 +44,9 @@ impl Decimal {
         let (integer, fraction) = s.split_once('.').unwrap_or((s, ""));
         if (integer.is_empty() && fraction.is_empty())
             || !integer
-            .bytes()
-            .chain(fraction.bytes())
-            .all(|b| b.is_ascii_digit())
+                .bytes()
+                .chain(fraction.bytes())
+                .all(|b| b.is_ascii_digit())
         {
             return Err(invalid());
         }

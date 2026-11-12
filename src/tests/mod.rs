@@ -8,18 +8,18 @@ use crate::base::value::ValueType;
 use crate::decoder::decoder::Decoder;
 use crate::encoder::encoder::Encoder;
 use crate::model::template::TemplateData;
-use crate::model::value::{ValueData, Fields};
+use crate::model::value::{Fields, ValueData};
 use crate::model::{ModelFactory, ModelVisitor};
 
 mod base;
 mod base_serde;
+mod compliance;
 mod dicts;
 mod model;
 mod pmap;
 mod spec;
 mod spec2;
 mod typeref;
-mod compliance;
 
 pub struct TestField {
     id: u32,

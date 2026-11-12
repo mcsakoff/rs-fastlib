@@ -116,7 +116,7 @@ fn default_templates_dictionary() {
                     value: Some(Value::ASCIIString("a".to_string())),
                 },
             ],
-        }
+        },
     );
 }
 
@@ -156,6 +156,6 @@ fn decimal_operator_context() {
                     value: Some(Value::Decimal(Decimal::new(-1, 15))),
                 },
             ],
-        }
+        },
     );
 }

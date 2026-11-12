@@ -307,8 +307,8 @@ impl Value {
     /// Assigns `src` to the value reusing allocated buffer when possible.
     pub fn assign(&mut self, src: &Value) {
         match (self, src) {
-            (Value::ASCIIString(d), Value::ASCIIString(s)) |
-            (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
+            (Value::ASCIIString(d), Value::ASCIIString(s))
+            | (Value::UnicodeString(d), Value::UnicodeString(s)) => d.clone_from(s),
             (Value::Bytes(d), Value::Bytes(s)) => d.clone_from(s),
             (d, s) => *d = s.clone(),
         }

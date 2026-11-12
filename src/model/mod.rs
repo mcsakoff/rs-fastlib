@@ -104,8 +104,10 @@ impl MessageFactory for ModelFactory {
     }
 
     fn start_group(&mut self, name: &str) {
-        self.context
-            .push((Key::Owned(name.to_string()), ValueData::Group(Fields::default())));
+        self.context.push((
+            Key::Owned(name.to_string()),
+            ValueData::Group(Fields::default()),
+        ));
         self.ref_num.push(0);
     }
 

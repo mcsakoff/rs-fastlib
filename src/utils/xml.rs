@@ -14,9 +14,9 @@ pub(crate) const TD_NAMESPACE: &str = "http://www.fixprotocol.org/ns/fast/td/1.1
 pub(crate) fn is_td_element(node: &Node) -> bool {
     node.is_element()
         && node
-        .tag_name()
-        .namespace()
-        .is_none_or(|ns| ns == TD_NAMESPACE)
+            .tag_name()
+            .namespace()
+            .is_none_or(|ns| ns == TD_NAMESPACE)
 }
 
 /// Returns template definition child elements of the node, skipping foreign elements.
