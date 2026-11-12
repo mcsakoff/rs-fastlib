@@ -10,7 +10,9 @@ use crate::{Error, Result};
 /// A template contains a sequence of instructions. The order of the instructions is significant and corresponds
 /// to the order of the data in the stream.
 pub(crate) struct Template {
-    pub(crate) id: u32,
+    // Template identifier (`id` attribute). A template without it can't be selected by the identifier in the stream,
+    // so it can only be used by a static template reference.
+    pub(crate) id: Option<u32>,
     // Index of the template in definitions; it identifies the instance of the `template` dictionary.
     pub(crate) index: u32,
     pub(crate) name: String,
@@ -34,7 +36,7 @@ impl Template {
                 node.tag_name().name()
             )));
         }
-        let id = parse_id(&node)?;
+        let id = node.attribute("id").map(|_| parse_id(&node)).transpose()?;
         let name = node
             .attribute("name")
             .ok_or_else(|| Error::Static("template name not found".to_string()))?

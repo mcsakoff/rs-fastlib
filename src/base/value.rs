@@ -187,50 +187,35 @@ impl Value {
 
     /// Applies delta to the current value and returns new value.
     /// # Errors
-    /// Returns error if types are not bytes/string or previous and current types mismatch.
-    pub fn apply_delta(&self, delta: &Value, sub: i32) -> Result<Value> {
-        fn bytes_delta(v: &[u8], d: &[u8], sub: i32) -> Result<Vec<u8>> {
-            let (front, i) = sub2index(sub, v.len())?;
-            let mut b = Vec::with_capacity(v.len() + d.len());
-            if front {
-                b.extend_from_slice(d);
-                b.extend_from_slice(&v[i..]);
-            } else {
-                b.extend_from_slice(&v[..i]);
-                b.extend_from_slice(d);
-            }
-            Ok(b)
-        }
-
+    /// Returns error if the delta doesn't match the value type, the subtraction length is larger than the
+    /// value [ERR D7], or the combined integer is out of range [ERR R4].
+    pub fn apply_delta(&self, delta: &Delta) -> Result<Value> {
         // It is a reportable error [ERR R4] if the combined value does not fit into the integer type.
-        fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i64) -> Result<T> {
-            T::try_from(v.into() + i128::from(d)).map_err(|_| {
-                Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
-            })
+        fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i128) -> Result<T> {
+            v.into()
+                .checked_add(d)
+                .and_then(|r| T::try_from(r).ok())
+                .ok_or_else(|| {
+                    Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
+                })
         }
 
-        match (self, &delta) {
-            (Value::UInt32(v), Value::Int64(d)) => Ok(Value::UInt32(combine(*v, *d)?)),
-            (Value::Int32(v), Value::Int64(d)) => Ok(Value::Int32(combine(*v, *d)?)),
-            (Value::UInt64(v), Value::Int64(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
-            (Value::Int64(v), Value::Int64(d)) => Ok(Value::Int64(combine(*v, *d)?)),
-            (Value::ASCIIString(v), Value::ASCIIString(d)) => {
-                let (front, i) = sub2index(sub, v.len())?;
-                let mut s = String::with_capacity(v.len() + d.len());
-                if front {
-                    s.push_str(d);
-                    s.push_str(&v[i..]);
-                } else {
-                    s.push_str(&v[..i]);
-                    s.push_str(d);
-                }
-                Ok(Value::ASCIIString(s))
+        match (self, delta) {
+            (Value::UInt32(v), Delta::Int(d)) => Ok(Value::UInt32(combine(*v, *d)?)),
+            (Value::Int32(v), Delta::Int(d)) => Ok(Value::Int32(combine(*v, *d)?)),
+            (Value::UInt64(v), Delta::Int(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
+            (Value::Int64(v), Delta::Int(d)) => Ok(Value::Int64(combine(*v, *d)?)),
+            (Value::ASCIIString(v), Delta::Ascii(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
+                Ok(Value::ASCIIString(splice_str(v, d, front, i)))
             }
-            (Value::Bytes(v), Value::Bytes(d)) => Ok(Value::Bytes(bytes_delta(v, d, sub)?)),
-            (Value::UnicodeString(v), Value::Bytes(d)) => {
-                let b = bytes_delta(v.as_bytes(), d, sub)?;
-                let s = String::from_utf8(b).map_err(|e| invalid_utf8(&e))?; // [ERR R2]
-                Ok(Value::UnicodeString(s))
+            (Value::Bytes(v), Delta::Bytes(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
+                Ok(Value::Bytes(splice_bytes(v, d, front, i)))
+            }
+            (Value::UnicodeString(v), Delta::Bytes(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
+                bytes_to_unicode(splice_bytes(v.as_bytes(), d, front, i))
             }
             _ => Err(Error::Runtime(format!(
                 "Cannot apply delta {delta:?} to {self:?}"
@@ -240,22 +225,11 @@ impl Value {
 
     /// Same as [`Value::apply_delta`] but modifies the value in place, reusing the buffer when possible.
     /// # Errors
-    /// Returns error if types are not bytes/string or previous and current types mismatch.
-    pub fn apply_delta_in_place(&mut self, delta: &Value, sub: i32) -> Result<()> {
-        fn splice(v: &mut Vec<u8>, d: &[u8], sub: i32) -> Result<()> {
-            let (front, i) = sub2index(sub, v.len())?;
-            if front {
-                v.splice(..i, d.iter().copied());
-            } else {
-                v.truncate(i);
-                v.extend_from_slice(d);
-            }
-            Ok(())
-        }
-
-        match (&mut *self, &delta) {
-            (Value::ASCIIString(v), Value::ASCIIString(d)) => {
-                let (front, i) = sub2index(sub, v.len())?;
+    /// Same as [`Value::apply_delta`].
+    pub fn apply_delta_in_place(&mut self, delta: &Delta) -> Result<()> {
+        match (&mut *self, delta) {
+            (Value::ASCIIString(v), Delta::Ascii(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
                 if front {
                     v.replace_range(..i, d);
                 } else {
@@ -264,9 +238,18 @@ impl Value {
                 }
                 Ok(())
             }
-            (Value::Bytes(v), Value::Bytes(d)) => splice(v, d, sub),
+            (Value::Bytes(v), Delta::Bytes(d, sub)) => {
+                let (front, i) = sub2index(*sub, v.len())?;
+                if front {
+                    v.splice(..i, d.iter().copied());
+                } else {
+                    v.truncate(i);
+                    v.extend_from_slice(d);
+                }
+                Ok(())
+            }
             _ => {
-                *self = self.apply_delta(delta, sub)?;
+                *self = self.apply_delta(delta)?;
                 Ok(())
             }
         }
@@ -276,17 +259,29 @@ impl Value {
     /// # Errors
     /// Returns error if types are not bytes/string or previous and current types mismatch.
     pub fn apply_tail(&self, tail: &Value) -> Result<Value> {
-        let len: usize = match (self, tail) {
-            (Value::ASCIIString(v), Value::ASCIIString(t)) => min(t.len(), v.len()),
-            (Value::UnicodeString(v), Value::Bytes(t)) => min(t.len(), v.len()),
-            (Value::Bytes(v), Value::Bytes(t)) => min(t.len(), v.len()),
-            _ => {
-                return Err(Error::Runtime(format!(
-                    "Cannot apply tail {tail:?} to {self:?}"
-                )));
-            }
-        };
-        self.apply_delta(tail, len as i32)
+        match (self, tail) {
+            (Value::ASCIIString(v), Value::ASCIIString(t)) => Ok(Value::ASCIIString(splice_str(
+                v,
+                t,
+                false,
+                tail_index(v.len(), t.len()),
+            ))),
+            (Value::UnicodeString(v), Value::Bytes(t)) => bytes_to_unicode(splice_bytes(
+                v.as_bytes(),
+                t,
+                false,
+                tail_index(v.len(), t.len()),
+            )),
+            (Value::Bytes(v), Value::Bytes(t)) => Ok(Value::Bytes(splice_bytes(
+                v,
+                t,
+                false,
+                tail_index(v.len(), t.len()),
+            ))),
+            _ => Err(Error::Runtime(format!(
+                "Cannot apply tail {tail:?} to {self:?}"
+            ))),
+        }
     }
 
     /// Assigns `src` to the value reusing allocated buffer when possible.
@@ -303,17 +298,22 @@ impl Value {
     /// # Errors
     /// Returns error if types are not bytes/string or previous and current types mismatch.
     pub fn apply_tail_in_place(&mut self, tail: &Value) -> Result<()> {
-        let len: usize = match (&*self, tail) {
-            (Value::ASCIIString(v), Value::ASCIIString(t)) => min(t.len(), v.len()),
-            (Value::UnicodeString(v), Value::Bytes(t)) => min(t.len(), v.len()),
-            (Value::Bytes(v), Value::Bytes(t)) => min(t.len(), v.len()),
-            _ => {
-                return Err(Error::Runtime(format!(
-                    "Cannot apply tail {tail:?} to {self:?}"
-                )));
+        match (&mut *self, tail) {
+            (Value::ASCIIString(v), Value::ASCIIString(t)) => {
+                v.truncate(tail_index(v.len(), t.len()));
+                v.push_str(t);
+                Ok(())
             }
-        };
-        self.apply_delta_in_place(tail, len as i32)
+            (Value::Bytes(v), Value::Bytes(t)) => {
+                v.truncate(tail_index(v.len(), t.len()));
+                v.extend_from_slice(t);
+                Ok(())
+            }
+            _ => {
+                *self = self.apply_tail(tail)?;
+                Ok(())
+            }
+        }
     }
 
     /// Increments underlying integer value. The maximum value of the type wraps around to the minimum value.
@@ -333,21 +333,13 @@ impl Value {
 
     /// Searches difference between current and previous value without copying.
     /// # Errors
-    /// Returns error if the types do not match or the integer delta does not fit into `i64`.
+    /// Returns error if the types do not match.
     pub fn find_delta_ref<'a>(&'a self, prev: &'a Value) -> Result<DeltaRef<'a>> {
-        fn int_delta(v: impl Into<i128>, p: impl Into<i128>) -> Result<DeltaRef<'static>> {
-            let (v, p) = (v.into(), p.into());
-            let d = i64::try_from(v - p).map_err(|_| {
-                Error::Runtime(format!("delta from {p} to {v} does not fit into int64"))
-            })?;
-            Ok(DeltaRef::Int(d))
-        }
-
         Ok(match (self, prev) {
-            (Value::Int32(v), Value::Int32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
-            (Value::Int64(v), Value::Int64(p)) => int_delta(*v, *p)?,
-            (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i64::from(*v) - i64::from(*p)),
-            (Value::UInt64(v), Value::UInt64(p)) => int_delta(*v, *p)?,
+            (Value::Int32(v), Value::Int32(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
+            (Value::Int64(v), Value::Int64(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
+            (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
+            (Value::UInt64(v), Value::UInt64(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let (delta, sub) = string_delta(p, v);
                 DeltaRef::Ascii(delta, sub)
@@ -370,12 +362,12 @@ impl Value {
 
     /// Searches difference between current and previous value.
     /// # Errors
-    /// Returns error if the types do not match or the integer delta does not fit into `i64`.
-    pub fn find_delta(&self, prev: &Value) -> Result<(Value, i32)> {
+    /// Returns error if the types do not match.
+    pub fn find_delta(&self, prev: &Value) -> Result<Delta> {
         Ok(match self.find_delta_ref(prev)? {
-            DeltaRef::Int(d) => (Value::Int64(d), 0),
-            DeltaRef::Ascii(s, sub) => (Value::ASCIIString(s.to_string()), sub),
-            DeltaRef::Bytes(b, sub) => (Value::Bytes(b.to_vec()), sub),
+            DeltaRef::Int(d) => Delta::Int(d),
+            DeltaRef::Ascii(s, sub) => Delta::Ascii(s.to_string(), sub),
+            DeltaRef::Bytes(b, sub) => Delta::Bytes(b.to_vec(), sub),
         })
     }
 
@@ -426,31 +418,74 @@ fn parse_integer<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T> {
 // Converts substraction length into (remove from front, index).
 fn sub2index(sub: i32, len: usize) -> Result<(bool, usize)> {
     // A negative subtraction length is used to remove values from the front of the string.
-    // Negative zero is used to append values to the front of the string.
-    let front: bool;
-    let mut i: usize;
-    if sub < 0 {
-        front = true;
-        i = (-sub - 1) as usize;
+    // Negative zero (excess-1 encoded as -1) is used to append values to the front of the string.
+    let (front, count) = if sub < 0 {
+        (true, sub.unsigned_abs() as usize - 1)
     } else {
-        front = false;
-        i = sub as usize;
-    }
-    if i > len {
+        (false, sub as usize)
+    };
+    if count > len {
         return Err(Error::Dynamic(format!(
-            "subtraction length ({i}) is larger than string length ('{len}')"
+            "subtraction length ({count}) is larger than string length ('{len}')"
         ))); // [ERR D7]
     }
-    if !front {
-        i = len - i;
+    Ok((front, if front { count } else { len - count }))
+}
+
+// Index of the base value where the tail of `tail_len` is appended. If the tail is longer than the base value,
+// the combined value becomes the tail value.
+fn tail_index(len: usize, tail_len: usize) -> usize {
+    len - min(tail_len, len)
+}
+
+// Combines the base value `v` with the delta part `d`: if `front`, `d` replaces `v[..i]`, otherwise `v[i..]`.
+fn splice_str(v: &str, d: &str, front: bool, i: usize) -> String {
+    let mut s = String::with_capacity(v.len() + d.len());
+    if front {
+        s.push_str(d);
+        s.push_str(&v[i..]);
+    } else {
+        s.push_str(&v[..i]);
+        s.push_str(d);
     }
-    Ok((front, i))
+    s
+}
+
+// Same as `splice_str` for bytes.
+fn splice_bytes(v: &[u8], d: &[u8], front: bool, i: usize) -> Vec<u8> {
+    let mut b = Vec::with_capacity(v.len() + d.len());
+    if front {
+        b.extend_from_slice(d);
+        b.extend_from_slice(&v[i..]);
+    } else {
+        b.extend_from_slice(&v[..i]);
+        b.extend_from_slice(d);
+    }
+    b
+}
+
+// It is a reportable error [ERR R2] if the combined value is not a valid UTF-8 sequence.
+fn bytes_to_unicode(b: Vec<u8>) -> Result<Value> {
+    Ok(Value::UnicodeString(
+        String::from_utf8(b).map_err(|e| invalid_utf8(&e))?,
+    ))
+}
+
+/// Delta of a value, see [`Value::find_delta`] and [`Value::apply_delta`].
+#[derive(Debug, PartialEq, Clone)]
+pub enum Delta {
+    /// Integer delta. A delta of 64-bit integers can need 65 bits.
+    Int(i128),
+    /// ASCII string delta: the string part and the subtraction length.
+    Ascii(String, i32),
+    /// Byte vector or Unicode string delta: the bytes part and the subtraction length.
+    Bytes(Vec<u8>, i32),
 }
 
 /// Borrowed delta of a value.
 #[derive(Debug, PartialEq)]
 pub enum DeltaRef<'a> {
-    Int(i64),
+    Int(i128),
     Ascii(&'a str, i32),
     Bytes(&'a [u8], i32),
 }

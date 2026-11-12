@@ -43,7 +43,7 @@ pub fn test_templates(d: &Decoder, tts: &Vec<TestTemplate>) {
         "templates count mismatch"
     );
     for (t, tt) in d.definitions.templates.iter().zip(tts) {
-        assert_eq!(t.id, tt.id, "{} id mismatch", t.name);
+        assert_eq!(t.id.unwrap_or_default(), tt.id, "{} id mismatch", t.name);
         assert_eq!(t.name, tt.name, "{} name mismatch", t.name);
         assert_eq!(
             t.dictionary, tt.dictionary,

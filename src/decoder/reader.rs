@@ -178,6 +178,40 @@ pub trait Reader {
         }
     }
 
+    /// Returns decoded non-nullable signed integer that fits into 128 bits, e.g. integer delta of 64-bit fields.
+    /// # Errors
+    /// Returns error if it can not read bytes or the value does not fit into 128 bit.
+    fn read_int128(&mut self) -> Result<i128> {
+        let mut byte = self.read_u8()?;
+        // Negative integers are sign-extended.
+        let mut value: i128 = if byte & 0x40 != 0 { -1 } else { 0 };
+        if byte == 0x00 || byte == 0x7f {
+            // The byte only extends the sign, so it doesn't change the value.
+            let next = self.read_u8()?;
+            if is_overlong_signed(byte, next) {
+                return Err(overlong_integer()); // [ERR R6]
+            }
+            byte = next;
+        }
+        loop {
+            if !(i128::MIN >> 7..=i128::MAX >> 7).contains(&value) {
+                return Err(integer_overflow()); // [ERR D2]
+            }
+            value = (value << 7) | i128::from(byte & 0x7f);
+            if byte & 0x80 == 0x80 {
+                return Ok(value);
+            }
+            byte = self.read_u8()?;
+        }
+    }
+
+    /// Returns decoded nullable signed integer that fits into 128 bits, e.g. integer delta of 64-bit fields.
+    /// # Errors
+    /// Returns error if it can not read bytes or the value does not fit into 128 bit.
+    fn read_int128_nullable(&mut self) -> Result<Option<i128>> {
+        Ok(int128_from_nullable(self.read_int128()?))
+    }
+
     /// Returns decoded non-nullable ASCII encoded string.
     /// # Errors
     /// Returns error if it can not read bytes or the string is overlong.
@@ -293,6 +327,15 @@ fn int_nullable_max(value: i64, byte: u8) -> Result<Option<i64>> {
 // Every non-negative nullable integer is incremented by 1 before it is encoded. Zero is NULL.
 #[inline]
 fn int_from_nullable(value: i64) -> Option<i64> {
+    match value {
+        0 => None,
+        v if v < 0 => Some(v),
+        v => Some(v - 1),
+    }
+}
+
+#[inline]
+fn int128_from_nullable(value: i128) -> Option<i128> {
     match value {
         0 => None,
         v if v < 0 => Some(v),
@@ -449,6 +492,30 @@ mod slice {
     }
 
     #[inline]
+    pub(super) fn int128(buf: &[u8]) -> Result<(i128, usize)> {
+        let Some(&first) = buf.first() else {
+            return Err(Error::UnexpectedEof);
+        };
+        if let [f, second, ..] = buf
+            && is_overlong_signed(*f, *second)
+        {
+            return Err(overlong_integer()); // [ERR R6]
+        }
+        // Negative integers are sign-extended.
+        let mut value: i128 = if first & 0x40 != 0 { -1 } else { 0 };
+        for (i, &byte) in buf.iter().enumerate() {
+            if !(i128::MIN >> 7..=i128::MAX >> 7).contains(&value) {
+                return Err(integer_overflow()); // [ERR D2]
+            }
+            value = (value << 7) | i128::from(byte & 0x7f);
+            if byte & 0x80 != 0 {
+                return Ok((value, i + 1));
+            }
+        }
+        Err(Error::UnexpectedEof)
+    }
+
+    #[inline]
     pub(super) fn presence_map(buf: &[u8]) -> Result<((u64, u8), usize)> {
         if buf.is_empty() {
             return Err(Error::Eof);
@@ -538,6 +605,13 @@ macro_rules! impl_contiguous_reader {
         #[inline]
         fn read_int_nullable(&mut self) -> Result<Option<i64>> {
             let (v, n) = slice::int_nullable(Contiguous::rest(self))?;
+            Contiguous::consume(self, n);
+            Ok(v)
+        }
+
+        #[inline]
+        fn read_int128(&mut self) -> Result<i128> {
+            let (v, n) = slice::int128(Contiguous::rest(self))?;
             Contiguous::consume(self, n);
             Ok(v)
         }

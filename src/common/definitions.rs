@@ -36,8 +36,8 @@ impl Definitions {
         for (i, t) in templates.iter_mut().enumerate() {
             t.index =
                 u32::try_from(i).map_err(|_| Error::Static("too many templates".to_string()))?;
-            if t.id != 0 {
-                templates_by_id.insert(t.id, i);
+            if let Some(id) = t.id {
+                templates_by_id.insert(id, i);
             }
             if qualified_templates
                 .insert((t.ns.clone(), t.name.clone()), i)

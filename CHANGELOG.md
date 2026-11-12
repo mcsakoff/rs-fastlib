@@ -6,11 +6,12 @@
 - **Breaking:** following the template schema, `dictionary` and `key` are read from operator elements
   (`<copy>`, `<increment>`, `<delta>`, `<tail>`), including decimal `<exponent>`/`<mantissa>` operators.
   Both attributes are rejected on filed elements and other operators.
-- **Breaking:** `Value::find_delta_ref` and `Value::find_delta` return `Result`; they fail on type mismatch
-  or when an integer delta doesn't fit into `int64`.
+- **Breaking:** `Value::find_delta` returns new `Delta` type and `Value::apply_delta`/`Value::apply_delta_in_place` take
+  `&Delta`; `Value::find_delta_ref` and `Value::find_delta` return `Result` and fail on type mismatch.
+  Integer deltas are `i128`, so deltas of 64-bit fields can use the full 65-bit range.
 - **Breaking:** string conversions (`Decimal::from_string`, `Value::set_from_string`, `ValueType::str_to_value`)
   trim whitespace from integers and decimals, accept `.5`, check the decimal exponent range [-63 … 63],
-  reject non-ASCII ASCII strings and strip any whitespace from hex strings. 
+  reject non-ASCII ASCII strings and strip any whitespace from hex strings.
 - **Breaking:** a named `<length>` of `<byteVector>` or unicode `<string>` is decoded as an extra `uInt32` field.
 - **Breaking:** `<increment/>` on a whole `<decimal>` is rejected.
 - FAST 1.1 compliance fixes.

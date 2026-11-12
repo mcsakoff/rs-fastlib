@@ -119,6 +119,43 @@ pub trait Writer {
         }
     }
 
+    /// Writes non-nullable 128bit signed integer, e.g. integer delta of 64-bit fields.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes.
+    fn write_int128(&mut self, value: i128) -> Result<()> {
+        if let Ok(v) = i64::try_from(value) {
+            return self.write_int(v);
+        }
+        let useless_bits = if value >= 0 {
+            value.leading_zeros()
+        } else {
+            value.leading_ones()
+        };
+        // Significant bits plus the sign bit.
+        let bytes_to_write = (i128::BITS - useless_bits + 1).div_ceil(7) as usize;
+        let mut buf = [0u8; 19];
+        for (i, b) in buf[..bytes_to_write].iter_mut().enumerate() {
+            *b = (value >> ((bytes_to_write - i - 1) * 7)) as u8 & 0x7f;
+        }
+        buf[bytes_to_write - 1] |= 0x80;
+        self.write_buf(&buf[..bytes_to_write])
+    }
+
+    /// Writes nullable 128bit signed integer, e.g. integer delta of 64-bit fields.
+    /// # Errors
+    /// Returns error if writer can't handle more bytes or the value is `i128::MAX`.
+    fn write_int128_nullable(&mut self, value: Option<i128>) -> Result<()> {
+        match value {
+            None => self.write_int(0),
+            Some(v) if v >= 0 => {
+                self.write_int128(v.checked_add(1).ok_or_else(|| {
+                    Error::Runtime("nullable integer is out of range".to_string())
+                })?)
+            }
+            Some(v) => self.write_int128(v),
+        }
+    }
+
     /// Writes non-nullable ASCII encoded bytes.
     /// # Errors
     /// Returns error if string is not ASCII encoded or writer can't handle more bytes.
@@ -468,7 +505,6 @@ mod tests {
                 input: Some(i64::MAX),
                 value: vec![0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x80],
             },
-
         ];
         for tc in test_cases {
             let mut buf = bytes::BytesMut::new();

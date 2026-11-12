@@ -301,11 +301,15 @@ impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
     // Encode template id and make the template current.
     fn encode_template_id(&mut self, buf: &mut Vec<u8>, template: &Template) -> Result<()> {
         let definitions = self.ctx.definitions;
-        definitions.template_id_instruction.inject(
-            &mut self.ctx,
-            buf,
-            Some(&Value::UInt32(template.id)),
-        )
+        let id = template.id.ok_or_else(|| {
+            Error::Runtime(format!(
+                "template '{}' has no id; it can only be used by a static template reference",
+                template.name
+            ))
+        })?;
+        definitions
+            .template_id_instruction
+            .inject(&mut self.ctx, buf, Some(&Value::UInt32(id)))
     }
 
     // Encode template instructions with the template as the current template.

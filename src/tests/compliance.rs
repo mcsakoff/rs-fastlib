@@ -27,18 +27,6 @@ fn decode_last(raw: &[&[u8]]) -> crate::Result<()> {
     d.decode_slice(last, &mut ModelFactory::new())
 }
 
-// Encodes messages one by one and returns the result of the last one.
-fn encode_last(template: &str, values: &[Value]) -> crate::Result<Vec<u8>> {
-    let mut e = Encoder::new_from_xml(DEFINITION).unwrap();
-    let (last, init) = values.split_last().unwrap();
-    for v in init {
-        let mut m = ModelVisitor::new(pack_value(template, "Value", Some(v.clone())));
-        e.encode_vec(&mut m).unwrap();
-    }
-    let mut m = ModelVisitor::new(pack_value(template, "Value", Some(last.clone())));
-    e.encode_vec(&mut m)
-}
-
 #[test]
 fn increment_undefined_previous_value() {
     // Undefined previous value: the value of the field is the initial value.
@@ -290,21 +278,48 @@ fn integer_delta_range() {
         );
     }
 
-    // The delta does not fit into int64.
-    assert!(encode_last("DeltaU64", &[Value::UInt64(u64::MAX)]).is_err());
-    assert!(
-        encode_last(
-            "DeltaU64",
-            &[Value::UInt64(u64::MAX >> 1), Value::UInt64(u64::MAX)]
-        )
-            .is_err()
+    // A delta of 64-bit integers can need 65 bits (2^64 - 1 and -(2^64 - 1) here).
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION,
+        TestCaseSeq {
+            name: "uInt64 65-bit delta",
+            raw: vec![
+                vec![
+                    0xc0, 0x8a, 0x01, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff,
+                ],
+                vec![
+                    0x80, 0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81,
+                ],
+            ],
+            data: vec![
+                msg("DeltaU64", Some(Value::UInt64(u64::MAX))),
+                msg("DeltaU64", Some(Value::UInt64(0))),
+            ],
+        },
     );
-    assert!(
-        encode_last(
-            "DeltaI64",
-            &[Value::Int64(i64::MAX), Value::Int64(i64::MIN)]
-        )
-            .is_err()
+    do_test_seq(
+        true,
+        true,
+        true,
+        DEFINITION,
+        TestCaseSeq {
+            name: "int64 65-bit delta",
+            raw: vec![
+                vec![
+                    0xc0, 0x8d, 0x00, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff,
+                ],
+                vec![
+                    0x80, 0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81,
+                ],
+            ],
+            data: vec![
+                msg("DeltaI64", Some(Value::Int64(i64::MAX))),
+                msg("DeltaI64", Some(Value::Int64(i64::MIN))),
+            ],
+        },
     );
 }
 
@@ -1047,4 +1062,158 @@ fn text_visitor_dynamic_template_ref() {
     let mut visitor =
         crate::TextMessageVisitor::from_text("DynamicReference=<PreRefData=6>").unwrap();
     assert!(e.encode_vec(&mut visitor).is_err());
+}
+
+#[test]
+fn delta_subtraction_length_int32_min() {
+    // [ERR D7] the subtraction length i32::MIN is larger than the base value.
+    for field in [
+        r#"<string id="1" name="Value"><delta/></string>"#,
+        r#"<byteVector id="1" name="Value"><delta/></byteVector>"#,
+    ] {
+        let xml = template_xml(field);
+        assert!(
+            is_dynamic(
+                decode_seq_result(&xml, &[&[0xc0, 0x81, 0x78, 0x00, 0x00, 0x00, 0x80, 0x80]]),
+                "subtraction length"
+            ),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn optional_int64_delta_65_bits() {
+    // The nullable delta 2^64 - 1 is encoded as 2^64.
+    let xml = template_xml(r#"<uInt64 id="1" name="Value" presence="optional"><delta/></uInt64>"#);
+    do_test_seq(
+        true,
+        true,
+        true,
+        &xml,
+        TestCaseSeq {
+            name: "optional uInt64 65-bit delta",
+            raw: vec![
+                vec![
+                    0xc0, 0x81, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+                ],
+                vec![0x80, 0x80],
+            ],
+            data: vec![msg("T", Some(Value::UInt64(u64::MAX))), msg("T", None)],
+        },
+    );
+}
+
+#[test]
+fn character_set_conversion_with_operators() {
+    // Values of the other character set are converted to the field type before operators are applied,
+    // so the encoding and the previous values are the same as for values of the field type.
+    let unicode = |s: &str| Value::UnicodeString(s.to_string());
+    let ascii = |s: &str| Value::ASCIIString(s.to_string());
+    for op in ["", "<copy/>", "<delta/>", "<tail/>"] {
+        for (charset, converted, native) in [
+            (
+                r#"charset="unicode""#,
+                &ascii as &dyn Fn(&str) -> Value,
+                &unicode as &dyn Fn(&str) -> Value,
+            ),
+            ("", &unicode, &ascii),
+            (r#"charset="ascii""#, &unicode, &ascii),
+        ] {
+            let xml = template_xml(&format!(
+                r#"<string id="1" name="Value" {charset}>{op}</string>"#
+            ));
+            let mut e1 = Encoder::new_from_xml(&xml).unwrap();
+            let mut e2 = Encoder::new_from_xml(&xml).unwrap();
+            for s in ["ab", "ab", "abc"] {
+                let r1 = e1
+                    .encode_vec(&mut ModelVisitor::new(pack_value(
+                        "T",
+                        "Value",
+                        Some(converted(s)),
+                    )))
+                    .unwrap();
+                let r2 = e2
+                    .encode_vec(&mut ModelVisitor::new(pack_value(
+                        "T",
+                        "Value",
+                        Some(native(s)),
+                    )))
+                    .unwrap();
+                assert_eq!(r1, r2, "{charset} {op} {s}");
+            }
+            assert_eq!(e1.context, e2.context, "{charset} {op}");
+        }
+    }
+
+    // [ERR R3] a Unicode string with non-ASCII characters can't be converted.
+    let xml = template_xml(r#"<string id="1" name="Value"><copy/></string>"#);
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    let mut m = ModelVisitor::new(pack_value("T", "Value", Some(unicode("é"))));
+    assert!(matches!(e.encode_vec(&mut m), Err(Error::Runtime(_))));
+}
+
+#[test]
+fn template_identifiers() {
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="0" name="Zero"><uInt32 id="1" name="Value"/></template>
+        <template name="NoId"><uInt32 id="1" name="Value"/></template>
+        <template id="1" name="Ref"><templateRef name="NoId"/></template>
+    </templates>"#;
+
+    // `0` is a valid template identifier.
+    do_test(
+        true,
+        true,
+        true,
+        xml,
+        TestCase {
+            name: "template id 0",
+            raw: vec![0xc0, 0x80, 0x81],
+            data: msg("Zero", Some(Value::UInt32(1))),
+        },
+    );
+
+    // A template without identifier can be used by a static reference.
+    let raw = [0xc0, 0x81, 0x82];
+    let mut d = Decoder::new_from_xml(xml).unwrap();
+    let mut factory = crate::TextMessageFactory::new();
+    d.decode_slice(&raw, &mut factory).unwrap();
+    let mut e = Encoder::new_from_xml(xml).unwrap();
+    let mut visitor = crate::TextMessageVisitor::from_text(&factory.text).unwrap();
+    assert_eq!(e.encode_vec(&mut visitor).unwrap(), raw);
+
+    // But it can't be encoded as a message.
+    let mut e = Encoder::new_from_xml(xml).unwrap();
+    let mut m = ModelVisitor::new(pack_value("NoId", "Value", Some(Value::UInt32(1))));
+    assert!(matches!(e.encode_vec(&mut m), Err(Error::Runtime(m)) if m.contains("has no id")));
+}
+
+#[test]
+fn sequence_without_instructions() {
+    // The sequence has the implicit length field only.
+    for body in [
+        r#"<sequence name="Value"/>"#,
+        r#"<sequence name="Value"><typeRef name="X"/></sequence>"#,
+    ] {
+        let xml = template_xml(body);
+        let raw = [0xc0, 0x81, 0x82];
+        let mut d = Decoder::new_from_xml(&xml).unwrap();
+        let mut msg = ModelFactory::new();
+        d.decode_slice(&raw, &mut msg).unwrap();
+        let data = msg.data.unwrap();
+        match &data.value {
+            ValueData::Group(g) => match g.get("Value") {
+                Some(ValueData::Sequence(items)) => assert_eq!(items.len(), 2, "{body}"),
+                v => panic!("{body}: sequence expected, got {v:?}"),
+            },
+            v => panic!("{body}: group expected, got {v:?}"),
+        }
+        let mut e = Encoder::new_from_xml(&xml).unwrap();
+        assert_eq!(
+            e.encode_vec(&mut ModelVisitor::new(data)).unwrap(),
+            raw,
+            "{body}"
+        );
+    }
 }

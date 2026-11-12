@@ -209,7 +209,7 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::option_option)]
 pub use base::message::{MessageFactory, MessageVisitor};
-pub use base::{decimal::Decimal, value::Value, value::ValueType};
+pub use base::{decimal::Decimal, value::Delta, value::Value, value::ValueType};
 pub use decoder::{
     decoder::Decoder,
     reader::{Reader, SliceReader},

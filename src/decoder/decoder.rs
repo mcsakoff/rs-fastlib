@@ -234,7 +234,9 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     pub(crate) fn decode_template(&mut self) -> Result<()> {
         self.decode_presence_map(self.definitions.long_template_pmap)?;
         let template = self.decode_template_id()?;
-        self.msg.start_template(template.id, &template.name);
+        // Templates selected by the identifier always have one.
+        self.msg
+            .start_template(template.id.unwrap_or_default(), &template.name);
 
         // Update some context variables
         let has_type_ref = self.switch_type_ref(&template.type_ref);

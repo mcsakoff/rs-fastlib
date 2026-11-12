@@ -6,7 +6,7 @@ use roxmltree::Node;
 
 use crate::base::decimal::{MAX_EXPONENT, MIN_EXPONENT};
 use crate::base::types::{Dictionary, Operator, Presence, TypeRef};
-use crate::base::value::{DeltaRef, TailRef, Value, ValueType};
+use crate::base::value::{Delta, DeltaRef, TailRef, Value, ValueType};
 use crate::common::context::DictionaryType;
 use crate::decoder::decoder::DecoderContext;
 use crate::encoder::encoder::EncoderContext;
@@ -118,10 +118,10 @@ impl Instruction {
         let name = node.attribute("name").unwrap_or("");
         let unicode = match node.attribute("charset") {
             Some("unicode") => true,
+            Some("ascii") | None => false,
             Some(charset) => {
                 return Err(Error::Static(format!("unknown charset: {charset}")));
             }
-            _ => false,
         };
         let type_ = ValueType::new_from_tag(node.tag_name().name(), unicode)?;
         match type_ {
@@ -207,19 +207,14 @@ impl Instruction {
                             // An optional sequence means that the length field is optional.
                             instr.presence = instruction.presence;
                         } else {
-                            // If no <length> element is specified, the length field has an implicit name and no field operator.
-                            let mut length = Instruction::new(
-                                0,
-                                &format!("{}:length", instruction.name),
-                                ValueType::Length,
-                            );
-                            length.ns = instruction.ns.clone();
-                            // An optional sequence means that the length field is optional.
-                            length.presence = instruction.presence;
-                            instruction.add_instruction(length);
+                            instruction.add_instruction(instruction.implicit_length());
                         }
                     }
                     instruction.add_instruction(instr);
+                }
+                // A sequence without instructions has the implicit length field only.
+                if instruction.instructions.is_empty() {
+                    instruction.add_instruction(instruction.implicit_length());
                 }
             }
 
@@ -342,6 +337,15 @@ impl Instruction {
         }
         instruction.check_is_valid()?;
         Ok(instruction)
+    }
+
+    // If no <length> element is specified, the length field of a sequence has an implicit name and no field operator.
+    fn implicit_length(&self) -> Instruction {
+        let mut length = Instruction::new(0, &format!("{}:length", self.name), ValueType::Length);
+        length.ns = self.ns.clone();
+        // An optional sequence means that the length field is optional.
+        length.presence = self.presence;
+        length
     }
 
     // Returns the named length field (<length> element) of a byte vector or unicode string field.
@@ -654,7 +658,7 @@ impl Instruction {
             Operator::Delta => {
                 // If the field has optional presence, the delta value can be NULL.
                 // In that case the value of the field is considered absent.
-                let Some((delta, aux)) = self.read_delta(s)? else {
+                let Some(delta) = self.read_delta(s)? else {
                     return Ok(None);
                 };
                 // Otherwise, the field is obtained by combining the delta value with a base value.
@@ -663,7 +667,7 @@ impl Instruction {
                     // Assigned: the base value is the previous value.
                     // The combined value becomes the new previous value.
                     Some(Some(prev)) => {
-                        prev.apply_delta_in_place(&delta, aux)?;
+                        prev.apply_delta_in_place(&delta)?;
                         Ok(Some(prev.clone()))
                     }
 
@@ -676,11 +680,8 @@ impl Instruction {
                     // Otherwise, a type dependant default base value is used.
                     None => {
                         let value = match &self.initial_value {
-                            Some(v) => v.apply_delta(&delta, aux)?,
-                            None => self
-                                .value_type
-                                .to_default_value()?
-                                .apply_delta(&delta, aux)?,
+                            Some(v) => v.apply_delta(&delta)?,
+                            None => self.value_type.to_default_value()?.apply_delta(&delta)?,
                         };
                         let value = Some(value);
                         s.ctx_set(self, value.clone());
@@ -914,37 +915,32 @@ impl Instruction {
     // The delta operator specifies that a delta value is present in the stream.
     // If the field has optional presence, the delta value can be NULL. In that case the value of the field
     // is considered absent. Otherwise, the field is obtained by combining the delta value with a base value.
-    fn read_delta<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<(Value, i32)>>
+    fn read_delta<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Delta>>
     where
         R: Reader,
         M: MessageFactory,
     {
         match self.value_type {
-            ValueType::UInt32
-            | ValueType::Int32
-            | ValueType::UInt64
-            | ValueType::Int64
-            | ValueType::Length
-            | ValueType::Exponent
-            | ValueType::Mantissa => match self.read_int64(s)? {
-                None => Ok(None),
-                Some(v) => Ok(Some((Value::Int64(v), 0))),
-            },
+            ValueType::UInt32 | ValueType::Int32 | ValueType::Length | ValueType::Exponent => {
+                Ok(self.read_int64(s)?.map(|d| Delta::Int(i128::from(d))))
+            }
+            // A delta of 64-bit integers can need 65 bits.
+            ValueType::UInt64 | ValueType::Int64 | ValueType::Mantissa => {
+                if self.is_nullable() {
+                    Ok(s.rdr.read_int128_nullable()?.map(Delta::Int))
+                } else {
+                    Ok(Some(Delta::Int(s.rdr.read_int128()?)))
+                }
+            }
             // Only the subtraction length is nullable; the string/bytes part is present iff it is not NULL.
             ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
-                match self.read_int32(s)? {
-                    None => Ok(None),
-                    Some(sub) => match self.value_type {
-                        ValueType::ASCIIString => {
-                            let diff = s.rdr.read_ascii_string()?;
-                            Ok(Some((Value::ASCIIString(diff), sub)))
-                        }
-                        ValueType::UnicodeString | ValueType::Bytes => {
-                            let diff = s.rdr.read_bytes()?;
-                            Ok(Some((Value::Bytes(diff), sub)))
-                        }
-                        _ => unreachable!(),
-                    },
+                let Some(sub) = self.read_int32(s)? else {
+                    return Ok(None);
+                };
+                if self.value_type == ValueType::ASCIIString {
+                    Ok(Some(Delta::Ascii(s.rdr.read_ascii_string()?, sub)))
+                } else {
+                    Ok(Some(Delta::Bytes(s.rdr.read_bytes()?, sub)))
                 }
             }
             _ => unreachable!(),
@@ -1016,6 +1012,27 @@ impl Instruction {
         value: Option<&Value>,
     ) -> Result<()> {
         use std::borrow::Cow;
+
+        // Convert between character sets before operators use the value, so previous values have
+        // the type of the field.
+        let converted;
+        let value = match (&self.value_type, value) {
+            (ValueType::UnicodeString, Some(Value::ASCIIString(v))) => {
+                converted = Value::UnicodeString(v.clone());
+                Some(&converted)
+            }
+            (ValueType::ASCIIString, Some(Value::UnicodeString(v))) => {
+                if !v.is_ascii() {
+                    return Err(Error::Runtime(format!(
+                        "Field {} must be valid ASCII string",
+                        self.name
+                    ))); // [ERR R3]
+                }
+                converted = Value::ASCIIString(v.clone());
+                Some(&converted)
+            }
+            _ => value,
+        };
 
         if value.is_none() && !self.is_optional() {
             return Err(Error::Runtime(format!(
@@ -1171,19 +1188,9 @@ impl Instruction {
             (ValueType::ASCIIString, Some(Value::ASCIIString(s))) => {
                 self.write_ascii_string(buf, Some(s))
             }
-            (ValueType::ASCIIString, Some(Value::UnicodeString(s))) => {
-                if s.is_ascii() {
-                    self.write_ascii_string(buf, Some(s))
-                } else {
-                    Err(Error::Runtime(format!(
-                        "Field {} must be valid ASCII string",
-                        self.name
-                    )))
-                }
-            }
 
             (ValueType::UnicodeString, None) => self.write_unicode_string(buf, None),
-            (ValueType::UnicodeString, Some(Value::UnicodeString(s) | Value::ASCIIString(s))) => {
+            (ValueType::UnicodeString, Some(Value::UnicodeString(s))) => {
                 self.write_unicode_string(buf, Some(s))
             }
 
@@ -1280,7 +1287,13 @@ impl Instruction {
                 | ValueType::Exponent
                 | ValueType::Mantissa,
                 Some(DeltaRef::Int(v)),
-            ) => self.write_int(buf, Some(v)),
+            ) => {
+                if self.is_nullable() {
+                    buf.write_int128_nullable(Some(v))
+                } else {
+                    buf.write_int128(v)
+                }
+            }
 
             (ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes, None) => {
                 self.write_int::<i32>(buf, None)
