@@ -1634,19 +1634,38 @@ fn optional_group_segment() {
         "overlong presence map"
     ));
 
+    // Round trip through the text format, including messages and groups without present fields.
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
     let mut e = Encoder::new_from_xml(&xml).unwrap();
-    let mut encode = |fields| {
-        e.encode_vec(&mut ModelVisitor::new(TemplateData {
-            name: "T".to_string(),
-            value: group(fields),
-        }))
-        .unwrap()
-    };
-    assert_eq!(encode(vec![]), vec![0xc0, 0x81]);
-    assert_eq!(
-        encode(vec![("G", group(vec![("a", uint32(1))]))]),
-        vec![0xa0, 0x80]
+    for (text, raw) in [
+        ("T=<>", vec![0xc0, 0x81]),
+        ("T=<G=<a=1>>", vec![0xa0, 0x80]),
+        ("T=<G=<a=5>>", vec![0xa0, 0xc0, 0x85]),
+        ("T=<>", vec![0x80]),
+        ("T=<G=<a=5>>", vec![0xa0, 0x80]),
+    ] {
+        assert_eq!(encode_text(&mut e, text).unwrap(), raw, "{text}");
+        assert_eq!(decode_text(&mut d, &raw).unwrap(), text, "{raw:x?}");
+    }
+    assert_eq!(d.context, e.context);
+
+    // A present group without present fields.
+    let xml = template_xml(
+        r#"<group name="G" presence="optional"><uInt32 name="a" presence="optional"/></group>
+           <sequence name="S"><uInt32 name="b" presence="optional"/></sequence>"#,
     );
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    for (text, raw) in [
+        (
+            "T=<G=<>|S=<><b=2><>>",
+            vec![0xe0, 0x81, 0x80, 0x83, 0x80, 0x83, 0x80],
+        ),
+        ("T=<S=<>>", vec![0x80, 0x81, 0x80]),
+    ] {
+        assert_eq!(encode_text(&mut e, text).unwrap(), raw, "{text}");
+        assert_eq!(decode_text(&mut d, &raw).unwrap(), text, "{raw:x?}");
+    }
 }
 
 #[test]

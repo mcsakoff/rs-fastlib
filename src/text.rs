@@ -522,6 +522,10 @@ impl TextMessageValue {
     fn parse_group(mut text: &str) -> Result<(Self, usize)> {
         let mut size = 0;
         let mut value: HashMap<String, TextMessageValue> = HashMap::default();
+        // A group without present fields, e.g. `Name=<>`.
+        if text.starts_with('>') {
+            return Ok((TextMessageValue::Group(value), 1));
+        }
         loop {
             let (name, v, sz) = TextMessageValue::parse_next(text)?;
             size += sz;
@@ -564,6 +568,41 @@ mod tests {
             ]))
         );
         assert_eq!(size, 26);
+    }
+
+    #[test]
+    fn test_parse_empty_group() {
+        let empty = || TextMessageValue::Group(HashMap::default());
+        let group = |name: &str, value| {
+            TextMessageValue::Group(HashMap::from_iter([(name.to_string(), value)]))
+        };
+
+        assert_eq!(TextMessageValue::parse_group(">|").unwrap(), (empty(), 1));
+        assert_eq!(
+            TextMessageValue::from_text("T=<>").unwrap(),
+            group("T", empty())
+        );
+        assert_eq!(
+            TextMessageValue::from_text("T=<G=<>|A=1|S=<><B=2><>>").unwrap(),
+            group(
+                "T",
+                TextMessageValue::Group(HashMap::from_iter([
+                    ("G".to_string(), empty()),
+                    ("A".to_string(), TextMessageValue::Value("1".to_string())),
+                    (
+                        "S".to_string(),
+                        TextMessageValue::Sequence(vec![
+                            empty(),
+                            group("B", TextMessageValue::Value("2".to_string())),
+                            empty(),
+                        ])
+                    ),
+                ]))
+            )
+        );
+        for text in ["T=<", "T=<>>", "T=<|>", "T=<A=1|>", "<>"] {
+            assert!(TextMessageValue::from_text(text).is_err(), "{text}");
+        }
     }
 
     #[test]

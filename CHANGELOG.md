@@ -33,6 +33,8 @@
   encoded with the constant exponent `-2` as mantissa `150`. A value that cannot be represented with
   the constant exponent is reported as [ERR D3] `Error::Dynamic` instead of `Error::Runtime`
   (FAST 1.1 §6.2.2).
+- Fix: `TextMessageVisitor` parses messages, groups and sequence items without present fields, e.g. `T=<>`
+  or `T=<G=<>|S=<><A=1>>`, as `TextMessageFactory` produces them.
 
 ## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends
