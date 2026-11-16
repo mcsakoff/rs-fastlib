@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter, Write};
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
-use crate::base::decimal::Decimal;
+use crate::base::decimal::{Decimal, MAX_EXPONENT, MIN_EXPONENT};
 use crate::decoder::reader::invalid_utf8;
 use crate::utils::bytes::{
     bytes_delta, bytes_tail, string_delta, string_tail, string_to_bytes, trim_whitespace,
@@ -200,6 +200,9 @@ impl Value {
             (Value::Int32(v), DeltaRef::Int(d)) => Ok(Value::Int32(combine(*v, *d)?)),
             (Value::UInt64(v), DeltaRef::Int(d)) => Ok(Value::UInt64(combine(*v, *d)?)),
             (Value::Int64(v), DeltaRef::Int(d)) => Ok(Value::Int64(combine(*v, *d)?)),
+            (Value::Decimal(v), DeltaRef::Decimal(e, m)) => {
+                Ok(Value::Decimal(combine_decimal(v, *e, *m)?))
+            }
             (Value::ASCIIString(v), DeltaRef::Ascii(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
                 Ok(Value::ASCIIString(splice_str(v, d, front, i)))
@@ -242,6 +245,10 @@ impl Value {
             }
             (Value::Int64(v), DeltaRef::Int(d)) => {
                 *v = combine(*v, *d)?;
+                Ok(())
+            }
+            (Value::Decimal(v), DeltaRef::Decimal(e, m)) => {
+                *v = combine_decimal(v, *e, *m)?;
                 Ok(())
             }
             (Value::ASCIIString(v), DeltaRef::Ascii(d, sub)) => {
@@ -370,6 +377,11 @@ impl Value {
             (Value::Int64(v), Value::Int64(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
             (Value::UInt32(v), Value::UInt32(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
             (Value::UInt64(v), Value::UInt64(p)) => DeltaRef::Int(i128::from(*v) - i128::from(*p)),
+            // The exponent and the mantissa deltas are found individually.
+            (Value::Decimal(v), Value::Decimal(p)) => DeltaRef::Decimal(
+                i64::from(v.exponent) - i64::from(p.exponent),
+                i128::from(v.mantissa) - i128::from(p.mantissa),
+            ),
             (Value::ASCIIString(v), Value::ASCIIString(p)) => {
                 let (delta, sub) = string_delta(p, v);
                 DeltaRef::Ascii(delta, sub)
@@ -396,6 +408,7 @@ impl Value {
     pub fn find_delta(&self, prev: &Value) -> Result<Delta> {
         Ok(match self.find_delta_ref(prev)? {
             DeltaRef::Int(d) => Delta::Int(d),
+            DeltaRef::Decimal(e, m) => Delta::Decimal(e, m),
             DeltaRef::Ascii(s, sub) => Delta::Ascii(s.to_string(), sub),
             DeltaRef::Bytes(b, sub) => Delta::Bytes(b.to_vec(), sub),
         })
@@ -453,6 +466,24 @@ fn combine<T: TryFrom<i128>>(v: impl Into<i128>, d: i128) -> Result<T> {
         .ok_or_else(|| {
             Error::Dynamic("integer delta result is out of range".to_string()) // [ERR R4]
         })
+}
+
+// The combined decimal is calculated by individually adding the exponent and the mantissa of the delta
+// to their base value counterparts.
+fn combine_decimal(v: &Decimal, e: i64, m: i128) -> Result<Decimal> {
+    let exponent = i64::from(v.exponent)
+        .checked_add(e)
+        .filter(|e| (i64::from(MIN_EXPONENT)..=i64::from(MAX_EXPONENT)).contains(e))
+        .ok_or_else(|| {
+            Error::Dynamic("decimal delta exponent is out of range".to_string()) // [ERR R1]
+        })?;
+    let mantissa = i128::from(v.mantissa)
+        .checked_add(m)
+        .and_then(|r| i64::try_from(r).ok())
+        .ok_or_else(|| {
+            Error::Dynamic("decimal delta mantissa is out of range".to_string()) // [ERR R1]
+        })?;
+    Ok(Decimal::new(exponent as i32, mantissa))
 }
 
 // Converts substraction length into (remove from front, index).
@@ -535,6 +566,8 @@ fn bytes_to_unicode(b: Vec<u8>) -> Result<Value> {
 pub enum Delta {
     /// Integer delta. A delta of 64-bit integers can need 65 bits.
     Int(i128),
+    /// Decimal delta: the exponent and the mantissa deltas.
+    Decimal(i64, i128),
     /// ASCII string delta: the string part and the subtraction length.
     Ascii(String, i32),
     /// Byte vector or Unicode string delta: the bytes part and the subtraction length.
@@ -545,6 +578,7 @@ impl Delta {
     pub(crate) fn borrowed(&self) -> DeltaRef<'_> {
         match self {
             Delta::Int(d) => DeltaRef::Int(*d),
+            Delta::Decimal(e, m) => DeltaRef::Decimal(*e, *m),
             Delta::Ascii(s, sub) => DeltaRef::Ascii(s, *sub),
             Delta::Bytes(b, sub) => DeltaRef::Bytes(b, *sub),
         }
@@ -564,6 +598,7 @@ fn tail_ref(tail: &Value) -> Result<TailRef<'_>> {
 #[derive(Debug, PartialEq)]
 pub enum DeltaRef<'a> {
     Int(i128),
+    Decimal(i64, i128),
     Ascii(&'a str, i32),
     Bytes(&'a [u8], i32),
 }

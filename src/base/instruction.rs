@@ -257,7 +257,7 @@ impl Instruction {
                     }
                 }
 
-                let mut op: Operator;
+                let op: Operator;
                 let mut ex: Instruction;
                 let mut mn: Instruction;
                 match (operator, exponent, mantissa) {
@@ -266,29 +266,17 @@ impl Instruction {
                         op = o;
                         ex = Instruction::new(0, "exponent", ValueType::Exponent);
                         mn = Instruction::new(0, "mantissa", ValueType::Mantissa);
-                        let initial_value = initial_value
+                        // The operator is applied to the decimal value as a whole, so it shares the previous
+                        // value with other operators of the same key. Delta of the whole decimal comprises
+                        // individual deltas for the exponent and mantissa, see `read_delta()`.
+                        // Increment is not applicable to decimals [ERR S2], see `check_is_valid()`.
+                        instruction.initial_value = initial_value
                             .map(|v| {
                                 Decimal::from_string(&v)
+                                    .map(Value::Decimal)
                                     .map_err(|e| instruction.initial_value_error(&v, &e))
                             })
                             .transpose()?;
-                        match o {
-                            // Delta is applied to exponent and mantissa individually.
-                            // Increment is not applicable to decimals [ERR S2], see `check_is_valid()`.
-                            Operator::Delta => {
-                                op = Operator::None;
-                                ex.operator = o;
-                                mn.operator = o;
-                                if let Some(d) = initial_value {
-                                    ex.initial_value = Some(Value::Int32(d.exponent));
-                                    mn.initial_value = Some(Value::Int64(d.mantissa));
-                                }
-                            }
-                            // Other operators are applied to the decimal value as a whole.
-                            _ => {
-                                instruction.initial_value = initial_value.map(Value::Decimal);
-                            }
-                        }
                     }
                     // Individual operators for subcomponents (or no elements at all).
                     // A missing subcomponent has no operator.
@@ -1021,6 +1009,14 @@ impl Instruction {
                     Ok(Some(DeltaRef::Int(s.rdr.read_int128()?)))
                 }
             }
+            // A scaled number delta is an exponent delta followed by a mantissa delta.
+            // Only the exponent delta is nullable; the mantissa delta is present iff it is not NULL.
+            ValueType::Decimal => {
+                let Some(exponent) = self.read_int64(s)? else {
+                    return Ok(None);
+                };
+                Ok(Some(DeltaRef::Decimal(exponent, s.rdr.read_int128()?)))
+            }
             // Only the subtraction length is nullable; the string/bytes part is present iff it is not NULL.
             ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes => {
                 let Some(sub) = self.read_int32(s)? else {
@@ -1201,6 +1197,9 @@ impl Instruction {
                 let Some(value) = value else {
                     return self.write_delta(buf, None);
                 };
+                if let Value::Decimal(d) = value {
+                    check_exponent(d.exponent)?; // [ERR R1]
+                }
 
                 let base = match s.ctx_get(self)? {
                     Some(Some(prev)) => Cow::Borrowed(prev),
@@ -1373,7 +1372,8 @@ impl Instruction {
                 | ValueType::Int64
                 | ValueType::Length
                 | ValueType::Exponent
-                | ValueType::Mantissa,
+                | ValueType::Mantissa
+                | ValueType::Decimal,
                 None,
             ) => self.write_int::<i64>(buf, None),
 
@@ -1396,6 +1396,12 @@ impl Instruction {
 
             (ValueType::ASCIIString | ValueType::UnicodeString | ValueType::Bytes, None) => {
                 self.write_int::<i32>(buf, None)
+            }
+
+            // Only the exponent delta is nullable.
+            (ValueType::Decimal, Some(DeltaRef::Decimal(e, m))) => {
+                self.write_int(buf, Some(e))?;
+                buf.write_int128(m)
             }
 
             // Only the subtraction length is nullable.
