@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
 - **Breaking:** `Delta` has a new `Decimal` variant (exponent and mantissa deltas).
 - Fix: `<delta/>` on a whole `<decimal>` uses the decimal's own previous value, so it shares the previous value
   with other operators of the same key (e.g. `<copy key="px"/>`), as required by FAST 1.1 §6.3.1
@@ -34,7 +34,7 @@
   the constant exponent is reported as [ERR D3] `Error::Dynamic` instead of `Error::Runtime`
   (FAST 1.1 §6.2.2).
 
-## 0.4.0
+## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends
   previous and initial values instead of copying them. Use `Cow::into_owned` where an owned value is needed.
 - **Breaking:** `MessageVisitor::get_template_name`, `MessageVisitor::get_value` and

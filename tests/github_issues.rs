@@ -1,4 +1,6 @@
-use fastlib::{from_slice, Decoder, Encoder, Error, TextMessageFactory, TextMessageVisitor, to_vec};
+use fastlib::{
+    Decoder, Encoder, Error, TextMessageFactory, TextMessageVisitor, from_slice, to_vec,
+};
 
 fn do_tests_seq(templates: &str, raw: &[&[u8]], data: &[&str]) {
     let mut e = Encoder::new_from_xml(templates).unwrap();
@@ -164,7 +166,7 @@ fn decimal_with_multiple_operators_is_rejected() {
 // https://github.com/mcsakoff/rs-fastlib/issues/17
 #[test]
 fn decode_encode_uint32() {
-    use serde_derive::{Serialize, Deserialize};
+    use serde_derive::{Deserialize, Serialize};
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     enum Message {
@@ -186,11 +188,11 @@ fn decode_encode_uint32() {
     {
         let mut d = Decoder::new_from_xml(xml).unwrap();
         let msg: Message = from_slice(&mut d, raw).unwrap();
-        assert_eq!(msg, Message::Test(Body{value: u32::MAX}));
+        assert_eq!(msg, Message::Test(Body { value: u32::MAX }));
     }
     {
         let mut e = Encoder::new_from_xml(xml).unwrap();
-        let msg = Message::Test(Body{value: u32::MAX});
+        let msg = Message::Test(Body { value: u32::MAX });
         let data = to_vec(&mut e, &msg).unwrap();
         assert_eq!(&data, raw);
     }
