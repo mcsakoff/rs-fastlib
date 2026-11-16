@@ -4,7 +4,7 @@ use crate::utils::stacked::Stacked;
 
 /// Location of an instruction's previous value in the dictionaries.
 /// It is resolved with templates are loaded, so no strings are hashed during processing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DictionaryType {
     /// The instruction doesn't use dictionaries (not resolved).
     None,
@@ -96,12 +96,22 @@ impl Scoped {
 }
 
 impl Context {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
+    /// Creates the context with all entries of `global` and user-defined dictionaries allocated.
+    pub(crate) fn with_static_slots(slots: usize) -> Self {
+        Self {
+            statics: vec![None; slots],
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn reset(&mut self) {
-        self.statics.clear();
+        // The entries stay allocated.
+        self.statics.fill(None);
         self.templates.clear();
         self.types.clear();
     }
@@ -115,13 +125,10 @@ impl Context {
         val: Option<Value>,
     ) {
         match dict {
-            DictionaryType::Static(i) => {
-                let i = i as usize;
-                if i >= self.statics.len() {
-                    self.statics.resize(i + 1, None);
-                }
-                self.statics[i] = Some(val);
-            }
+            DictionaryType::Static(i) => match self.statics.get_mut(i as usize) {
+                Some(entry) => *entry = Some(val),
+                None => self.grow_statics(i as usize, val),
+            },
             DictionaryType::Template(i) => {
                 self.templates.set(template, i, Some(val));
             }
@@ -130,6 +137,12 @@ impl Context {
             }
             DictionaryType::None => unreachable!("dictionary is not resolved"),
         }
+    }
+
+    #[cold]
+    fn grow_statics(&mut self, i: usize, val: Option<Value>) {
+        self.statics.resize(i + 1, None);
+        self.statics[i] = Some(val);
     }
 
     #[inline]

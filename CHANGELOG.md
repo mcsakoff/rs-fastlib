@@ -37,6 +37,9 @@
   or `T=<G=<>|S=<><A=1>>`, as `TextMessageFactory` produces them.
 - Performance: the serde decoder (`from_slice`, `from_bytes`, …) no longer allocates a string for the name 
   of every decoded field.
+- Performance: dictionary entries are accessed faster. The type of a previous value [ERR D4] is checked
+  at runtime only for the entries that fields of different types share (this is resolved when templates
+  are loaded), and entries of `global` and user defined dictionaries are allocated up front.
 
 ## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

@@ -1873,3 +1873,56 @@ fn stream_reader_matches_slice_reader() {
     }
     assert_eq!(valid, 5);
 }
+
+#[test]
+fn dictionary_type_check_is_resolved_at_load() {
+    // The type of the previous value [ERR D4] is checked at runtime only for the entries accessed
+    // by fields of different types.
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="T">
+            <uInt32 name="a"><copy/></uInt32>
+            <uInt32 name="b"><copy key="k"/></uInt32>
+            <uInt32 name="c"><delta key="k"/></uInt32>
+            <uInt32 name="d"><copy key="m"/></uInt32>
+            <string name="e"><tail key="m"/></string>
+            <string name="f"><constant value="x"/></string>
+            <sequence name="S"><length name="b"><increment key="k"/></length></sequence>
+            <decimal name="g"><exponent><copy key="a"/></exponent><mantissa><delta/></mantissa></decimal>
+            <decimal name="h"><copy key="n"/></decimal>
+            <decimal name="i"><delta key="n"/></decimal>
+        </template>
+        <template id="2" name="U" dictionary="template">
+            <int32 name="a"><copy/></int32>
+        </template>
+        <template id="3" name="V" dictionary="template">
+            <int64 name="a"><copy/></int64>
+        </template>
+    </templates>"#;
+    let d = Decoder::new_from_xml(xml).unwrap();
+    assert!(!d.definitions.template_id_instruction.check_type.get());
+    let t = &d.definitions.template_by_id(1).unwrap().instructions;
+    let check = |i: &Instruction| i.check_type.get();
+    // `a` is shared with the exponent of `g`: uInt32 and int32.
+    assert!(check(&t[0]), "a");
+    assert!(check(&t[7].instructions[0]), "g exponent");
+    assert!(!check(&t[7].instructions[1]), "g mantissa");
+    // uInt32 fields and a sequence length.
+    assert!(!check(&t[1]), "b");
+    assert!(!check(&t[2]), "c");
+    assert!(!check(&t[6].instructions[0]), "length");
+    // uInt32 and string.
+    assert!(check(&t[3]), "d");
+    assert!(check(&t[4]), "e");
+    // Whole decimals.
+    assert!(!check(&t[8]), "h");
+    assert!(!check(&t[9]), "i");
+    // Instances of the `template` dictionary are not tracked individually.
+    for id in [2, 3] {
+        assert!(check(
+            &d.definitions.template_by_id(id).unwrap().instructions[0]
+        ));
+    }
+    // All static entries are allocated up front.
+    assert!(d.definitions.static_slots >= 6);
+    assert_eq!(d.context, Encoder::new_from_xml(xml).unwrap().context);
+}

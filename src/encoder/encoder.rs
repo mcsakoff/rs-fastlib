@@ -6,7 +6,7 @@ use crate::base::message::MessageVisitor;
 use crate::base::pmap::PresenceMap;
 use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::{Context, Scopes};
+use crate::common::context::{Context, DictionaryType, Scopes};
 use crate::common::definitions::Definitions;
 use crate::encoder::writer::{StreamWriter, Writer, presence_map_bytes};
 use crate::utils::stacked::Stacked;
@@ -26,9 +26,10 @@ pub struct Encoder {
 impl Encoder {
     #[allow(unused)]
     pub(crate) fn new_from_templates(ts: Vec<Template>) -> Result<Self> {
+        let definitions = Definitions::new_from_templates(ts)?;
         Ok(Encoder {
-            definitions: Definitions::new_from_templates(ts)?,
-            context: Context::new(),
+            context: Context::with_static_slots(definitions.static_slots),
+            definitions,
             scratch: Vec::new(),
             scopes: Scopes::new(),
             size_hint: 0,
@@ -39,9 +40,10 @@ impl Encoder {
     /// # Errors
     /// Returns error if definition is ill-formed.
     pub fn new_from_xml(text: &str) -> Result<Self> {
+        let definitions = Definitions::new_from_xml(text)?;
         Ok(Encoder {
-            definitions: Definitions::new_from_xml(text)?,
-            context: Context::new(),
+            context: Context::with_static_slots(definitions.static_slots),
+            definitions,
             scratch: Vec::new(),
             scopes: Scopes::new(),
             size_hint: 0,
@@ -226,6 +228,19 @@ impl<'a> EncoderContext<'a> {
         _ = self.type_ref.pop();
     }
 
+    // Returns the indexes of the current template and application type: the instances of `template` and
+    // `type` dictionaries. Entries of other dictionaries don't depend on them.
+    #[inline]
+    fn scope(&self, slot: DictionaryType) -> (u32, u32) {
+        if let DictionaryType::Static(_) = slot {
+            return (0, 0);
+        }
+        (
+            self.template.peek().copied().unwrap_or_default(),
+            *self.type_ref.must_peek(),
+        )
+    }
+
     #[inline]
     pub(crate) fn pmap_set_next_bit(&mut self, value: bool) {
         self.presence_map.must_peek_mut().set_next_bit(value);
@@ -233,8 +248,7 @@ impl<'a> EncoderContext<'a> {
 
     #[inline]
     fn entry(&mut self, i: &Instruction) -> Option<&mut Option<Value>> {
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
         self.context
             .get_mut(i.dictionary_slot.get(), template, type_index)
     }
@@ -248,21 +262,20 @@ impl<'a> EncoderContext<'a> {
             }
             return;
         }
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
         self.context
             .set(i.dictionary_slot.get(), template, type_index, v.cloned());
     }
 
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
 
         let v = self
             .context
             .get(i.dictionary_slot.get(), template, type_index);
-        if let Some(Some(v)) = v
+        if i.check_type.get()
+            && let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have

@@ -7,7 +7,7 @@ use crate::base::message::MessageFactory;
 use crate::base::pmap::PresenceMap;
 use crate::base::types::{Template, TypeRef};
 use crate::base::value::{Value, ValueType};
-use crate::common::context::{Context, Scopes};
+use crate::common::context::{Context, DictionaryType, Scopes};
 use crate::common::definitions::Definitions;
 use crate::decoder::reader::{Reader, SliceReader, StreamReader};
 use crate::utils::stacked::Stacked;
@@ -28,9 +28,10 @@ impl Decoder {
     /// # Errors
     /// Returns error if invalid templates given.
     pub(crate) fn new_from_templates(ts: Vec<Template>) -> Result<Self> {
+        let definitions = Definitions::new_from_templates(ts)?;
         Ok(Decoder {
-            definitions: Definitions::new_from_templates(ts)?,
-            context: Context::new(),
+            context: Context::with_static_slots(definitions.static_slots),
+            definitions,
             scopes: Scopes::new(),
             scratch: Vec::new(),
         })
@@ -40,9 +41,10 @@ impl Decoder {
     /// # Errors
     /// Returns error if invalid definitions given.
     pub fn new_from_xml(text: &str) -> Result<Self> {
+        let definitions = Definitions::new_from_xml(text)?;
         Ok(Decoder {
-            definitions: Definitions::new_from_xml(text)?,
-            context: Context::new(),
+            context: Context::with_static_slots(definitions.static_slots),
+            definitions,
             scopes: Scopes::new(),
             scratch: Vec::new(),
         })
@@ -306,8 +308,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
             Extracted::Value(v) => v,
             // Lend the previous value to the message factory.
             Extracted::Previous => {
-                let template = self.template.peek().copied().unwrap_or_default();
-                let type_index = *self.type_ref.must_peek();
+                let (template, type_index) = self.scope(instruction.dictionary_slot.get());
                 self.context
                     .get(instruction.dictionary_slot.get(), template, type_index)
                     .and_then(Option::as_ref)
@@ -447,6 +448,19 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         _ = self.type_ref.pop();
     }
 
+    // Returns the indexes of the current template and application type: the instances of `template` and
+    // `type` dictionaries. Entries of other dictionaries don't depend on them.
+    #[inline]
+    fn scope(&self, slot: DictionaryType) -> (u32, u32) {
+        if let DictionaryType::Static(_) = slot {
+            return (0, 0);
+        }
+        (
+            self.template.peek().copied().unwrap_or_default(),
+            *self.type_ref.must_peek(),
+        )
+    }
+
     #[inline]
     pub(crate) fn pmap_next_bit_set(&mut self) -> bool {
         self.presence_map.must_peek_mut().next_bit_set()
@@ -454,11 +468,11 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) -> Result<()> {
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
         let slot = i.dictionary_slot.get();
         // Overwriting an assigned entry accesses it too.
-        if let Some(Some(prev)) = self.context.get(slot, template, type_index)
+        if i.check_type.get()
+            && let Some(Some(prev)) = self.context.get(slot, template, type_index)
             && !i.value_type.matches_type(prev)
         {
             return Err(wrong_value_type(i)); // [ERR D4]
@@ -469,12 +483,12 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_get(&mut self, i: &Instruction) -> Result<Option<&Option<Value>>> {
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
         let v = self
             .context
             .get(i.dictionary_slot.get(), template, type_index);
-        if let Some(Some(v)) = v
+        if i.check_type.get()
+            && let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
             return Err(wrong_value_type(i)); // [ERR D4]
@@ -484,12 +498,12 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
 
     #[inline]
     pub(crate) fn ctx_get_mut(&mut self, i: &Instruction) -> Result<Option<&mut Option<Value>>> {
-        let template = self.template.peek().copied().unwrap_or_default();
-        let type_index = *self.type_ref.must_peek();
+        let (template, type_index) = self.scope(i.dictionary_slot.get());
         let v = self
             .context
             .get_mut(i.dictionary_slot.get(), template, type_index);
-        if let Some(Some(v)) = v
+        if i.check_type.get()
+            && let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
             return Err(wrong_value_type(i)); // [ERR D4]

@@ -23,6 +23,8 @@ pub struct Definitions {
     pub(crate) template_id_instruction: Instruction,
     // Message segments (and dynamic template references) may need presence maps longer than `MAX_PMAP_BITS`.
     pub(crate) long_template_pmap: bool,
+    // Number of entries in `global` and user-defined dictionaries (`DictionaryType::Static`).
+    pub(crate) static_slots: usize,
 }
 
 impl Definitions {
@@ -70,8 +72,9 @@ impl Definitions {
             qualified_templates,
             template_id_instruction,
             long_template_pmap: false,
+            static_slots: 0,
         };
-        definitions.long_template_pmap = definitions.finalize()?;
+        (definitions.long_template_pmap, definitions.static_slots) = definitions.finalize()?;
         Ok(definitions)
     }
 
@@ -165,8 +168,9 @@ impl Definitions {
     // After generating the templates we have to go through all the instructions and set flags
     // for structures that must have a presence map. That can only be done when whole
     // templates structure is generated.
-    // Returns `true` if any template segment needs a presence map longer than `MAX_PMAP_BITS`.
-    fn finalize(&self) -> Result<bool> {
+    // Returns `true` if any template segment needs a presence map longer than `MAX_PMAP_BITS`,
+    // and the number of static dictionary slots.
+    fn finalize(&self) -> Result<(bool, usize)> {
         // Templates being processed, to detect cyclic static template references.
         let mut visiting = vec![false; self.templates.len()];
         let mut long_pmap = false;
@@ -181,7 +185,12 @@ impl Definitions {
         for tpl in &self.templates {
             slots.resolve_all(&tpl.instructions, &tpl.dictionary);
         }
-        Ok(long_pmap)
+        // All users of the entries are known now.
+        slots.set_type_checks(std::slice::from_ref(&self.template_id_instruction));
+        for tpl in &self.templates {
+            slots.set_type_checks(&tpl.instructions);
+        }
+        Ok((long_pmap, slots.statics.len()))
     }
 
     // Returns the number of presence map bits the template instructions occupy (without the template
@@ -299,7 +308,13 @@ struct SlotResolver {
     statics: HashMap<StaticKey, u32>,
     // key -> key index in `templates` and `type` dictionaries
     keys: HashMap<Key, u32>,
+    // slot -> type of the fields that access it; `None` if the fields have different types.
+    // Instances of `template` and `type` dictionaries are not tracked individually.
+    types: HashMap<DictionaryType, Option<ValueKind>>,
 }
+
+// Type of the values stored in dictionaries, see `ValueType::matches_type`.
+type ValueKind = std::mem::Discriminant<crate::Value>;
 
 impl SlotResolver {
     fn resolve_all(&mut self, instructions: &[Instruction], dictionary: &Dictionary) {
@@ -322,12 +337,46 @@ impl SlotResolver {
             // Instructions of the referenced template are resolved on their own.
             ValueType::TemplateReference => {}
             ValueType::Decimal => {
-                instr.dictionary_slot.set(self.slot(dictionary, instr));
+                self.set_slot(dictionary, instr);
                 // Subcomponents inherits the dictionary of the decimal field unless their operators set their own.
                 self.resolve_all(&instr.instructions, dictionary);
             }
-            _ => {
-                instr.dictionary_slot.set(self.slot(dictionary, instr));
+            _ => self.set_slot(dictionary, instr),
+        }
+    }
+
+    fn set_slot(&mut self, dictionary: &Dictionary, instr: &Instruction) {
+        let slot = self.slot(dictionary, instr);
+        instr.dictionary_slot.set(slot);
+        // Only these operators access previous values.
+        if !matches!(
+            instr.operator,
+            Operator::Copy | Operator::Increment | Operator::Delta | Operator::Tail
+        ) {
+            return;
+        }
+        let Ok(value) = instr.value_type.to_default_value() else {
+            return;
+        };
+        let kind = std::mem::discriminant(&value);
+        self.types
+            .entry(slot)
+            .and_modify(|k| {
+                if *k != Some(kind) {
+                    *k = None;
+                }
+            })
+            .or_insert(Some(kind));
+    }
+
+    // The type of the previous value [ERR D4] is checked at runtime only for the entries accessed
+    // by fields of different types.
+    fn set_type_checks(&self, instructions: &[Instruction]) {
+        for instr in instructions {
+            let same_type = matches!(self.types.get(&instr.dictionary_slot.get()), Some(Some(_)));
+            instr.check_type.set(!same_type);
+            if instr.value_type != ValueType::TemplateReference {
+                self.set_type_checks(&instr.instructions);
             }
         }
     }

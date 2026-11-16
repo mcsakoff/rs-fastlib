@@ -79,6 +79,10 @@ pub(crate) struct Instruction {
 
     // Location of the previous value in dictionaries; resolved when defitions are loaded.
     pub(crate) dictionary_slot: Cell<DictionaryType>,
+
+    // `false` if all operators that access the dictionary entry have fields of the same type, so the type
+    // of the previous value [ERR D4] doesn't have to be checked; resolved when definitions are loaded.
+    pub(crate) check_type: Cell<bool>,
 }
 
 /// The value of a field extracted by the decoder.
@@ -120,6 +124,7 @@ impl Instruction {
             long_pmap: Cell::new(false),
             template_index: Cell::new(usize::MAX),
             dictionary_slot: Cell::new(DictionaryType::None),
+            check_type: Cell::new(true),
         }
     }
 
