@@ -83,3 +83,31 @@ fn optional_decimal_exponent_accepts_default_without_value() {
         &["Message=<Id=1>", "Message=<Id=2|Price=1.5>"],
     );
 }
+
+// FAST 1.1 §6.2.5 requires an implicit length name to be unique to its sequence.
+// §6.3.1 uses the field name as the default dictionary key.
+// https://github.com/mcsakoff/rs-fastlib/issues/13
+#[test]
+fn unnamed_sequence_lengths_have_distinct_copy_values() {
+    let xml = r#"
+        <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+            <template id="1" name="Message">
+                <sequence name="First">
+                    <length><copy value="1"/></length>
+                    <uInt32 name="X"/>
+                </sequence>
+                <sequence name="Second">
+                    <length><copy value="2"/></length>
+                    <uInt32 name="Y"/>
+                </sequence>
+            </template>
+        </templates>
+    "#;
+
+    do_tests_seq(
+        xml,
+        // Both lengths are omitted and must use their own initial values.
+        &[&[0xc0, 0x81, 0x81, 0x82, 0x83]],
+        &["Message=<First=<X=1>|Second=<Y=2><Y=3>>"],
+    );
+}

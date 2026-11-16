@@ -8,6 +8,9 @@
 - Fix: a sequence `<length>` and a decimal `<exponent>` are validated after they inherit the presence of their
   field, so an optional sequence or decimal accepts `<default/>` without an initial value (FAST 1.1 §6.3.4).
   ([#12](https://github.com/mcsakoff/rs-fastlib/issues/12))
+- Fix: an unnamed sequence `<length>` uses its generated name as the default dictionary key, so the length
+  operators of different sequences no longer share one previous value (FAST 1.1 §6.2.5, §6.3.1).
+  ([#13](https://github.com/mcsakoff/rs-fastlib/issues/13))
 
 ## 0.4.0
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

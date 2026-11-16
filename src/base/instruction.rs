@@ -215,6 +215,10 @@ impl Instruction {
                                 // The name is guaranteed to never collide with a field name explicitly specified
                                 // in a template.
                                 instr.name = format!("{}:length", instruction.name);
+                                // The field name is the default dictionary key (§6.3.1).
+                                if instr.key.is_empty() {
+                                    instr.key = Rc::from(instr.name.as_str());
+                                }
                             }
                             // An optional sequence means that the length field is optional.
                             instr.presence = instruction.presence;
