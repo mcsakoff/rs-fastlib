@@ -55,7 +55,7 @@ impl Template {
                 continue;
             }
             // Parse as an instruction
-            instructions.push(Instruction::from_node(child)?);
+            instructions.push(Instruction::field_from_node(child)?);
         }
         Ok(Self {
             id,

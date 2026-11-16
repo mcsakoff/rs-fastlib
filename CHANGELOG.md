@@ -18,6 +18,21 @@
 - Fix: a `<decimal>` with more than one operator, `<exponent>` or `<mantissa>` is rejected with a static error
   instead of the last one silently winning (FAST 1.1 Appendix 1)
   ([#15](https://github.com/mcsakoff/rs-fastlib/issues/15)).
+- **Breaking:** `<length>`, `<exponent>` and `<mantissa>` are rejected with a static error where the template
+  schema doesn't allow them: as instructions of a template, group or sequence, and `<length>` anywhere
+  but in front of the sequence instructions (FAST 1.1 Appendix 1, [ERR S1]).
+- **Breaking:** a root element in a foreign namespace is rejected with a static error instead of loading
+  an empty set of templates. The template definition namespace `http://www.fixprotocol.org/ns/fast/td/1.1`
+  and documents without namespace are accepted (FAST 1.1 §3.1).
+- **Breaking:** templates with the same `id` are rejected with a static error instead of the last one
+  silently winning.
+- Fix: generated dictionary keys (template identifier, unnamed sequence `<length>`, decimal `<exponent>` and
+  `<mantissa>`) never share a previous value with fields or keys of the same name specified in templates,
+  e.g. a field named `Px:exponent` (FAST 1.1 §6.2.2, §6.2.5, §10).
+- Fix: the encoder rescales a decimal to the exponent of `<exponent><constant/></exponent>`, e.g. `1.5` is
+  encoded with the constant exponent `-2` as mantissa `150`. A value that cannot be represented with
+  the constant exponent is reported as [ERR D3] `Error::Dynamic` instead of `Error::Runtime`
+  (FAST 1.1 §6.2.2).
 
 ## 0.4.0
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

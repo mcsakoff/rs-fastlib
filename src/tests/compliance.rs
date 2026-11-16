@@ -1288,3 +1288,569 @@ fn decode_after_failed_message() {
     assert!(d.scopes.template.peek().is_none());
     assert!(d.scopes.presence_map.peek().is_none());
 }
+
+fn decode_text(d: &mut Decoder, raw: &[u8]) -> crate::Result<String> {
+    let mut factory = crate::TextMessageFactory::new();
+    d.decode_slice(raw, &mut factory)?;
+    Ok(factory.text)
+}
+
+fn encode_text(e: &mut Encoder, text: &str) -> crate::Result<Vec<u8>> {
+    e.encode_vec(&mut crate::TextMessageVisitor::from_text(text)?)
+}
+
+#[test]
+fn misplaced_length_exponent_mantissa_are_rejected() {
+    // [ERR S1] <length>, <exponent> and <mantissa> are parts of other fields, not instructions.
+    for body in [
+        r#"<length name="L"/>"#,
+        r#"<group name="G"><length name="L"/></group>"#,
+        r#"<sequence name="S"><uInt32 name="a"/><length name="L"/></sequence>"#,
+        r#"<sequence name="S"><length name="L"/><length name="M"/><uInt32 name="a"/></sequence>"#,
+        r#"<mantissa/>"#,
+        r#"<exponent><copy/></exponent>"#,
+        r#"<group name="G"><mantissa><copy/></mantissa></group>"#,
+        r#"<sequence name="S"><exponent/></sequence>"#,
+    ] {
+        assert!(load_error(&template_xml(body)), "{body}");
+    }
+    // <length> follows the optional <typeRef>.
+    for body in [
+        r#"<sequence name="S"><length name="L"/><uInt32 name="a"/></sequence>"#,
+        r#"<sequence name="S"><typeRef name="X"/><length name="L"/><uInt32 name="a"/></sequence>"#,
+    ] {
+        assert!(Decoder::new_from_xml(&template_xml(body)).is_ok(), "{body}");
+    }
+}
+
+#[test]
+fn foreign_root_namespace_is_rejected() {
+    // [ERR S1] elements of other namespaces are foreign, so such a document has no templates.
+    let body = r#"<template id="1" name="T"><uInt32 id="1" name="Value"/></template>"#;
+    for ns in [
+        "http://www.fixprotocol.org/ns/template-definition",
+        "urn:foreign",
+    ] {
+        assert!(
+            load_error(&format!(r#"<templates xmlns="{ns}">{body}</templates>"#)),
+            "{ns}"
+        );
+        assert!(
+            load_error(&format!(r#"<template xmlns="{ns}" id="1" name="T"/>"#)),
+            "{ns}"
+        );
+    }
+    // Documents without namespace are accepted.
+    do_test(
+        true,
+        true,
+        true,
+        &format!("<templates>{body}</templates>"),
+        TestCase {
+            name: "no namespace",
+            raw: vec![0xc0, 0x81, 0x85],
+            data: msg("T", Some(Value::UInt32(5))),
+        },
+    );
+}
+
+#[test]
+fn duplicate_template_id_is_rejected() {
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="A"/>
+        <template id="1" name="B"/>
+    </templates>"#;
+    assert!(load_error(xml));
+    // Templates without identifiers don't clash.
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template name="A"/>
+        <template name="B"/>
+    </templates>"#;
+    assert!(Decoder::new_from_xml(xml).is_ok());
+}
+
+#[test]
+fn generated_names_do_not_collide() {
+    // The template identifier uses an internal key.
+    let xml = template_xml(r#"<uInt32 id="1" name="__template_id__"><copy/></uInt32>"#);
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    assert_eq!(
+        decode_text(&mut d, &[0xe0, 0x81, 0x87]).unwrap(),
+        "T=<__template_id__=7>"
+    );
+    assert_eq!(
+        decode_text(&mut d, &[0x80]).unwrap(),
+        "T=<__template_id__=7>"
+    );
+
+    // The generated name of a sequence length never collides with a field name (§6.2.5).
+    let xml = template_xml(
+        r#"<sequence name="S"><length><copy/></length><uInt32 name="a"/></sequence>
+           <uInt32 name="S:length"><copy/></uInt32>"#,
+    );
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xe0, 0x81, 0x81, 0x85]]),
+        "no initial value"
+    ));
+
+    // The same for the generated names of the decimal parts (§6.2.2).
+    let xml = template_xml(
+        r#"<decimal name="D"><exponent><copy/></exponent><mantissa><copy/></mantissa></decimal>
+           <int32 name="D:exponent"><copy/></int32>
+           <int64 name="D:mantissa"><copy/></int64>"#,
+    );
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xf0, 0x81, 0xfe, 0x85]]),
+        "no initial value"
+    ));
+    let d = Decoder::new_from_xml(&xml).unwrap();
+    let t = &d.definitions.template_by_id(1).unwrap().instructions;
+    let slot = |i: &Instruction| i.dictionary_slot.get();
+    assert_ne!(slot(&t[0].instructions[0]), slot(&t[1]));
+    assert_ne!(slot(&t[0].instructions[1]), slot(&t[2]));
+}
+
+#[test]
+fn decimal_constant_exponent_rescales() {
+    // The constant exponent limits the values to the ones representable with it; [ERR D3] is for values
+    // that cannot be encoded only.
+    let xml = template_xml(
+        r#"<decimal id="1" name="Value"><exponent><constant value="-2"/></exponent><mantissa><delta/></mantissa></decimal>"#,
+    );
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    let encode = |e: &mut Encoder, exponent: i32, mantissa: i64| {
+        e.encode_vec(&mut ModelVisitor::new(pack_value(
+            "T",
+            "Value",
+            Some(Value::Decimal(Decimal::new(exponent, mantissa))),
+        )))
+    };
+    let mut first = true;
+    for ((exponent, mantissa), scaled) in [
+        ((-1, 15), 150),
+        ((-2, 125), 125),
+        ((0, 2), 200),
+        ((2, 1), 10_000),
+        ((-4, 12_300), 123),
+        ((0, 0), 0),
+        ((5, 0), 0),
+        ((1, -3), -3000),
+    ] {
+        let raw = encode(&mut e, exponent, mantissa).unwrap();
+        if first {
+            assert_eq!(raw, vec![0xc0, 0x81, 0x01, 0x96]);
+            first = false;
+        }
+        let mut msg = ModelFactory::new();
+        d.decode_slice(&raw, &mut msg).unwrap();
+        assert_eq!(
+            extract_value(msg, "Value", "constant exponent"),
+            Some(Value::Decimal(Decimal::new(-2, scaled))),
+            "{mantissa}e{exponent}"
+        );
+    }
+    assert_eq!(d.context, e.context);
+
+    // [ERR D3] the precision or the range of the mantissa is not enough.
+    for (exponent, mantissa) in [(-3, 1255), (-4, 1), (30, 1), (17, i64::MAX)] {
+        assert!(
+            matches!(
+                encode(&mut e, exponent, mantissa),
+                Err(Error::Dynamic(m)) if m.contains("constant exponent")
+            ),
+            "{mantissa}e{exponent}"
+        );
+    }
+    // The failed messages don't change the previous value of the mantissa.
+    assert_eq!(d.context, e.context);
+}
+
+#[test]
+fn empty_previous_value_of_mandatory_field() {
+    // [ERR D6] the optional field sets the shared previous value empty.
+    for (field, op, raw) in [
+        ("uInt32", "copy", &[0xe0, 0x81, 0x80][..]),
+        ("uInt32", "increment", &[0xe0, 0x81, 0x80]),
+        ("uInt32", "delta", &[0xe0, 0x81, 0x80, 0x81]),
+        ("string", "tail", &[0xe0, 0x81, 0x80]),
+    ] {
+        let xml = template_xml(&format!(
+            r#"<{field} name="a" presence="optional"><copy key="k"/></{field}>
+               <{field} name="b"><{op} key="k"/></{field}>"#
+        ));
+        assert!(
+            is_dynamic(decode_seq_result(&xml, &[raw]), "no previous value"),
+            "{op}"
+        );
+    }
+}
+
+#[test]
+fn dictionary_type_mismatch() {
+    // [ERR D4] for every operator that accesses the entry.
+    for (op, raw) in [
+        ("copy", &[0xe0, 0x81, 0x85][..]),
+        ("delta", &[0xe0, 0x81, 0x85, 0x80, 0xc1]),
+        ("tail", &[0xe0, 0x81, 0x85]),
+        ("tail", &[0xf0, 0x81, 0x85, 0xc1]),
+    ] {
+        let xml = template_xml(&format!(
+            r#"<uInt32 name="a"><copy key="k"/></uInt32><string name="b"><{op} key="k"/></string>"#
+        ));
+        assert!(
+            is_dynamic(decode_seq_result(&xml, &[raw]), "wrong value type"),
+            "{op} {raw:x?}"
+        );
+    }
+}
+
+#[test]
+fn unknown_template_id() {
+    // [ERR D9]
+    let xml = template_xml(r#"<uInt32 id="1" name="Value"/>"#);
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x82, 0x81]]),
+        "Unknown template id: 2"
+    ));
+    // The same for a dynamic template reference.
+    let xml = template_xml("<templateRef/>");
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xc0, 0x81, 0xc0, 0x82]]),
+        "Unknown template id: 2"
+    ));
+}
+
+#[test]
+fn delta_subtraction_length() {
+    let xml = template_xml(r#"<string id="1" name="Value"><delta value="abc"/></string>"#);
+    // [ERR D7] the subtraction length is larger than the base value: from the back and from the front.
+    for raw in [&[0xc0, 0x81, 0x84, 0xc1][..], &[0xc0, 0x81, 0xfb, 0xc1]] {
+        assert!(
+            is_dynamic(decode_seq_result(&xml, &[raw]), "subtraction length"),
+            "{raw:x?}"
+        );
+    }
+    for (name, raw, value) in [
+        (
+            "remove all from the back",
+            vec![0xc0, 0x81, 0x83, 0xc1],
+            "A",
+        ),
+        (
+            "remove all from the front",
+            vec![0xc0, 0x81, 0xfc, 0xc1],
+            "A",
+        ),
+        (
+            "negative zero prepends",
+            vec![0xc0, 0x81, 0xff, 0xc1],
+            "Aabc",
+        ),
+        ("zero appends", vec![0xc0, 0x81, 0x80, 0xc1], "abcA"),
+        ("remove from the front", vec![0xc0, 0x81, 0xfd, 0x80], "c"),
+    ] {
+        let mut d = Decoder::new_from_xml(&xml).unwrap();
+        let mut m = ModelFactory::new();
+        d.decode_slice(&raw, &mut m).unwrap();
+        assert_eq!(extract_value(m, "Value", name), ascii(value), "{name}");
+    }
+}
+
+#[test]
+fn tail_with_initial_value() {
+    let xml = template_xml(r#"<string id="1" name="Value"><tail value="abc"/></string>"#);
+    do_test_seq(
+        true,
+        true,
+        true,
+        &xml,
+        TestCaseSeq {
+            name: "tail",
+            raw: vec![
+                // Undefined previous value: the value is the initial value.
+                vec![0xc0, 0x81],
+                vec![0xa0, 0xd8],
+                // The tail is longer than the base value: the value is the tail.
+                vec![0xa0, 0x77, 0x78, 0x79, 0xfa],
+                vec![0x80],
+            ],
+            data: vec![
+                msg("T", ascii("abc")),
+                msg("T", ascii("abX")),
+                msg("T", ascii("wxyz")),
+                msg("T", ascii("wxyz")),
+            ],
+        },
+    );
+    // The empty tail removes nothing.
+    assert!(decode_seq_result(&xml, &[&[0xe0, 0x81, 0x80]]).is_ok());
+
+    // A value shorter than the base value can't be encoded as a tail; the previous value is kept.
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    assert_eq!(
+        encode_text(&mut e, "T=<Value=abcd>").unwrap(),
+        vec![0xe0, 0x81, 0x61, 0x62, 0x63, 0xe4]
+    );
+    assert!(encode_text(&mut e, "T=<Value=ab>").is_err());
+    assert_eq!(
+        encode_text(&mut e, "T=<Value=abce>").unwrap(),
+        vec![0xa0, 0xe5]
+    );
+}
+
+#[test]
+fn optional_group_segment() {
+    let xml = template_xml(
+        r#"<group name="G" presence="optional"><uInt32 name="a"><copy value="1"/></uInt32></group>"#,
+    );
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    // The instructions of an absent group are not processed.
+    assert_eq!(decode_text(&mut d, &[0xc0, 0x81]).unwrap(), "T=<>");
+    assert_eq!(d.context, {
+        let mut other = Decoder::new_from_xml(&xml).unwrap();
+        decode_text(&mut other, &[0xc0, 0x81]).unwrap();
+        other.context
+    });
+    assert_eq!(
+        decode_text(&mut d, &[0xe0, 0x81, 0x80]).unwrap(),
+        "T=<G=<a=1>>"
+    );
+    assert_eq!(
+        decode_text(&mut d, &[0xa0, 0xc0, 0x85]).unwrap(),
+        "T=<G=<a=5>>"
+    );
+    // The absent group doesn't affect the previous values.
+    assert_eq!(decode_text(&mut d, &[0x80]).unwrap(), "T=<>");
+    assert_eq!(decode_text(&mut d, &[0xa0, 0x80]).unwrap(), "T=<G=<a=5>>");
+
+    // The presence map of the group segment has its own [ERR R8] and [ERR R7] checks.
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xe0, 0x81, 0xa0]]),
+        "more bits than required"
+    ));
+    assert!(is_dynamic(
+        decode_seq_result(&xml, &[&[0xe0, 0x81, 0x00, 0x80]]),
+        "overlong presence map"
+    ));
+
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    let mut encode = |fields| {
+        e.encode_vec(&mut ModelVisitor::new(TemplateData {
+            name: "T".to_string(),
+            value: group(fields),
+        }))
+        .unwrap()
+    };
+    assert_eq!(encode(vec![]), vec![0xc0, 0x81]);
+    assert_eq!(
+        encode(vec![("G", group(vec![("a", uint32(1))]))]),
+        vec![0xa0, 0x80]
+    );
+}
+
+#[test]
+fn optional_decimal_mantissa_depends_on_exponent() {
+    // The presence map bit of the mantissa is present iff the exponent is present (§10.5.1).
+    let xml = template_xml(
+        r#"<decimal name="D" presence="optional"><exponent><constant value="-2"/></exponent><mantissa><copy/></mantissa></decimal>
+           <uInt32 name="z"><copy value="9"/></uInt32>"#,
+    );
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    for (text, raw) in [
+        // template id, exponent (absent), z
+        ("T=<z=7>", vec![0xd0, 0x81, 0x87]),
+        // exponent, mantissa
+        ("T=<D=0.05|z=7>", vec![0xb0, 0x85]),
+        // exponent
+        ("T=<D=0.05|z=7>", vec![0xa0]),
+        ("T=<z=7>", vec![0x80]),
+        // exponent, z
+        ("T=<D=0.05|z=8>", vec![0xa8, 0x88]),
+    ] {
+        assert_eq!(encode_text(&mut e, text).unwrap(), raw, "{text}");
+        assert_eq!(decode_text(&mut d, &raw).unwrap(), text, "{raw:x?}");
+    }
+    assert_eq!(d.context, e.context);
+}
+
+#[test]
+fn user_defined_dictionaries() {
+    // Operators share a user defined dictionary iff they specify identical dictionary names.
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="A"><uInt32 id="1" name="Value"><copy dictionary="d1"/></uInt32></template>
+        <template id="2" name="B"><uInt32 id="1" name="Value"><copy dictionary="d1"/></uInt32></template>
+        <template id="3" name="C"><uInt32 id="1" name="Value"><copy dictionary="d2"/></uInt32></template>
+        <template id="4" name="D"><uInt32 id="1" name="Value"><copy/></uInt32></template>
+    </templates>"#;
+    do_test_seq(
+        true,
+        true,
+        true,
+        xml,
+        TestCaseSeq {
+            name: "user defined dictionaries",
+            raw: vec![
+                vec![0xe0, 0x81, 0x85],
+                vec![0xc0, 0x82],
+                vec![0xe0, 0x83, 0x85],
+                vec![0xe0, 0x84, 0x85],
+                vec![0xc0, 0x81],
+            ],
+            data: vec![
+                msg("A", Some(Value::UInt32(5))),
+                msg("B", Some(Value::UInt32(5))),
+                msg("C", Some(Value::UInt32(5))),
+                msg("D", Some(Value::UInt32(5))),
+                msg("A", Some(Value::UInt32(5))),
+            ],
+        },
+    );
+}
+
+#[test]
+fn dictionary_attribute_of_nearest_element_applies() {
+    use crate::common::context::DictionaryType;
+
+    let xml = r#"<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" dictionary="d0">
+        <template id="1" name="T" dictionary="type">
+            <uInt32 name="a"><copy/></uInt32>
+            <group name="G" dictionary="template">
+                <uInt32 name="b"><copy/></uInt32>
+                <uInt32 name="c"><copy dictionary="global"/></uInt32>
+                <sequence name="S" dictionary="d1">
+                    <length name="L"><copy/></length>
+                    <uInt32 name="d"><copy/></uInt32>
+                    <uInt32 name="e"><copy dictionary="type"/></uInt32>
+                </sequence>
+            </group>
+        </template>
+        <template id="2" name="U">
+            <uInt32 name="a"><copy/></uInt32>
+            <uInt32 name="d"><copy dictionary="d1"/></uInt32>
+            <uInt32 name="c"><copy dictionary="global"/></uInt32>
+        </template>
+    </templates>"#;
+    let d = Decoder::new_from_xml(xml).unwrap();
+    let slot = |i: &Instruction| i.dictionary_slot.get();
+    let t = &d.definitions.template_by_id(1).unwrap().instructions;
+    let g = &t[1].instructions;
+    let s = &g[2].instructions;
+    assert!(matches!(slot(&t[0]), DictionaryType::Type(_)), "template");
+    assert!(matches!(slot(&g[0]), DictionaryType::Template(_)), "group");
+    assert!(matches!(slot(&g[1]), DictionaryType::Static(_)), "operator");
+    assert!(matches!(slot(&s[0]), DictionaryType::Static(_)), "length");
+    assert!(matches!(slot(&s[1]), DictionaryType::Static(_)), "sequence");
+    assert!(matches!(slot(&s[2]), DictionaryType::Type(_)), "operator");
+    assert_ne!(slot(&g[1]), slot(&s[1]), "global and d1");
+
+    let u = &d.definitions.template_by_id(2).unwrap().instructions;
+    assert!(
+        matches!(slot(&u[0]), DictionaryType::Static(_)),
+        "templates"
+    );
+    assert_ne!(slot(&u[0]), slot(&g[1]), "d0 and global");
+    assert_eq!(slot(&u[1]), slot(&s[1]), "d1");
+    assert_eq!(slot(&u[2]), slot(&g[1]), "global");
+}
+
+#[test]
+fn reset_sets_entries_undefined() {
+    let xml = template_xml(r#"<uInt32 id="1" name="Value"><copy/></uInt32>"#);
+    let data = || ModelVisitor::new(pack_value("T", "Value", Some(Value::UInt32(5))));
+
+    let mut e = Encoder::new_from_xml(&xml).unwrap();
+    assert_eq!(e.encode_vec(&mut data()).unwrap(), vec![0xe0, 0x81, 0x85]);
+    assert_eq!(e.encode_vec(&mut data()).unwrap(), vec![0x80]);
+    e.reset();
+    assert_eq!(e.encode_vec(&mut data()).unwrap(), vec![0xe0, 0x81, 0x85]);
+
+    let mut d = Decoder::new_from_xml(&xml).unwrap();
+    assert_eq!(
+        decode_text(&mut d, &[0xe0, 0x81, 0x85]).unwrap(),
+        "T=<Value=5>"
+    );
+    assert_eq!(decode_text(&mut d, &[0x80]).unwrap(), "T=<Value=5>");
+    d.reset();
+    // Neither the template identifier nor the value has the previous value.
+    assert!(matches!(
+        decode_text(&mut d, &[0x80]),
+        Err(Error::Dynamic(m)) if m.contains("no initial value")
+    ));
+    assert!(matches!(
+        decode_text(&mut d, &[0xc0, 0x81]),
+        Err(Error::Dynamic(m)) if m.contains("no initial value")
+    ));
+    assert_eq!(
+        decode_text(&mut d, &[0xe0, 0x81, 0x86]).unwrap(),
+        "T=<Value=6>"
+    );
+}
+
+#[test]
+fn stream_reader_matches_slice_reader() {
+    let xml = template_xml(
+        r#"<uInt32 name="A"/>
+           <int32 name="B" presence="optional"/>
+           <string name="C" presence="optional"/>
+           <uInt64 name="D" presence="optional"/>
+           <int64 name="E"><delta/></int64>
+           <byteVector name="F" presence="optional"/>"#,
+    );
+    let mut valid = 0;
+    for raw in [
+        &[0xc0, 0x81, 0x81, 0x82, 0x00, 0x80, 0x82, 0x83, 0x82, 0xff][..],
+        &[0xc0, 0x81, 0x81, 0x80, 0x80, 0x80, 0xff, 0x80],
+        &[0xc0, 0x81, 0x81, 0x00, 0xc1, 0x41, 0xc2, 0x80, 0x80, 0x81],
+        // The nullable representations of the maximum values.
+        &[
+            0xc0, 0x81, 0x81, 0x08, 0x00, 0x00, 0x00, 0x80, 0xc1, 0x02, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x80, 0x80, 0x80,
+        ],
+        // 10 bytes delta.
+        &[
+            0xc0, 0x81, 0x81, 0x80, 0x80, 0x80, 0x7f, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x80,
+        ],
+        // [ERR R6] overlong integers.
+        &[0xc0, 0x00, 0x81],
+        &[0xc0, 0x81, 0x00, 0x81],
+        &[0xc0, 0x81, 0x81, 0x00, 0x81],
+        &[0xc0, 0x81, 0x81, 0x7f, 0xff],
+        &[0xc0, 0x81, 0x81, 0x80, 0x80, 0x80, 0x00, 0x81],
+        // [ERR R9] overlong strings.
+        &[0xc0, 0x81, 0x81, 0x80, 0x00, 0xc1],
+        &[0xc0, 0x81, 0x81, 0x80, 0x00, 0x00, 0xc1],
+        // [ERR D2] integers out of range.
+        &[0xc0, 0x81, 0x10, 0x00, 0x00, 0x00, 0x80],
+        &[0xc0, 0x81, 0x81, 0x10, 0x00, 0x00, 0x00, 0x80],
+        &[
+            0xc0, 0x81, 0x81, 0x80, 0x80, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x81,
+        ],
+        &[
+            0xc0, 0x81, 0x81, 0x80, 0x80, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0x80,
+        ],
+        // [ERR R7] [ERR R8] presence maps.
+        &[0x40, 0x80, 0x81, 0x81],
+        &[0xe0, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x80],
+        // The end of the stream.
+        &[],
+        &[0x40],
+        &[0xc0, 0x81, 0x81],
+        &[0xc0, 0x81, 0x81, 0x80, 0x41],
+        &[0xc0, 0x81, 0x81, 0x80, 0x80, 0x80, 0x80, 0x84, 0x01],
+    ] {
+        let mut d1 = Decoder::new_from_xml(&xml).unwrap();
+        let mut f1 = crate::TextMessageFactory::new();
+        let r1 = d1.decode_slice(raw, &mut f1).map(|()| f1.text);
+
+        let mut d2 = Decoder::new_from_xml(&xml).unwrap();
+        let mut f2 = crate::TextMessageFactory::new();
+        let r2 = d2.decode_stream(&mut &raw[..], &mut f2).map(|()| f2.text);
+
+        valid += usize::from(r1.is_ok());
+        assert_eq!(format!("{r1:?}"), format!("{r2:?}"), "{raw:x?}");
+        assert_eq!(d1.context, d2.context, "{raw:x?}");
+    }
+    assert_eq!(valid, 5);
+}

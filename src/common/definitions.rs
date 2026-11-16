@@ -6,7 +6,7 @@ use crate::base::instruction::Instruction;
 use crate::base::types::{Dictionary, Operator, Template, TypeRef};
 use crate::base::value::ValueType;
 use crate::common::context::DictionaryType;
-use crate::utils::xml::td_children;
+use crate::utils::xml::{TD_NAMESPACE, is_td_element, td_children};
 use crate::{Error, Result};
 
 /// Number of presence map bits that fit into the `u64` bitmap; longer presence maps take a slower path.
@@ -35,8 +35,14 @@ impl Definitions {
         for (i, t) in templates.iter_mut().enumerate() {
             t.index =
                 u32::try_from(i).map_err(|_| Error::Static("too many templates".to_string()))?;
-            if let Some(id) = t.id {
-                templates_by_id.insert(id, i);
+            // A template identifier in the stream must select a single template.
+            if let Some(id) = t.id
+                && templates_by_id.insert(id, i).is_some()
+            {
+                return Err(Error::Static(format!(
+                    "duplicate template id {id} (template '{}')",
+                    t.name
+                )));
             }
             if qualified_templates
                 .insert((t.ns.clone(), t.name.clone()), i)
@@ -128,6 +134,13 @@ impl Definitions {
     pub fn new_from_xml(text: &str) -> Result<Self> {
         let doc = roxmltree::Document::parse(text)?;
         let root = doc.root_element();
+        // Elements of other namespaces are foreign; a foreign root has no template definitions [ERR S1].
+        if !is_td_element(&root) {
+            return Err(Error::Static(format!(
+                "root element <{}/> is not in the template definition namespace '{TD_NAMESPACE}'",
+                root.tag_name().name()
+            )));
+        }
         // The root element is either <templates> or a single <template>.
         let templates = match root.tag_name().name() {
             "templates" => {
@@ -275,14 +288,17 @@ impl Definitions {
 // doesn't depend on the place where the template is used and can be resolved statically.
 // Only the instance of `template` and `type` dictionaries (current template / application type) is
 // known at runtime.
-type StaticKey = (Option<Rc<str>>, Rc<str>, Rc<str>);
+type StaticKey = (Option<Rc<str>>, Key);
+
+// (key namespace URI, key, generated). Generated keys never collide with the ones specified in templates.
+type Key = (Rc<str>, Rc<str>, bool);
 
 #[derive(Default)]
 struct SlotResolver {
-    // (dictionary name or `None` for global, key namespace URI, key) -> static slot
+    // (dictionary name or `None` for global, key) -> static slot
     statics: HashMap<StaticKey, u32>,
-    // (key namespace URI, key) -> key index in `templates` and `type` dictionaries
-    keys: HashMap<(Rc<str>, Rc<str>), u32>,
+    // key -> key index in `templates` and `type` dictionaries
+    keys: HashMap<Key, u32>,
 }
 
 impl SlotResolver {
@@ -325,15 +341,16 @@ impl SlotResolver {
             Dictionary::UserDefined(name) => Some(name.clone()),
         };
         let next = u32::try_from(self.statics.len()).unwrap_or(u32::MAX);
-        let entry = (name, instr.ns.clone(), instr.key.clone());
+        let entry = (name, Self::key_of(instr));
         DictionaryType::Static(*self.statics.entry(entry).or_insert(next))
     }
 
     fn key(&mut self, instr: &Instruction) -> u32 {
         let next = u32::try_from(self.keys.len()).unwrap_or(u32::MAX);
-        *self
-            .keys
-            .entry((instr.ns.clone(), instr.key.clone()))
-            .or_insert(next)
+        *self.keys.entry(Self::key_of(instr)).or_insert(next)
+    }
+
+    fn key_of(instr: &Instruction) -> Key {
+        (instr.ns.clone(), instr.key.clone(), instr.generated_key)
     }
 }
