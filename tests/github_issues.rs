@@ -20,14 +20,14 @@ fn do_tests_seq(templates: &str, raw: &[&[u8]], data: &[&str]) {
 #[test]
 fn decimal_delta_uses_shared_previous_value() {
     let xml = r#"
-        <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
-            <template id="1" name="Copy">
-                <decimal name="Value"><copy key="px"/></decimal>
-            </template>
-            <template id="2" name="Delta">
-                <decimal name="Value"><delta key="px"/></decimal>
-            </template>
-        </templates>
+    <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="Copy">
+            <decimal name="Value"><copy key="px"/></decimal>
+        </template>
+        <template id="2" name="Delta">
+            <decimal name="Value"><delta key="px"/></decimal>
+        </template>
+    </templates>
     "#;
 
     do_tests_seq(
@@ -42,15 +42,15 @@ fn decimal_delta_uses_shared_previous_value() {
 #[test]
 fn optional_sequence_length_accepts_default_without_value() {
     let xml = r#"
-        <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
-            <template id="1" name="Message">
-                <uInt32 name="Id"/>
-                <sequence name="Items" presence="optional">
-                    <length><default/></length>
-                    <uInt32 name="X"/>
-                </sequence>
-            </template>
-        </templates>
+    <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="Message">
+            <uInt32 name="Id"/>
+            <sequence name="Items" presence="optional">
+                <length><default/></length>
+                <uInt32 name="X"/>
+            </sequence>
+        </template>
+    </templates>
     "#;
 
     // The absent length is the (absent) initial value, so it takes no bytes in the stream.
@@ -66,14 +66,14 @@ fn optional_sequence_length_accepts_default_without_value() {
 #[test]
 fn optional_decimal_exponent_accepts_default_without_value() {
     let xml = r#"
-        <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
-            <template id="1" name="Message">
-                <uInt32 name="Id"/>
-                <decimal name="Price" presence="optional">
-                    <exponent><default/></exponent>
-                </decimal>
-            </template>
-        </templates>
+    <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="Message">
+            <uInt32 name="Id"/>
+            <decimal name="Price" presence="optional">
+                <exponent><default/></exponent>
+            </decimal>
+        </template>
+    </templates>
     "#;
 
     // The absent exponent is the (absent) initial value, so the decimal takes no bytes in the stream.
@@ -90,18 +90,18 @@ fn optional_decimal_exponent_accepts_default_without_value() {
 #[test]
 fn unnamed_sequence_lengths_have_distinct_copy_values() {
     let xml = r#"
-        <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
-            <template id="1" name="Message">
-                <sequence name="First">
-                    <length><copy value="1"/></length>
-                    <uInt32 name="X"/>
-                </sequence>
-                <sequence name="Second">
-                    <length><copy value="2"/></length>
-                    <uInt32 name="Y"/>
-                </sequence>
-            </template>
-        </templates>
+    <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="Message">
+            <sequence name="First">
+                <length><copy value="1"/></length>
+                <uInt32 name="X"/>
+            </sequence>
+            <sequence name="Second">
+                <length><copy value="2"/></length>
+                <uInt32 name="Y"/>
+            </sequence>
+        </template>
+    </templates>
     "#;
 
     do_tests_seq(
@@ -139,4 +139,22 @@ fn explicit_copy_rejects_dictionary_type_mismatch() {
         let res = e.encode_vec(&mut msg);
         assert!(matches!(res, Err(Error::Dynamic(_))));
     }
+}
+
+// FAST 1.1 Appendix 1 permits one whole-field operator for a decimal.
+// §4 requires a static error S1 for a template that violates the schema.
+// https://github.com/mcsakoff/rs-fastlib/issues/15
+#[test]
+fn decimal_with_multiple_operators_is_rejected() {
+    let xml = r#"
+    <template xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" id="1" name="T">
+        <decimal name="Value"><copy/><default value="1"/></decimal>
+    </template>
+    "#;
+
+    let d = Decoder::new_from_xml(xml);
+    assert!(matches!(d, Err(Error::Static(_))));
+
+    let e = Encoder::new_from_xml(xml);
+    assert!(matches!(e, Err(Error::Static(_))));
 }

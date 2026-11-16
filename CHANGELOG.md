@@ -15,6 +15,9 @@
   a different type, and the encoder reports [ERR D4] as `Error::Dynamic` instead of `Error::Runtime`
   (FAST 1.1 §6.3.1)
   ([#14](https://github.com/mcsakoff/rs-fastlib/issues/14)).
+- Fix: a `<decimal>` with more than one operator, `<exponent>` or `<mantissa>` is rejected with a static error
+  instead of the last one silently winning (FAST 1.1 Appendix 1)
+  ([#15](https://github.com/mcsakoff/rs-fastlib/issues/15)).
 
 ## 0.4.0
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

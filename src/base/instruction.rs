@@ -244,6 +244,22 @@ impl Instruction {
 
                 for op_node in td_children(&node) {
                     let op_name = op_node.tag_name().name();
+                    // The schema allows a single operator or a single exponent/mantissa pair [ERR S1].
+                    let duplicate = match op_name {
+                        "exponent" => exponent.is_some(),
+                        "mantissa" => mantissa.is_some(),
+                        _ => operator.is_some(),
+                    };
+                    if duplicate {
+                        let what = match op_name {
+                            "exponent" | "mantissa" => op_name,
+                            _ => "operator",
+                        };
+                        return Err(Error::Static(format!(
+                            "field '{}' has more than one {what}",
+                            instruction.name
+                        )));
+                    }
                     match op_name {
                         "exponent" => {
                             exponent = Some(Instruction::from_node(op_node)?);
