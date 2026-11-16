@@ -6,7 +6,6 @@ use serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
     SerializeTupleStruct, SerializeTupleVariant,
 };
-use std::borrow::Cow;
 use std::cell::Cell;
 use std::vec::IntoIter;
 
@@ -21,7 +20,187 @@ pub enum ValueData {
 }
 
 /// Name of a field in a group.
-pub type Key = Cow<'static, str>;
+///
+/// Short names are stored inline, so the decoder doesn't allocate a string for every field of a message.
+/// The length is stored at the same place for all kinds of names: looking a field up skips names
+/// of other lengths without checking their kind.
+#[repr(C)]
+pub struct Key {
+    // The length of the name (truncated to 32 bits; used to skip names of other lengths).
+    len: u32,
+    kind: KeyKind,
+    // `Inline`: the UTF-8 bytes of the name.
+    // `Static`, `Owned`: the pointer to the bytes followed by their length (both unaligned).
+    data: [u8; Key::INLINE_LEN],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum KeyKind {
+    Inline,
+    Static,
+    // The bytes are a leaked `Box<str>` freed when the key is dropped.
+    Owned,
+}
+
+const PTR_SIZE: usize = std::mem::size_of::<*const u8>();
+
+impl Key {
+    // Keeps the size of `Key` at three words.
+    const INLINE_LEN: usize = 19;
+
+    /// Creates the key that refers to a static name.
+    #[must_use]
+    pub fn borrowed(name: &'static str) -> Self {
+        Self::out_of_line(KeyKind::Static, name.as_ptr(), name.len())
+    }
+
+    fn out_of_line(kind: KeyKind, ptr: *const u8, len: usize) -> Self {
+        let mut data = [0; Key::INLINE_LEN];
+        // SAFETY: `data` has room for a pointer and a length. The pointer is stored as a pointer
+        //         to keep its provenance.
+        unsafe {
+            let dst = data.as_mut_ptr();
+            dst.cast::<*const u8>().write_unaligned(ptr);
+            dst.add(PTR_SIZE).cast::<usize>().write_unaligned(len);
+        }
+        Self {
+            len: len as u32,
+            kind,
+            data,
+        }
+    }
+
+    // Returns the pointer and the length stored by `out_of_line`.
+    #[inline]
+    fn raw_parts(&self) -> (*const u8, usize) {
+        debug_assert_ne!(self.kind, KeyKind::Inline);
+        let src = self.data.as_ptr();
+        // SAFETY: `out_of_line` stores a pointer followed by a length in `data`.
+        unsafe {
+            (
+                src.cast::<*const u8>().read_unaligned(),
+                src.add(PTR_SIZE).cast::<usize>().read_unaligned(),
+            )
+        }
+    }
+
+    #[inline]
+    fn bytes(&self) -> &[u8] {
+        if self.kind == KeyKind::Inline {
+            // SAFETY: inline names are not longer than `data`, see `From<&str>`.
+            unsafe { self.data.get_unchecked(..self.len as usize) }
+        } else {
+            let (ptr, len) = self.raw_parts();
+            // SAFETY: the string is either static or owned by the key.
+            unsafe { std::slice::from_raw_parts(ptr, len) }
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        // SAFETY: keys are created from `&str` only.
+        unsafe { std::str::from_utf8_unchecked(self.bytes()) }
+    }
+
+    #[must_use]
+    pub fn into_owned(self) -> String {
+        self.as_str().to_string()
+    }
+}
+
+impl From<&str> for Key {
+    #[inline]
+    fn from(s: &str) -> Self {
+        if s.len() <= Key::INLINE_LEN {
+            let mut data = [0; Key::INLINE_LEN];
+            data[..s.len()].copy_from_slice(s.as_bytes());
+            Self {
+                len: s.len() as u32,
+                kind: KeyKind::Inline,
+                data,
+            }
+        } else {
+            Self::from(Box::<str>::from(s))
+        }
+    }
+}
+
+impl From<Box<str>> for Key {
+    fn from(s: Box<str>) -> Self {
+        let len = s.len();
+        // Freed in `Drop`.
+        Self::out_of_line(KeyKind::Owned, Box::into_raw(s).cast::<u8>(), len)
+    }
+}
+
+impl From<String> for Key {
+    // The string is already allocated, so it is kept as is.
+    fn from(s: String) -> Self {
+        Key::from(s.into_boxed_str())
+    }
+}
+
+impl Drop for Key {
+    #[inline]
+    fn drop(&mut self) {
+        if self.kind == KeyKind::Owned {
+            let (ptr, len) = self.raw_parts();
+            let bytes = std::ptr::slice_from_raw_parts_mut(ptr.cast_mut(), len);
+            // SAFETY: the bytes of an owned key are a `Box<str>` leaked in `From<Box<str>>`.
+            drop(unsafe { Box::from_raw(bytes as *mut str) });
+        }
+    }
+}
+
+impl Clone for Key {
+    fn clone(&self) -> Self {
+        match self.kind {
+            // Long names are copied.
+            KeyKind::Owned => Key::from(self.as_str()),
+            kind => Self {
+                len: self.len,
+                kind,
+                data: self.data,
+            },
+        }
+    }
+}
+
+impl std::ops::Deref for Key {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<str> for Key {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.len == other.len() as u32 && self.as_str() == other
+    }
+}
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_str(), f)
+    }
+}
 
 pub(crate) fn template_ref_key(n: u32) -> Key {
     const NAMES: [&str; 16] = [
@@ -43,8 +222,8 @@ pub(crate) fn template_ref_key(n: u32) -> Key {
         "templateRef:15",
     ];
     match NAMES.get(n as usize) {
-        Some(name) => Cow::Borrowed(name),
-        None => Cow::Owned(format!("templateRef:{n}")),
+        Some(name) => Key::borrowed(name),
+        None => Key::from(format!("templateRef:{n}")),
     }
 }
 
@@ -96,6 +275,7 @@ impl Fields {
 
     fn position(&self, name: &str) -> Option<usize> {
         let start = self.hint.get().min(self.items.len());
+
         let (head, tail) = self.items.split_at(start);
         let i = match tail.iter().position(|(k, _)| k == name) {
             Some(i) => start + i,
@@ -943,7 +1123,9 @@ impl SerializeStruct for ValueDataGroupSerializer {
     where
         T: ?Sized + Serialize,
     {
-        self.data.push(key, value.serialize(ValueDataSerializer)?);
+        // Static names are not copied.
+        self.data
+            .push(Key::borrowed(key), value.serialize(ValueDataSerializer)?);
         Ok(())
     }
 
@@ -1021,6 +1203,47 @@ mod tests {
     }
 
     #[test]
+    fn key() {
+        assert_eq!(std::mem::size_of::<Key>(), 3 * std::mem::size_of::<usize>());
+        let long = "x".repeat(Key::INLINE_LEN + 1);
+        for name in [
+            "",
+            "a",
+            "NoMDEntries",
+            "é€😀",
+            &"y".repeat(Key::INLINE_LEN),
+            &long,
+            &"z".repeat(1000),
+        ] {
+            assert_eq!(
+                Key::from(name).kind == KeyKind::Inline,
+                name.len() <= Key::INLINE_LEN,
+                "{name}"
+            );
+            assert_eq!(Key::from(name.to_string()).kind, KeyKind::Owned);
+            for key in [Key::from(name), Key::from(name.to_string())] {
+                assert_eq!(key.as_str(), name);
+                assert!(key == *name);
+                assert!(key != *"other");
+                assert_eq!(format!("{key}"), name);
+                assert_eq!(format!("{key:?}"), format!("{name:?}"));
+                let copy = key.clone();
+                assert_eq!(copy, key);
+                drop(key);
+                assert_eq!(copy.into_owned(), name);
+            }
+        }
+        let key = Key::borrowed("static name that is longer than inline");
+        assert_eq!(key.kind, KeyKind::Static);
+        assert_eq!(
+            key.clone().as_str(),
+            "static name that is longer than inline"
+        );
+        assert_eq!(key, Key::from("static name that is longer than inline"));
+        assert_ne!(key, Key::from("static name that is longer than inlinE"));
+    }
+
+    #[test]
     fn fields() {
         let mut f = Fields::default();
         f.push("a", v(1));
@@ -1051,7 +1274,7 @@ mod tests {
     #[test]
     fn template_ref_keys() {
         for n in [0, 15, 16, 123] {
-            assert_eq!(template_ref_key(n), format!("templateRef:{n}"))
+            assert_eq!(template_ref_key(n).as_str(), format!("templateRef:{n}"))
         }
     }
 }

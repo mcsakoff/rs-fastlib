@@ -39,10 +39,8 @@ impl ModelFactory {
 
 impl MessageFactory for ModelFactory {
     fn start_template(&mut self, _id: u32, name: &str) {
-        self.context.push((
-            Key::Owned(name.to_string()),
-            ValueData::Group(Fields::default()),
-        ));
+        self.context
+            .push((Key::from(name), ValueData::Group(Fields::default())));
     }
 
     fn stop_template(&mut self) {
@@ -57,10 +55,7 @@ impl MessageFactory for ModelFactory {
         let (_, context) = self.context.must_peek_mut();
         match context {
             ValueData::Group(group) => {
-                group.push(
-                    name.to_string(),
-                    ValueData::Value(value.map(Cow::into_owned)),
-                );
+                group.push(name, ValueData::Value(value.map(Cow::into_owned)));
             }
             _ => unreachable!(),
         }
@@ -69,14 +64,14 @@ impl MessageFactory for ModelFactory {
     fn start_sequence(&mut self, _id: u32, name: &str, length: u32) {
         // Do not trust `length` for pre-allocation: it comes from the stream.
         self.context.push((
-            Key::Owned(name.to_string()),
+            Key::from(name),
             ValueData::Sequence(Vec::with_capacity(length as usize)),
         ));
     }
 
     fn start_sequence_item(&mut self, _index: u32) {
         self.context
-            .push((Key::Borrowed(""), ValueData::Group(Fields::default())));
+            .push((Key::borrowed(""), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 
@@ -104,10 +99,8 @@ impl MessageFactory for ModelFactory {
     }
 
     fn start_group(&mut self, name: &str) {
-        self.context.push((
-            Key::Owned(name.to_string()),
-            ValueData::Group(Fields::default()),
-        ));
+        self.context
+            .push((Key::from(name), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 
@@ -134,10 +127,10 @@ impl MessageFactory for ModelFactory {
             *rc += 1;
         } else {
             let tpl_ref = ValueData::StaticTemplateRef(name.to_string(), Box::new(ValueData::None));
-            self.context.push((Key::Owned(name.to_string()), tpl_ref));
+            self.context.push((Key::from(name), tpl_ref));
         }
         self.context
-            .push((Key::Borrowed(""), ValueData::Group(Fields::default())));
+            .push((Key::borrowed(""), ValueData::Group(Fields::default())));
         self.ref_num.push(0);
     }
 

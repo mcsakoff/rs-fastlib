@@ -2,6 +2,14 @@
 
 ## 0.4.1
 - **Breaking:** `Delta` has a new `Decimal` variant (exponent and mantissa deltas).
+- **Breaking:** `<length>`, `<exponent>` and `<mantissa>` are rejected with a static error where the template
+  schema doesn't allow them: as instructions of a template, group or sequence, and `<length>` anywhere
+  but in front of the sequence instructions (FAST 1.1 Appendix 1, [ERR S1]).
+- **Breaking:** a root element in a foreign namespace is rejected with a static error instead of loading
+  an empty set of templates. The template definition namespace `http://www.fixprotocol.org/ns/fast/td/1.1`
+  and documents without namespace are accepted (FAST 1.1 §3.1).
+- **Breaking:** templates with the same `id` are rejected with a static error instead of the last one
+  silently winning.
 - Fix: `<delta/>` on a whole `<decimal>` uses the decimal's own previous value, so it shares the previous value
   with other operators of the same key (e.g. `<copy key="px"/>`), as required by FAST 1.1 §6.3.1
   ([#11](https://github.com/mcsakoff/rs-fastlib/issues/11)).
@@ -18,14 +26,6 @@
 - Fix: a `<decimal>` with more than one operator, `<exponent>` or `<mantissa>` is rejected with a static error
   instead of the last one silently winning (FAST 1.1 Appendix 1)
   ([#15](https://github.com/mcsakoff/rs-fastlib/issues/15)).
-- **Breaking:** `<length>`, `<exponent>` and `<mantissa>` are rejected with a static error where the template
-  schema doesn't allow them: as instructions of a template, group or sequence, and `<length>` anywhere
-  but in front of the sequence instructions (FAST 1.1 Appendix 1, [ERR S1]).
-- **Breaking:** a root element in a foreign namespace is rejected with a static error instead of loading
-  an empty set of templates. The template definition namespace `http://www.fixprotocol.org/ns/fast/td/1.1`
-  and documents without namespace are accepted (FAST 1.1 §3.1).
-- **Breaking:** templates with the same `id` are rejected with a static error instead of the last one
-  silently winning.
 - Fix: generated dictionary keys (template identifier, unnamed sequence `<length>`, decimal `<exponent>` and
   `<mantissa>`) never share a previous value with fields or keys of the same name specified in templates,
   e.g. a field named `Px:exponent` (FAST 1.1 §6.2.2, §6.2.5, §10).
@@ -35,6 +35,8 @@
   (FAST 1.1 §6.2.2).
 - Fix: `TextMessageVisitor` parses messages, groups and sequence items without present fields, e.g. `T=<>`
   or `T=<G=<>|S=<><A=1>>`, as `TextMessageFactory` produces them.
+- Performance: the serde decoder (`from_slice`, `from_bytes`, …) no longer allocates a string for the name 
+  of every decoded field.
 
 ## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends
