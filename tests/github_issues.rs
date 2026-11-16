@@ -1,4 +1,4 @@
-use fastlib::{Decoder, Encoder, Error, TextMessageFactory, TextMessageVisitor};
+use fastlib::{from_slice, Decoder, Encoder, Error, TextMessageFactory, TextMessageVisitor, to_vec};
 
 fn do_tests_seq(templates: &str, raw: &[&[u8]], data: &[&str]) {
     let mut e = Encoder::new_from_xml(templates).unwrap();
@@ -157,4 +157,41 @@ fn decimal_with_multiple_operators_is_rejected() {
 
     let e = Encoder::new_from_xml(xml);
     assert!(matches!(e, Err(Error::Static(_))));
+}
+
+// For `uInt32` in the template, user must use compatible type (`u32`) as struct's field.
+// https://github.com/mcsakoff/rs-fastlib/issues/16
+// https://github.com/mcsakoff/rs-fastlib/issues/17
+#[test]
+fn decode_encode_uint32() {
+    use serde_derive::{Serialize, Deserialize};
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    enum Message {
+        Test(Body),
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Body {
+        value: u32,
+    }
+
+    let xml = r#"
+    <template xmlns="http://www.fixprotocol.org/ns/fast/td/1.1" id="1" name="Test">
+        <uInt32 name="value"/>
+    </template>"#;
+
+    let raw = &[0xc0, 0x81, 0x0f, 0x7f, 0x7f, 0x7f, 0xff];
+
+    {
+        let mut d = Decoder::new_from_xml(xml).unwrap();
+        let msg: Message = from_slice(&mut d, raw).unwrap();
+        assert_eq!(msg, Message::Test(Body{value: u32::MAX}));
+    }
+    {
+        let mut e = Encoder::new_from_xml(xml).unwrap();
+        let msg = Message::Test(Body{value: u32::MAX});
+        let data = to_vec(&mut e, &msg).unwrap();
+        assert_eq!(&data, raw);
+    }
 }
