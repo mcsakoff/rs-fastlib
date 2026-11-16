@@ -268,7 +268,7 @@ impl Value {
             }
             (Value::UnicodeString(v), DeltaRef::Bytes(d, sub)) => {
                 let (front, i) = sub2index(*sub, v.len())?;
-                unicode_in_place(v, |b| splice_in_place(b, d, front, i))
+                unicode_splice_in_place(v, d, front, i)
             }
             _ => {
                 *self = self.apply_delta_ref(delta)?;
@@ -342,10 +342,10 @@ impl Value {
                 v.extend_from_slice(t);
                 Ok(())
             }
-            (Value::UnicodeString(v), TailRef::Bytes(t)) => unicode_in_place(v, |b| {
-                b.truncate(tail_index(b.len(), t.len()));
-                b.extend_from_slice(t);
-            }),
+            (Value::UnicodeString(v), TailRef::Bytes(t)) => {
+                let i = tail_index(v.len(), t.len());
+                unicode_splice_in_place(v, t, false, i)
+            }
             _ => {
                 *self = self.apply_tail_ref(tail)?;
                 Ok(())
@@ -545,12 +545,34 @@ fn splice_in_place(v: &mut Vec<u8>, d: &[u8], front: bool, i: usize) {
     }
 }
 
-// Modifies the bytes of a Unicode string in place reusing its buffer.
+// Same as `splice_in_place` for the bytes of a Unicode string; the buffer of the string is reused.
 // It is a reportable error [ERR R2] if the result is not a valid UTF-8 sequence; the string is left empty then.
-fn unicode_in_place(v: &mut String, f: impl FnOnce(&mut Vec<u8>)) -> Result<()> {
-    let mut b = std::mem::take(v).into_bytes();
-    f(&mut b);
-    *v = String::from_utf8(b).map_err(|e| invalid_utf8(&e))?;
+//
+// The part of the string that is kept is valid UTF-8 up to (or from) a character boundary, so only
+// the new bytes and the character split by the splice are validated, not the whole string.
+fn unicode_splice_in_place(v: &mut String, d: &[u8], front: bool, i: usize) -> Result<()> {
+    // The range of the combined value to validate.
+    let range = if front {
+        // `v[i..]` is kept: it is valid from the first character boundary at or after `i`.
+        let mut boundary = i;
+        while !v.is_char_boundary(boundary) {
+            boundary += 1;
+        }
+        0..d.len() + (boundary - i)
+    } else {
+        // `v[..i]` is kept: it is valid up to the last character boundary at or before `i`.
+        let mut boundary = i;
+        while !v.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        boundary..i + d.len()
+    };
+    let mut bytes = std::mem::take(v).into_bytes();
+    splice_in_place(&mut bytes, d, front, i);
+    std::str::from_utf8(&bytes[range]).map_err(|e| invalid_utf8(&e))?;
+    // SAFETY: `range` is valid UTF-8 as checked above. The bytes before (or after) it are whole characters
+    //         of the string, which was valid UTF-8.
+    *v = unsafe { String::from_utf8_unchecked(bytes) };
     Ok(())
 }
 

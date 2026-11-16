@@ -42,6 +42,8 @@
   are loaded), and entries of `global` and user defined dictionaries are allocated up front.
 - Performance: `Encoder::encode_vec` (and `encode_bytes`, `to_vec`, `to_bytes`) allocates the buffer for
   the largest recent messages, so it is not reallocated when a message is longer than the previous one.
+- Performance: `<delta/>` and `<tail/>` on Unicode strings validate only the changed part of the string
+  as UTF-8 instead of the whole combined value.
 
 ## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

@@ -288,7 +288,7 @@ fn pmap_overflow() -> Error {
 
 // It is a reportable error [ERR R2] if a Unicode string is not a valid UTF-8 sequence.
 #[cold]
-pub(crate) fn invalid_utf8(e: &std::string::FromUtf8Error) -> Error {
+pub(crate) fn invalid_utf8(e: &dyn std::fmt::Display) -> Error {
     Error::Dynamic(format!("invalid UTF-8 string: {e}"))
 }
 

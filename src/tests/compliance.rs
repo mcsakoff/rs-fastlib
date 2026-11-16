@@ -1926,3 +1926,84 @@ fn dictionary_type_check_is_resolved_at_load() {
     assert!(d.definitions.static_slots >= 6);
     assert_eq!(d.context, Encoder::new_from_xml(xml).unwrap().context);
 }
+
+#[test]
+fn unicode_in_place_splices_validate_like_whole_strings() {
+    use crate::Delta;
+
+    // In-place deltas and tails validate only the changed part of a Unicode string; the result must be
+    // the same as for the combined value validated as a whole [ERR R2].
+    let bases = [
+        "",
+        "a",
+        "abc",
+        "é",
+        "aé",
+        "éa",
+        "a€b",
+        "😀",
+        "x😀y€zé",
+        "ééé",
+    ];
+    let parts: [&[u8]; 14] = [
+        b"",
+        b"z",
+        "é".as_bytes(),
+        "€😀".as_bytes(),
+        // The beginning and the rest of multi-byte characters.
+        &[0xc3],
+        &[0xa9],
+        &[0xe2, 0x82],
+        &[0x82, 0xac],
+        &[0xac],
+        &[0xf0, 0x9f],
+        &[0x98, 0x80],
+        b"q\xc3",
+        b"\xa9q",
+        // Never valid.
+        &[0xff],
+    ];
+    let (mut valid, mut invalid) = (0, 0);
+    for base in bases {
+        let base = Value::UnicodeString(base.to_string());
+        let len = i32::try_from(base.to_string().len()).unwrap();
+        for part in parts {
+            // Deltas: remove 0..=len bytes from the back and from the front.
+            for sub in (0..=len).chain((0..=len).map(|n| -n - 1)) {
+                let delta = Delta::Bytes(part.to_vec(), sub);
+                let expected = base.apply_delta(&delta);
+                let mut value = base.clone();
+                let result = value.apply_delta_in_place(&delta);
+                match expected {
+                    Ok(expected) => {
+                        result.unwrap();
+                        assert_eq!(value, expected, "{base:?} {delta:?}");
+                        valid += 1;
+                    }
+                    Err(_) => {
+                        assert!(result.is_err(), "{base:?} {delta:?}");
+                        invalid += 1;
+                    }
+                }
+            }
+            let tail = Value::Bytes(part.to_vec());
+            let expected = base.apply_tail(&tail);
+            let mut value = base.clone();
+            let result = value.apply_tail_in_place(&tail);
+            match expected {
+                Ok(expected) => {
+                    result.unwrap();
+                    assert_eq!(value, expected, "{base:?} tail {part:x?}");
+                    valid += 1;
+                }
+                Err(_) => {
+                    assert!(result.is_err(), "{base:?} tail {part:x?}");
+                    invalid += 1;
+                }
+            }
+        }
+    }
+    // Both outcomes are covered.
+    assert!(valid > 300, "{valid}");
+    assert!(invalid > 300, "{invalid}");
+}
