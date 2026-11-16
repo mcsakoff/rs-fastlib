@@ -267,7 +267,7 @@ impl<'a> EncoderContext<'a> {
         {
             // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
             // the same type as the value of the entry.
-            return Err(Error::Runtime(format!(
+            return Err(Error::Dynamic(format!(
                 "field {} has wrong value type in context",
                 i.name
             ))); // [ERR D4]

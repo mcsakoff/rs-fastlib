@@ -6,11 +6,15 @@
   with other operators of the same key (e.g. `<copy key="px"/>`), as required by FAST 1.1 §6.3.1
   ([#11](https://github.com/mcsakoff/rs-fastlib/issues/11)).
 - Fix: a sequence `<length>` and a decimal `<exponent>` are validated after they inherit the presence of their
-  field, so an optional sequence or decimal accepts `<default/>` without an initial value (FAST 1.1 §6.3.4).
-  ([#12](https://github.com/mcsakoff/rs-fastlib/issues/12))
+  field, so an optional sequence or decimal accepts `<default/>` without an initial value (FAST 1.1 §6.3.4)
+  ([#12](https://github.com/mcsakoff/rs-fastlib/issues/12)).
 - Fix: an unnamed sequence `<length>` uses its generated name as the default dictionary key, so the length
-  operators of different sequences no longer share one previous value (FAST 1.1 §6.2.5, §6.3.1).
-  ([#13](https://github.com/mcsakoff/rs-fastlib/issues/13))
+  operators of different sequences no longer share one previous value (FAST 1.1 §6.2.5, §6.3.1)
+  ([#13](https://github.com/mcsakoff/rs-fastlib/issues/13)).
+- Fix: the decoder reports [ERR D4] when a value present in the stream would overwrite a dictionary entry of
+  a different type, and the encoder reports [ERR D4] as `Error::Dynamic` instead of `Error::Runtime`
+  (FAST 1.1 §6.3.1)
+  ([#14](https://github.com/mcsakoff/rs-fastlib/issues/14)).
 
 ## 0.4.0
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

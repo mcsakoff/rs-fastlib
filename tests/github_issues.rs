@@ -1,4 +1,4 @@
-use fastlib::{Decoder, Encoder, TextMessageFactory, TextMessageVisitor};
+use fastlib::{Decoder, Encoder, Error, TextMessageFactory, TextMessageVisitor};
 
 fn do_tests_seq(templates: &str, raw: &[&[u8]], data: &[&str]) {
     let mut e = Encoder::new_from_xml(templates).unwrap();
@@ -110,4 +110,33 @@ fn unnamed_sequence_lengths_have_distinct_copy_values() {
         &[&[0xc0, 0x81, 0x81, 0x82, 0x83]],
         &["Message=<First=<X=1>|Second=<Y=2><Y=3>>"],
     );
+}
+
+// FAST 1.1 §6.3.1 requires a dynamic error D4 when an operator accesses a dictionary entry whose value has a different type.
+// https://github.com/mcsakoff/rs-fastlib/issues/14
+#[test]
+fn explicit_copy_rejects_dictionary_type_mismatch() {
+    let xml = r#"
+    <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+        <template id="1" name="Message">
+            <string name="First"><copy key="shared"/></string>
+            <int32 name="Second"><copy key="shared"/></int32>
+        </template>
+    </templates>"#;
+
+    let raw = &[0xf0, 0x81, 0xc1, 0x81];
+    let txt = "Message=<First=A|Second=1>";
+
+    {
+        let mut d = Decoder::new_from_xml(xml).unwrap();
+        let mut msg = TextMessageFactory::new();
+        let res = d.decode_slice(raw, &mut msg);
+        assert!(matches!(res, Err(Error::Dynamic(_))));
+    }
+    {
+        let mut e = Encoder::new_from_xml(xml).unwrap();
+        let mut msg = TextMessageVisitor::from_text(txt).unwrap();
+        let res = e.encode_vec(&mut msg);
+        assert!(matches!(res, Err(Error::Dynamic(_))));
+    }
 }

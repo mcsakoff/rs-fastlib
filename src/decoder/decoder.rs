@@ -453,11 +453,18 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
     }
 
     #[inline]
-    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) {
+    pub(crate) fn ctx_set(&mut self, i: &Instruction, v: Option<Value>) -> Result<()> {
         let template = self.template.peek().copied().unwrap_or_default();
         let type_index = *self.type_ref.must_peek();
-        self.context
-            .set(i.dictionary_slot.get(), template, type_index, v);
+        let slot = i.dictionary_slot.get();
+        // Overwriting an assigned entry accesses it too.
+        if let Some(Some(prev)) = self.context.get(slot, template, type_index)
+            && !i.value_type.matches_type(prev)
+        {
+            return Err(wrong_value_type(i)); // [ERR D4]
+        }
+        self.context.set(slot, template, type_index, v);
+        Ok(())
     }
 
     #[inline]
@@ -470,12 +477,7 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
-            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
-            // the same type as the value of the entry.
-            return Err(Error::Dynamic(format!(
-                "field {} has wrong value type in context",
-                i.name
-            ))); // [ERR D4]
+            return Err(wrong_value_type(i)); // [ERR D4]
         }
         Ok(v)
     }
@@ -490,15 +492,17 @@ impl<'a, R: Reader, M: MessageFactory> DecoderContext<'a, R, M> {
         if let Some(Some(v)) = v
             && !i.value_type.matches_type(v)
         {
-            // It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
-            // the same type as the value of the entry.
-            return Err(Error::Dynamic(format!(
-                "field {} has wrong value type in context",
-                i.name
-            ))); // [ERR D4]
+            return Err(wrong_value_type(i)); // [ERR D4]
         }
         Ok(v)
     }
+}
+
+// It is a dynamic error [ERR D4] if the field of an operator accessing an entry does not have
+// the same type as the value of the entry.
+#[cold]
+fn wrong_value_type(i: &Instruction) -> Error {
+    Error::Dynamic(format!("field {} has wrong value type in context", i.name))
 }
 
 #[cold]

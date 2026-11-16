@@ -593,7 +593,7 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     // If the value is present in the stream it becomes the new previous value.
                     let v = self.read(s)?;
-                    return Ok(self.set_previous(s, v));
+                    return self.set_previous(s, v);
                 }
 
                 // When the value is not present in the stream there are three cases depending
@@ -619,7 +619,7 @@ impl Instruction {
                                 "copy operator has no initial value".to_string(),
                             )); // [ERR D5]
                         }
-                        s.ctx_set(self, self.initial_value.clone());
+                        s.ctx_set(self, self.initial_value.clone())?;
                         Ok(initial())
                     }
                 }
@@ -630,7 +630,7 @@ impl Instruction {
                 if s.pmap_next_bit_set() {
                     //If the value is present in the stream it becomes the new previous value.
                     let v = self.read(s)?;
-                    return Ok(self.set_previous(s, v));
+                    return self.set_previous(s, v);
                 }
                 // When the value is not present in the stream there are three cases depending on the state of the previous value:
                 match s.ctx_get_mut(self)? {
@@ -663,7 +663,7 @@ impl Instruction {
                                 "increment operator has no initial value".to_string(),
                             )); // [ERR D5]
                         }
-                        s.ctx_set(self, self.initial_value.clone());
+                        s.ctx_set(self, self.initial_value.clone())?;
                         Ok(initial())
                     }
                 }
@@ -731,7 +731,7 @@ impl Instruction {
                         .to_default_value()?
                         .apply_delta_ref(&delta)?,
                 };
-                Ok(self.set_previous(s, Some(value)))
+                self.set_previous(s, Some(value))
             }
         }
     }
@@ -751,7 +751,7 @@ impl Instruction {
             // In that case the value of the field is considered absent
             // and the state of the previous value is set to empty.
             return if self.is_optional() {
-                Ok(self.set_previous(s, None))
+                self.set_previous(s, None)
             } else {
                 Err(Error::Dynamic(
                     "tail operator has no previous value".to_string(),
@@ -772,7 +772,7 @@ impl Instruction {
             Some(v) => v.apply_tail_ref(&tail)?,
             None => self.value_type.to_default_value()?.apply_tail_ref(&tail)?,
         };
-        Ok(self.set_previous(s, Some(value)))
+        self.set_previous(s, Some(value))
     }
 
     // If the tail value is not present in the stream, the value of the field depends
@@ -802,7 +802,7 @@ impl Instruction {
                         "tail operator has no initial value".to_string(),
                     )); // [ERR D5]
                 }
-                s.ctx_set(self, self.initial_value.clone());
+                s.ctx_set(self, self.initial_value.clone())?;
                 Ok(Extracted::Value(
                     self.initial_value.as_ref().map(Cow::Borrowed),
                 ))
@@ -825,18 +825,22 @@ impl Instruction {
 
     // Makes the value the new previous value. The value of the field is the previous value then.
     #[inline]
-    fn set_previous<R, M>(&self, s: &mut DecoderContext<R, M>, v: Option<Value>) -> Extracted<'_>
+    fn set_previous<R, M>(
+        &self,
+        s: &mut DecoderContext<R, M>,
+        v: Option<Value>,
+    ) -> Result<Extracted<'_>>
     where
         R: Reader,
         M: MessageFactory,
     {
         let present = v.is_some();
-        s.ctx_set(self, v);
-        if present {
+        s.ctx_set(self, v)?;
+        Ok(if present {
             Extracted::Previous
         } else {
             Extracted::Value(None)
-        }
+        })
     }
 
     fn read<R, M>(&self, s: &mut DecoderContext<R, M>) -> Result<Option<Value>>
