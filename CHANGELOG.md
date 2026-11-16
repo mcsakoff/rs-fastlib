@@ -40,6 +40,8 @@
 - Performance: dictionary entries are accessed faster. The type of a previous value [ERR D4] is checked
   at runtime only for the entries that fields of different types share (this is resolved when templates
   are loaded), and entries of `global` and user defined dictionaries are allocated up front.
+- Performance: `Encoder::encode_vec` (and `encode_bytes`, `to_vec`, `to_bytes`) allocates the buffer for
+  the largest recent messages, so it is not reallocated when a message is longer than the previous one.
 
 ## 0.4.0 (yanked)
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

@@ -19,7 +19,7 @@ pub struct Encoder {
     // Reusable buffer for encoding messages into writers.
     scratch: Vec<u8>,
     scopes: Scopes,
-    // Length of the last message encoded by `encode_vec`; used as the capacity of the next buffer.
+    // Capacity of the next buffer allocated by `encode_vec`: it follows the length of the largest messages.
     size_hint: usize,
 }
 
@@ -56,12 +56,15 @@ impl Encoder {
 
     /// Encodes message into a Vec buffer.
     /// Returns encoded buffer.
+    ///
+    /// A new buffer is allocated for every message. Use [`Encoder::encode_append`] with a reused buffer
+    /// to avoid that.
     /// # Errors
     /// Returns error if encoding failed.
     pub fn encode_vec(&mut self, msg: &mut impl MessageVisitor) -> Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(self.size_hint);
         self.encode_append(&mut buf, msg)?;
-        self.size_hint = buf.len();
+        self.size_hint = next_size_hint(self.size_hint, buf.len());
         Ok(buf)
     }
 
@@ -150,6 +153,18 @@ impl Encoder {
             .and_then(|()| f(&scratch));
         self.scratch = scratch;
         res
+    }
+}
+
+// Returns the capacity for the next message buffer after a message of `len` bytes is encoded.
+// The capacity fits the largest messages, so the buffer is not reallocated when a message is longer than
+// the previous one. It shrinks when the messages get much shorter, so a single huge message is not
+// paid for forever.
+fn next_size_hint(hint: usize, len: usize) -> usize {
+    if len < hint / 4 {
+        hint / 2
+    } else {
+        hint.max(len)
     }
 }
 
@@ -486,5 +501,28 @@ impl<'a, M: MessageVisitor> MessageEncoder<'a, M> {
             self.encode_template_instructions(buf, template)?;
         }
         self.msg.release_template_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_size_hint;
+
+    #[test]
+    fn size_hint() {
+        // Grows to the largest message and stays there for messages of similar lengths.
+        let mut hint = 0;
+        for len in [10, 30, 20, 25, 8, 30] {
+            hint = next_size_hint(hint, len);
+        }
+        assert_eq!(hint, 30);
+        // Shrinks gradually after an unusually long message.
+        hint = next_size_hint(hint, 4000);
+        assert_eq!(hint, 4000);
+        for expected in [2000, 1000, 500, 250, 125, 62, 62] {
+            hint = next_size_hint(hint, 20);
+            assert_eq!(hint, expected);
+        }
+        assert_eq!(next_size_hint(0, 0), 0);
     }
 }
