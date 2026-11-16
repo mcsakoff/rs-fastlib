@@ -5,6 +5,9 @@
 - Fix: `<delta/>` on a whole `<decimal>` uses the decimal's own previous value, so it shares the previous value
   with other operators of the same key (e.g. `<copy key="px"/>`), as required by FAST 1.1 §6.3.1
   ([#11](https://github.com/mcsakoff/rs-fastlib/issues/11)).
+- Fix: a sequence `<length>` and a decimal `<exponent>` are validated after they inherit the presence of their
+  field, so an optional sequence or decimal accepts `<default/>` without an initial value (FAST 1.1 §6.3.4).
+  ([#12](https://github.com/mcsakoff/rs-fastlib/issues/12))
 
 ## 0.4.0
 - **Breaking:** `MessageFactory::set_value` takes the value as `Option<Cow<'_, Value>>`, so the decoder lends

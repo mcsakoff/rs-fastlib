@@ -218,6 +218,7 @@ impl Instruction {
                             }
                             // An optional sequence means that the length field is optional.
                             instr.presence = instruction.presence;
+                            instr.check_is_valid()?;
                         } else {
                             instruction.add_instruction(instruction.implicit_length());
                         }
@@ -296,6 +297,8 @@ impl Instruction {
                 // Set proper presence flag.
                 ex.presence = instruction.presence;
                 mn.presence = Presence::Mandatory;
+                ex.check_is_valid()?;
+                mn.check_is_valid()?;
                 // Set proper storage keys if it is not set explicitly with 'key' attribute.
                 if ex.key.is_empty() {
                     ex.key = Rc::from(format!("{}:exponent", instruction.key));
@@ -335,7 +338,13 @@ impl Instruction {
                 }
             }
         }
-        instruction.check_is_valid()?;
+        // Subcomponents inherit presence from the parent field, so the parent validates them.
+        if !matches!(
+            instruction.value_type,
+            ValueType::Length | ValueType::Exponent | ValueType::Mantissa
+        ) {
+            instruction.check_is_valid()?;
+        }
         Ok(instruction)
     }
 
